@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
-    QListWidget, QListWidgetItem, QToolBar, QInputDialog
+    QListWidget, QListWidgetItem, QToolBar, QInputDialog, QSplitter, QTabWidget, QSizePolicy
 )
 from PySide6.QtGui import QAction
 
@@ -23,6 +23,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 from loaders import load_tabular, load_cdf_nc_on_demand
 from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
+from styles.theme import apply_theme  # UI-REFINE: ใช้ธีมอ่านง่าย
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -47,117 +48,136 @@ class MainWindow(QMainWindow):
         self._fft_df = None       # เก็บผล FFT ล่าสุด
         self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
 
+        # UI-REFINE: โครงสร้างหลักด้วย QSplitter (ซ้าย/กลาง/ขวา)
         central = QWidget(); self.setCentralWidget(central)
         v = QVBoxLayout(central)
+        # UI-REFINE: ใช้ QSplitter แนวนอน
+        self.splitter = QSplitter(Qt.Horizontal, self); v.addWidget(self.splitter)
+
+        # กลาง = แคนวาส Matplotlib + toolbar
+        mid = QWidget(self)
+        mid_layout = QVBoxLayout(mid)
         self.canvas = PlotCanvas(self); self.toolbar = NavigationToolbar(self.canvas, self)
-        v.addWidget(self.toolbar); v.addWidget(self.canvas)
+        mid_layout.addWidget(self.toolbar); mid_layout.addWidget(self.canvas)
+        # UI-REFINE: plot_canvas ขยายเต็มที่
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.splitter.addWidget(mid)
 
-        self._init_controls(); self._init_menu()
-        
-        # ทูลบาร์ฟีเจอร์
-        self.tb = QToolBar("ฟีเจอร์", self)
-        self.addToolBar(self.tb)
+        # ซ้าย = File/Staging
+        self._panel_left = QWidget(self)
+        self._left_layout = QVBoxLayout(self._panel_left)
+        self._build_left_panel()  # UI-REFINE
+        # UI-REFINE: sidebar ซ้ายมีความกว้างขั้นต่ำ
+        self._panel_left.setMinimumWidth(180)
+        self.splitter.insertWidget(0, self._panel_left)
 
-        # ปุ่ม FFT / Export FFT
+        # ขวา = Inspector Tabs (Plot/Processing/Export)
+        self._panel_right = QWidget(self)
+        self._right_layout = QVBoxLayout(self._panel_right)
+        self._build_inspector_tabs()  # UI-REFINE
+        # UI-REFINE: inspector ขวามีความกว้างขั้นต่ำ
+        self._panel_right.setMinimumWidth(220)
+        self.splitter.addWidget(self._panel_right)
+
+        # UI-REFINE: ขนาดสัดส่วนเริ่มต้น (ซ้าย=200, กลาง=600, ขวา=200)
+        self.splitter.setSizes([200, 600, 200])
+        # UI-REFINE: กลางต้องขยายเมื่อหน้าต่างกว้างขึ้น
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
+
+        # UI-REFINE: ทูลบาร์จัดกลุ่ม File / View / Process / Export (ต้องสร้างก่อนเมนู)
+        self.tb = QToolBar("Toolbar", self); self.addToolBar(self.tb)
+        self.actOpen = QAction("Open", self); self.actResetView = QAction("Reset View", self)
+        # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
+        self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
         self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
-        self.actFFT.setToolTip("คำนวณฟูเรียร์ทรานส์ฟอร์มของคอลัมน์ Y กับแกน X ปัจจุบัน")
-        self.actExportFFT.setToolTip("ส่งออกผล FFT เป็นไฟล์ (CSV/Excel/NetCDF)")
-        self.tb.addAction(self.actFFT); self.tb.addAction(self.actExportFFT)
+        self.actOpen.triggered.connect(self.open_file)
+        self.actResetView.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
+        self.actToggleInspector.toggled.connect(self.toggle_inspector)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
+        self.tb.addAction(self.actOpen); self.tb.addSeparator()
+        self.tb.addAction(self.actResetView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
+        self.tb.addAction(self.actFFT); self.tb.addSeparator()
+        self.tb.addAction(self.actExportFFT)
+
+        self._init_menu()
+        self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
         
-        self.statusBar().showMessage("พร้อมใช้งาน • เปิดไฟล์ → (ถ้า .cdf/.nc จะให้เลือกตัวแปรแบบ On‑Demand) • กด 'โหลดคอลัมน์'")
+        # UI-REFINE: สถานะถาวรใน StatusBar
+        self._sb_rows = QLabel("rows: -")
+        self._sb_fs = QLabel("fs: -")
+        self._sb_cursor = QLabel("x=-, y=-")
+        self.statusBar().addPermanentWidget(self._sb_rows)
+        self.statusBar().addPermanentWidget(self._sb_fs)
+        self.statusBar().addPermanentWidget(self._sb_cursor)
+        self.statusBar().showMessage("พร้อมใช้งาน • เปิดไฟล์ → โหลดคอลัมน์")
         self.setAcceptDrops(True)
 
-    def _init_controls(self):
-        dock = QDockWidget("แผงควบคุม", self)
-        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        panel = QWidget(); dock.setWidget(panel); self.addDockWidget(Qt.LeftDockWidgetArea, dock)
-        layout = QVBoxLayout(panel)
+        # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม
+        self._panel_right.setVisible(False)
+        try: self.actToggleInspector.setChecked(False)
+        except Exception: pass
 
-        self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True); layout.addWidget(self.lblFile)
+    # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
+    def _build_left_panel(self):
+        l = self._left_layout
+        self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True); l.addWidget(self.lblFile)
+        l.addWidget(QLabel("ไฟล์ที่เตรียมไว้"))
+        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection); l.addWidget(self.lstFiles)
+        rowStage = QHBoxLayout();
+        self.btnAddStage = QPushButton("เพิ่มไฟล์…"); self.btnUseStage = QPushButton("ใช้ไฟล์นี้"); self.btnDelStage = QPushButton("ลบออก")
+        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage); l.addLayout(rowStage)
+        # มุมมอง
+        l.addWidget(QLabel("มุมมอง/เมาส์"))
+        viewRow = QHBoxLayout(); self.chkCross = QCheckBox("แสดง Crosshair"); self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
+        viewRow.addWidget(self.chkCross); viewRow.addWidget(self.btnBoxZoom); l.addLayout(viewRow)
+        l.addStretch(1)
+        # UI-REFINE: การเชื่อมสัญญาณย้ายไป _connect_signals()
 
-        # ปุ่มโหลดคอลัมน์
-        self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล"); layout.addWidget(self.btnLoadCols)
+    def _build_inspector_tabs(self):
+        r = self._right_layout
+        tabs = QTabWidget(self)
+        # Tab: Plot
+        tab_plot = QWidget(); tp = QVBoxLayout(tab_plot)
+        self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
+        tp.addWidget(self.btnLoadCols)
+        tp.addWidget(QLabel("เลือกคอลัมน์แกน X")); self.cbX = QComboBox(); tp.addWidget(self.cbX)
+        tp.addWidget(QLabel("เลือกคอลัมน์แกน Y")); self.cbY = QComboBox(); tp.addWidget(self.cbY)
+        styleRow = QHBoxLayout(); styleRow.addWidget(QLabel("ความหนาเส้น")); self.spLineWidth = QSpinBox(); self.spLineWidth.setRange(1,10); self.spLineWidth.setValue(2); styleRow.addWidget(self.spLineWidth); tp.addLayout(styleRow)
+        markerRow = QHBoxLayout(); self.chkMarker = QCheckBox("แสดงจุดข้อมูล"); self.chkMarker.setChecked(False); markerRow.addWidget(self.chkMarker); markerRow.addStretch(1); tp.addLayout(markerRow)
+        btnRow = QHBoxLayout(); self.btnLine = QPushButton("แสดงกราฟเส้น"); self.btnScatter = QPushButton("แสดงกราฟจุด (Scatter)"); btnRow.addWidget(self.btnLine); btnRow.addWidget(self.btnScatter); tp.addLayout(btnRow)
+        tabs.addTab(tab_plot, "Plot")
+        # Tab: Processing
+        tab_proc = QWidget(); pr = QVBoxLayout(tab_proc)
+        pr.addWidget(QLabel("ฟีเจอร์เสริม"))
+        row1 = QHBoxLayout(); self.btnTZ = QPushButton("เพิ่มคอลัมน์เวลา +7h (Bangkok)"); self.btnMag = QPushButton("เพิ่มคอลัมน์ |B| จาก 3 แกน"); row1.addWidget(self.btnTZ); row1.addWidget(self.btnMag); pr.addLayout(row1)
+        row2 = QHBoxLayout(); self.btnMA = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)"); row2.addWidget(self.btnMA); pr.addLayout(row2)
+        pr.addWidget(QLabel("การจัดรูปแบบข้อมูล")); row3 = QHBoxLayout(); self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์"); row3.addWidget(self.btnTypes); pr.addLayout(row3)
+        tabs.addTab(tab_proc, "Processing")
+        # Tab: Export
+        tab_exp = QWidget(); ex = QVBoxLayout(tab_exp)
+        self.btnExport = QPushButton("บันทึกรูปภาพ (PNG)"); ex.addWidget(self.btnExport)
+        self.btnExportRange = QPushButton("ส่งออกช่วงที่เห็น (CSV)"); ex.addWidget(self.btnExportRange)
+        tabs.addTab(tab_exp, "Export")
+        r.addWidget(tabs)
 
-        layout.addWidget(QLabel("เลือกคอลัมน์แกน X")); self.cbX = QComboBox(); layout.addWidget(self.cbX)
-        layout.addWidget(QLabel("เลือกคอลัมน์แกน Y")); self.cbY = QComboBox(); layout.addWidget(self.cbY)
-
-        styleRow = QHBoxLayout()
-        styleRow.addWidget(QLabel("ความหนาเส้น"))
-        self.spLineWidth = QSpinBox(); self.spLineWidth.setRange(1,10); self.spLineWidth.setValue(2)
-        styleRow.addWidget(self.spLineWidth); layout.addLayout(styleRow)
-
-        markerRow = QHBoxLayout()
-        self.chkMarker = QCheckBox("แสดงจุดข้อมูล"); self.chkMarker.setChecked(False)
-        markerRow.addWidget(self.chkMarker); markerRow.addStretch(1); layout.addLayout(markerRow)
-
-        btnRow = QHBoxLayout()
-        self.btnLine = QPushButton("แสดงกราฟเส้น"); self.btnScatter = QPushButton("แสดงกราฟจุด (Scatter)")
-        btnRow.addWidget(self.btnLine); btnRow.addWidget(self.btnScatter); layout.addLayout(btnRow)
-
-        # ---- ฟีเจอร์ใหม่ ----
-        layout.addWidget(QLabel("ฟีเจอร์เสริม"))
-        featRow1 = QHBoxLayout()
-        self.btnTZ = QPushButton("เพิ่มคอลัมน์เวลา +7h (Bangkok)")
-        self.btnMag = QPushButton("เพิ่มคอลัมน์ |B| จาก 3 แกน")
-        featRow1.addWidget(self.btnTZ); featRow1.addWidget(self.btnMag)
-        layout.addLayout(featRow1)
-
-        featRow2 = QHBoxLayout()
-        self.btnMA = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)")
-        featRow2.addWidget(self.btnMA); layout.addLayout(featRow2)
-
-        layout.addWidget(QLabel("การจัดรูปแบบข้อมูล"))
-        featRow3 = QHBoxLayout()
-        self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์")
-        featRow3.addWidget(self.btnTypes)
-        layout.addLayout(featRow3)
-
-        otherRow = QHBoxLayout()
-        self.btnClear = QPushButton("ล้างกราฟ"); self.btnExport = QPushButton("บันทึกรูปภาพ (PNG)")
-        otherRow.addWidget(self.btnClear); otherRow.addWidget(self.btnExport); layout.addLayout(otherRow)
-
-        exportRow2 = QHBoxLayout()
-        self.btnExportRange = QPushButton("ส่งออกช่วงที่เห็น (CSV)")
-        exportRow2.addWidget(self.btnExportRange)
-        layout.addLayout(exportRow2)
-
-        # ----- จัดการหลายไฟล์ (Staging) -----
-        layout.addWidget(QLabel("ไฟล์ที่เตรียมไว้"))
-        self.lstFiles = QListWidget()
-        self.lstFiles.setSelectionMode(QListWidget.SingleSelection)
-        layout.addWidget(self.lstFiles)
-
-        rowStage = QHBoxLayout()
-        self.btnAddStage = QPushButton("เพิ่มไฟล์…")
-        self.btnUseStage = QPushButton("ใช้ไฟล์นี้")
-        self.btnDelStage = QPushButton("ลบออก")
-        rowStage.addWidget(self.btnAddStage)
-        rowStage.addWidget(self.btnUseStage)
-        rowStage.addWidget(self.btnDelStage)
-        layout.addLayout(rowStage)
-
-        # ----- มุมมอง -----
-        layout.addWidget(QLabel("มุมมอง/เมาส์"))
-        viewRow = QHBoxLayout()
-        self.chkCross = QCheckBox("แสดง Crosshair")
-        self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
-        viewRow.addWidget(self.chkCross)
-        viewRow.addWidget(self.btnBoxZoom)
-        layout.addLayout(viewRow)
-
-        layout.addStretch(1)
-
-        # signals
-        self.btnLoadCols.clicked.connect(self.load_columns_from_df)
-        self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
-        self.btnClear.clicked.connect(self.clear_plot); self.btnExport.clicked.connect(self.export_png)
-        self.btnExportRange.clicked.connect(self.export_visible_range_csv)
-        self.btnTZ.clicked.connect(self.feature_add_bkk_time)
-        self.btnMag.clicked.connect(self.feature_add_magnitude)
-        self.btnMA.clicked.connect(self.feature_add_moving_average)
-        self.btnTypes.clicked.connect(self.feature_set_column_types)
+    # UI-REFINE: รวมการเชื่อมสัญญาณไว้ที่เดียว เพื่อให้แน่ใจว่าวิดเจ็ตถูกสร้างครบก่อน
+    def _connect_signals(self):
+        # Plot/Processing/Export (ฝั่งขวา)
+        try:
+            self.btnLoadCols.clicked.connect(self.load_columns_from_df)
+            self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
+            self.btnExport.clicked.connect(self.export_png)
+            self.btnExportRange.clicked.connect(self.export_visible_range_csv)
+            self.btnTZ.clicked.connect(self.feature_add_bkk_time)
+            self.btnMag.clicked.connect(self.feature_add_magnitude)
+            self.btnMA.clicked.connect(self.feature_add_moving_average)
+            self.btnTypes.clicked.connect(self.feature_set_column_types)
+        except Exception:
+            pass
+        # Staging/View (ฝั่งซ้าย)
         self.chkCross.toggled.connect(self.toggle_crosshair)
         self.btnBoxZoom.clicked.connect(self.start_box_zoom)
         self.btnAddStage.clicked.connect(self.stage_add_files)
@@ -167,19 +187,33 @@ class MainWindow(QMainWindow):
 
     def _init_menu(self):
         m = self.menuBar()
-        fileMenu = m.addMenu("&ไฟล์")
+        fileMenu = m.addMenu("&ไฟล์")  # UI-REFINE: File
         actOpen = fileMenu.addAction("เปิดข้อมูล (CSV/TSV/TXT/XLSX/NC/CDF)..."); actOpen.triggered.connect(self.open_file)
         fileMenu.addSeparator()
         actExport = fileMenu.addAction("บันทึกรูปภาพ (PNG)..."); actExport.triggered.connect(self.export_png)
         fileMenu.addSeparator()
         actExit = fileMenu.addAction("ออกจากโปรแกรม"); actExit.triggered.connect(self.close)
 
-        viewMenu = m.addMenu("&มุมมอง")
+        viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
+        viewMenu.addAction(self.actToggleInspector)
 
-        helpMenu = m.addMenu("&ช่วยเหลือ")
+        procMenu = m.addMenu("&Process")  # UI-REFINE: Process
+        procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
+        procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
+        procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
+        procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
+
+        exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
+        exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
+        exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
+
+        helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
+        helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
+            "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nF: FFT\nI: Toggle Inspector"
+        ))
 
     # ---------- File ----------
     def open_file(self):
@@ -250,6 +284,9 @@ class MainWindow(QMainWindow):
         self.cbX.clear(); self.cbY.clear()
         self.cbX.addItems(cols); self.cbY.addItems(cols)
         self.statusBar().showMessage("โหลดคอลัมน์เรียบร้อย • เลือก X/Y แล้วพล็อตได้")
+        # UI-REFINE: อัปเดตจำนวนแถว
+        try: self._sb_rows.setText(f"rows: {len(self._df)}")
+        except Exception: pass
 
     # ---------- Plot ----------
     def _get_xy(self):
@@ -456,12 +493,20 @@ class MainWindow(QMainWindow):
             x, y = event.xdata, event.ydata
             try:
                 if x is None or y is None: return
-                self.statusBar().showMessage(f"X={x} | Y={y}")
+                # UI-REFINE: แสดงตำแหน่งเคอร์เซอร์ที่ StatusBar ถาวร
+                self._sb_cursor.setText(f"x={x:.3g}, y={y:.3g}")
             except Exception:
                 pass
         self._cid_motion = self.canvas.mpl_connect("motion_notify_event", _on_move)
         self.statusBar().showMessage("เปิด Crosshair แล้ว")
         self.canvas.draw()
+
+    # UI-REFINE: toggle แสดง/ซ่อน Inspector (ขวา)
+    def toggle_inspector(self, checked: bool):
+        try:
+            self._panel_right.setVisible(bool(checked))
+        except Exception:
+            pass
 
     def start_box_zoom(self):
         if self._rs is not None:
@@ -631,6 +676,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    apply_theme(app)  # UI-REFINE: เรียกใช้ธีม
     win = MainWindow(); win.show()
     sys.exit(app.exec())
 
