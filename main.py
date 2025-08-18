@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from PySide6 import QtGui
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
@@ -43,8 +44,8 @@ class MainWindow(QMainWindow):
         self._cursor = None
         self._cid_motion = None   # id ของ event handler mouse move
         self._rs = None           # RectangleSelector (ใช้ใน Box Zoom)
-        self._fft_df = None   # เก็บผล FFT ล่าสุด
-        self._fft_meta = {}   # meta: fs, x_col, y_col, window, detrend
+        self._fft_df = None       # เก็บผล FFT ล่าสุด
+        self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
 
         central = QWidget(); self.setCentralWidget(central)
         v = QVBoxLayout(central)
@@ -53,32 +54,25 @@ class MainWindow(QMainWindow):
 
         self._init_controls(); self._init_menu()
         
-        # สร้างทูลบาร์ด้านบน (ข้าง ๆ ปุ่มมุมมอง)
+        # ทูลบาร์ฟีเจอร์
         self.tb = QToolBar("ฟีเจอร์", self)
         self.addToolBar(self.tb)
 
-        # ปุ่ม FFT
-        self.actFFT = QAction("FFT", self)
+        # ปุ่ม FFT / Export FFT
+        self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
         self.actFFT.setToolTip("คำนวณฟูเรียร์ทรานส์ฟอร์มของคอลัมน์ Y กับแกน X ปัจจุบัน")
-        self.tb.addAction(self.actFFT)
-
-        # ปุ่มส่งออกผล FFT
-        self.actExportFFT = QAction("Export FFT", self)
         self.actExportFFT.setToolTip("ส่งออกผล FFT เป็นไฟล์ (CSV/Excel/NetCDF)")
-        self.tb.addAction(self.actExportFFT)
-
-        # เชื่อมสัญญาณ
+        self.tb.addAction(self.actFFT); self.tb.addAction(self.actExportFFT)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
         
         self.statusBar().showMessage("พร้อมใช้งาน • เปิดไฟล์ → (ถ้า .cdf/.nc จะให้เลือกตัวแปรแบบ On‑Demand) • กด 'โหลดคอลัมน์'")
-
         self.setAcceptDrops(True)
 
     def _init_controls(self):
         dock = QDockWidget("แผงควบคุม", self)
-        dock.setAllowedAreas(QtGui.Qt.LeftDockWidgetArea | QtGui.Qt.RightDockWidgetArea)
-        panel = QWidget(); dock.setWidget(panel); self.addDockWidget(QtGui.Qt.LeftDockWidgetArea, dock)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        panel = QWidget(); dock.setWidget(panel); self.addDockWidget(Qt.LeftDockWidgetArea, dock)
         layout = QVBoxLayout(panel)
 
         self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True); layout.addWidget(self.lblFile)
@@ -114,7 +108,6 @@ class MainWindow(QMainWindow):
         self.btnMA = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)")
         featRow2.addWidget(self.btnMA); layout.addLayout(featRow2)
 
-        # ใต้ส่วนที่สร้างปุ่มฟีเจอร์เสริม
         layout.addWidget(QLabel("การจัดรูปแบบข้อมูล"))
         featRow3 = QHBoxLayout()
         self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์")
@@ -132,13 +125,10 @@ class MainWindow(QMainWindow):
 
         # ----- จัดการหลายไฟล์ (Staging) -----
         layout.addWidget(QLabel("ไฟล์ที่เตรียมไว้"))
-
-        # รายการไฟล์
         self.lstFiles = QListWidget()
         self.lstFiles.setSelectionMode(QListWidget.SingleSelection)
         layout.addWidget(self.lstFiles)
 
-        # ปุ่มจัดการไฟล์
         rowStage = QHBoxLayout()
         self.btnAddStage = QPushButton("เพิ่มไฟล์…")
         self.btnUseStage = QPushButton("ใช้ไฟล์นี้")
@@ -148,7 +138,7 @@ class MainWindow(QMainWindow):
         rowStage.addWidget(self.btnDelStage)
         layout.addLayout(rowStage)
 
-        # ----- ฟีเจอร์มุมมอง -----
+        # ----- มุมมอง -----
         layout.addWidget(QLabel("มุมมอง/เมาส์"))
         viewRow = QHBoxLayout()
         self.chkCross = QCheckBox("แสดง Crosshair")
@@ -173,8 +163,6 @@ class MainWindow(QMainWindow):
         self.btnAddStage.clicked.connect(self.stage_add_files)
         self.btnUseStage.clicked.connect(self.stage_use_selected)
         self.btnDelStage.clicked.connect(self.stage_remove_selected)
-
-        # ดับเบิลคลิกชื่อไฟล์เพื่อใช้ทันที
         self.lstFiles.itemDoubleClicked.connect(lambda it: self.stage_use_selected())
 
     def _init_menu(self):
@@ -198,7 +186,6 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "เลือกไฟล์ข้อมูล", "",
                     "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf);;All Files (*.*)")
         if not path: return
-        # ใช้เส้นทางเดียวกับ stage_add_files แต่ทีละไฟล์
         try:
             ext = os.path.splitext(path)[1].lower()
             if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
@@ -208,15 +195,19 @@ class MainWindow(QMainWindow):
                 name = f"{os.path.basename(path)} [ตาราง]"
                 self._stage_insert(name, df, path)
             elif ext in [".nc", ".cdf"]:
-                df = load_cdf_nc_on_demand(self, path)
-                if df is None or df.empty:
-                    raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
-                name = f"{os.path.basename(path)} [CDF/NC]"
-                self._stage_insert(name, df, path)
+                try:
+                    df = load_cdf_nc_on_demand(self, path)
+                    if df is None or df.empty:
+                        raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
+                    name = f"{os.path.basename(path)} [CDF/NC]"
+                    self._stage_insert(name, df, path)
+                except Exception as e:
+                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
+                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                    return
             else:
                 raise ValueError("นามสกุลไฟล์ไม่รองรับ")
 
-            # ตั้งให้รายการที่เพิ่งเพิ่มเป็น current แต่ยังไม่บังคับใช้
             self.lstFiles.setCurrentRow(self.lstFiles.count() - 1)
             self.statusBar().showMessage("เพิ่มไฟล์เข้าสู่รายการแล้ว • เลือกแล้วกด 'ใช้ไฟล์นี้' หรือดับเบิลคลิกชื่อไฟล์")
 
@@ -234,12 +225,19 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("โหลดข้อมูลสำเร็จ (ตาราง) • กด 'โหลดคอลัมน์'")
                 return
             if ext in [".nc", ".cdf"]:
-                df = load_cdf_nc_on_demand(self, path)
-                if df is None or df.empty: raise ValueError("อ่านไฟล์ CDF/NetCDF ไม่สำเร็จ หรือไม่มีข้อมูล")
-                self._df, self._current_path = df, path
-                self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF)")
-                self.statusBar().showMessage("โหลดข้อมูลสำเร็จ (On‑Demand) • กด 'โหลดคอลัมน์'")
-                return
+                try:
+                    df = load_cdf_nc_on_demand(self, path)
+                    if df is None or df.empty: 
+                        raise ValueError("อ่านไฟล์ CDF/NetCDF ไม่สำเร็จ หรือไม่มีข้อมูล")
+                    self._df, self._current_path = df, path
+                    self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF)")
+                    self.statusBar().showMessage("โหลดข้อมูลสำเร็จ (On‑Demand) • กด 'โหลดคอลัมน์'")
+                    return
+                except Exception as e:
+                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
+                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                    self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์ CDF/NetCDF")
+                    return
             raise ValueError("นามสกุลไฟล์ไม่รองรับ")
         except Exception as e:
             QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -265,7 +263,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่"); return None, None
 
         x = self._df[x_col].values; y = self._df[y_col].values
-        # แปลงตัวเลข (ไม่ไปยุ่ง datetime)
         try: y = pd.to_numeric(y, errors="coerce")
         except Exception: pass
         mask = ~(pd.isna(y))
@@ -303,7 +300,7 @@ class MainWindow(QMainWindow):
         x_col = self.cbX.currentText()
         try:
             new_col = add_time_bangkok(self._df, x_col)
-            self.cbX.addItem(new_col)  # ให้เลือกเป็นแกน X ได้ทันที
+            self.cbX.addItem(new_col)
             self.statusBar().showMessage(f"เพิ่มคอลัมน์เวลา (Bangkok) แล้ว: {new_col}")
         except Exception as e:
             QMessageBox.critical(self, "ทำไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -311,9 +308,7 @@ class MainWindow(QMainWindow):
     def feature_add_magnitude(self):
         if self._df is None or self.cbY.count() == 0:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
-        # ให้ผู้ใช้เลือก 3 คอลัมน์ที่จะคำนวณ |B|
         cols = [str(c) for c in self._df.columns]
-        from PySide6.QtWidgets import QInputDialog
         bx, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ Bx", "Bx:", cols, 0, False)
         if not ok: return
         by, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ By", "By:", cols, 0, False)
@@ -341,15 +336,12 @@ class MainWindow(QMainWindow):
     def feature_set_column_types(self):
         if self._df is None or len(self._df.columns) == 0:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
-
         dlg = ColumnTypeDialog(self, self._df.columns)
         if dlg.exec() != QDialog.Accepted:
             return
-
-        mapping = dlg.get_mapping()   # {column: "Auto/String/Integer/Float/Datetime"}
+        mapping = dlg.get_mapping()
         try:
             apply_column_types(self._df, mapping)
-            # รีเฟรช combobox ให้แน่ใจว่า UI เห็นคอลัมน์ที่อาจแปลงแล้ว
             self.load_columns_from_df()
             self.statusBar().showMessage("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
         except Exception as e:
@@ -360,20 +352,15 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์และกด 'โหลดคอลัมน์จากข้อมูล' ก่อน")
             return
 
-        # เลือกคอลัมน์ Y ที่จะทำ FFT (default = Y ปัจจุบัน)
         cols = [str(c) for c in self._df.columns]
         y_default = max(0, self.cbY.currentIndex())
         y_col, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ Y สำหรับ FFT", "Y:", cols, y_default, False)
-        if not ok:
-            return
+        if not ok: return
 
-        # เลือก window และ detrend
         window, ok = QInputDialog.getItem(self, "หน้าต่าง (window)", "ชนิด:", ["hanning", "hamming", "none"], 0, False)
-        if not ok:
-            return
+        if not ok: return
         detrend_choice, ok = QInputDialog.getItem(self, "ลบค่าเฉลี่ยก่อนคำนวณ?", "detrend:", ["True", "False"], 0, False)
-        if not ok:
-            return
+        if not ok: return
         detrend = (detrend_choice == "True")
 
         x_col = self.cbX.currentText()
@@ -383,7 +370,6 @@ class MainWindow(QMainWindow):
             self._fft_df = df_fft
             self._fft_meta = {"fs": fs, "x_col": x_col, "y_col": y_col, "window": window, "detrend": detrend}
 
-            # พล็อตผล FFT (freq vs amplitude) แทนกราฟเดิม
             self.canvas.clear()
             self.canvas.ax.plot(df_fft["freq_Hz"].values, df_fft["amplitude"].values, linewidth=2)
             self.canvas.ax.set_xlabel("Frequency (Hz)")
@@ -402,15 +388,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "ยังไม่มีผล FFT", "โปรดคำนวณ FFT ก่อน (ปุ่ม FFT)")
             return
 
-        # ให้เลือกชนิดไฟล์ปลายทาง
         kind, ok = QInputDialog.getItem(
             self, "เลือกชนิดไฟล์", "บันทึกเป็น:",
             ["CSV (.csv)", "Excel (.xlsx)", "NetCDF (.nc)"], 0, False
         )
-        if not ok:
-            return
+        if not ok: return
 
-        # เลือก path
         if kind.startswith("CSV"):
             path, _ = QFileDialog.getSaveFileName(self, "บันทึกผล FFT เป็น CSV", "fft_result.csv", "CSV (*.csv)")
             if not path: return
@@ -426,7 +409,6 @@ class MainWindow(QMainWindow):
             try:
                 with pd.ExcelWriter(path) as w:
                     self._fft_df.to_excel(w, sheet_name="FFT", index=False)
-                    # แนบเมตา
                     meta = pd.DataFrame([self._fft_meta])
                     meta.to_excel(w, sheet_name="meta", index=False)
                 self.statusBar().showMessage(f"บันทึก Excel แล้ว: {path}")
@@ -437,7 +419,6 @@ class MainWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "บันทึกผล FFT เป็น NetCDF", "fft_result.nc", "NetCDF (*.nc)")
             if not path: return
             try:
-                # ใช้ xarray สร้าง Dataset อย่างง่าย
                 import xarray as xr
                 ds = xr.Dataset(
                     data_vars=dict(
@@ -455,7 +436,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def toggle_crosshair(self, checked: bool):
-        # เคลียร์ของเก่าถ้ามี
         if self._cursor is not None:
             self._cursor = None
         if self._cid_motion is not None:
@@ -470,16 +450,12 @@ class MainWindow(QMainWindow):
             self.canvas.draw()
             return
 
-        # สร้าง Crosshair
         self._cursor = Cursor(self.canvas.ax, useblit=True, horizOn=True, vertOn=True)
-        # อัปเดตสถานะ X,Y ใต้เมาส์
         def _on_move(event):
-            if event.inaxes != self.canvas.ax:
-                return
+            if event.inaxes != self.canvas.ax: return
             x, y = event.xdata, event.ydata
             try:
-                if x is None or y is None:
-                    return
+                if x is None or y is None: return
                 self.statusBar().showMessage(f"X={x} | Y={y}")
             except Exception:
                 pass
@@ -488,12 +464,9 @@ class MainWindow(QMainWindow):
         self.canvas.draw()
 
     def start_box_zoom(self):
-        # ปิดตัวเดิมถ้ามี
         if self._rs is not None:
-            try:
-                self._rs.set_active(False)
-            except Exception:
-                pass
+            try: self._rs.set_active(False)
+            except Exception: pass
             self._rs = None
 
         ax = self.canvas.ax
@@ -503,30 +476,20 @@ class MainWindow(QMainWindow):
             try:
                 x1, y1 = eclick.xdata, eclick.ydata
                 x2, y2 = erelease.xdata, erelease.ydata
-                if None in (x1, y1, x2, y2):
-                    return
-                xmin, xmax = sorted([x1, x2])
-                ymin, ymax = sorted([y1, y2])
-                ax.set_xlim(xmin, xmax)
-                ax.set_ylim(ymin, ymax)
+                if None in (x1, y1, x2, y2): return
+                xmin, xmax = sorted([x1, x2]); ymin, ymax = sorted([y1, y2])
+                ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
                 self.canvas.draw()
                 self.statusBar().showMessage(f"ซูมช่วง X=({xmin}, {xmax})  Y=({ymin}, {ymax})")
             finally:
-                # one-shot: ปิด selector หลังซูม
                 if self._rs is not None:
-                    try:
-                        self._rs.set_active(False)
-                    except Exception:
-                        pass
+                    try: self._rs.set_active(False)
+                    except Exception: pass
                     self._rs = None
 
         self._rs = RectangleSelector(
-            ax, _on_select,
-            useblit=True,
-            button=[1],             # ปุ่มซ้าย
-            interactive=False,
-            minspanx=0, minspany=0,
-            spancoords='data'
+            ax, _on_select, useblit=True, button=[1],
+            interactive=False, minspanx=0, minspany=0, spancoords='data'
         )
 
     def export_visible_range_csv(self):
@@ -534,32 +497,25 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน")
             return
 
-        # ช่วงที่กำลังเห็นบนกราฟ
         ax = self.canvas.ax
         xmin, xmax = ax.get_xlim()
 
-        # คอลัมน์ X ปัจจุบัน
         xcol = self.cbX.currentText()
         xser = self._df[xcol]
 
-        # กรองตามชนิดข้อมูลของ X
         df_view = None
         try:
-            # ถ้าเป็น datetime
+            # datetime
             if np.issubdtype(np.array(xser)[0].__class__, np.datetime64) or np.issubdtype(xser.dtype, np.datetime64):
-                # matplotlib แสดง datetime เป็นเลขภายใน ดังนั้นแปลงใหม่จากแกนเป็น datetime
                 import matplotlib.dates as mdates
-                xmin_dt = mdates.num2date(xmin)
-                xmax_dt = mdates.num2date(xmax)
+                xmin_dt = mdates.num2date(xmin); xmax_dt = mdates.num2date(xmax)
                 mask = (pd.to_datetime(xser) >= xmin_dt) & (pd.to_datetime(xser) <= xmax_dt)
                 df_view = self._df.loc[mask].copy()
             else:
-                # numeric
                 xnum = pd.to_numeric(xser, errors="coerce")
                 mask = (xnum >= xmin) & (xnum <= xmax)
                 df_view = self._df.loc[mask].copy()
         except Exception:
-            # fallback แบบครอบจักรวาล: พยายามบังคับ numeric
             xnum = pd.to_numeric(xser, errors="coerce")
             mask = (xnum >= xmin) & (xnum <= xmax)
             df_view = self._df.loc[mask].copy()
@@ -568,10 +524,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "ไม่มีข้อมูลในช่วงนี้", "ช่วงที่แสดงอยู่ไม่มีข้อมูลให้ส่งออก")
             return
 
-        # เลือกที่บันทึก
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกช่วงที่เห็นเป็น CSV", "view_range.csv", "CSV (*.csv)")
-        if not path:
-            return
+        if not path: return
         try:
             df_view.to_csv(path, index=False)
             self.statusBar().showMessage(f"บันทึก CSV ช่วงที่เห็นแล้ว: {path}")
@@ -579,52 +533,45 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def _stage_insert(self, name: str, df: pd.DataFrame, path: str):
-        """ใส่ DataFrame เข้า staging และเติมลง QListWidget (ถ้าชื่อซ้ำจะเติม (2), (3), ...)"""
-        base = name
-        i = 2
+        base = name; i = 2
         while name in self._datasets:
-            name = f"{base} ({i})"
-            i += 1
+            name = f"{base} ({i})"; i += 1
         self._datasets[name] = {"df": df, "path": path}
         self.lstFiles.addItem(QListWidgetItem(name))
         self.statusBar().showMessage(f"เตรียมไฟล์: {name}")
 
     def stage_add_files(self):
-        """กดปุ่ม 'เพิ่มไฟล์…' → เลือกไฟล์ แล้วโหลดแบบเดียวกับ load_data แต่ไม่สลับ self._df ทันที"""
         paths, _ = QFileDialog.getOpenFileNames(
             self, "เลือกไฟล์เพื่อเตรียมไว้",
             "", "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf);;All Files (*.*)"
         )
-        if not paths:
-            return
+        if not paths: return
 
         for path in paths:
             try:
                 ext = os.path.splitext(path)[1].lower()
-                # ตาราง
                 if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
                     df, enc_note = load_tabular(path, ext)
-                    if df is None or df.empty:
-                        raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
+                    if df is None or df.empty: raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
                     name = f"{os.path.basename(path)} [ตาราง]"
                     self._stage_insert(name, df, path)
-
-                # CDF/NetCDF On‑Demand (จะถามเลือก Y/ slice สำหรับไฟล์นี้ครั้งเดียวตอนเตรียม)
                 elif ext in [".nc", ".cdf"]:
-                    df = load_cdf_nc_on_demand(self, path)
-                    if df is None or df.empty:
-                        raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
-                    name = f"{os.path.basename(path)} [CDF/NC]"
-                    self._stage_insert(name, df, path)
-
+                    try:
+                        df = load_cdf_nc_on_demand(self, path)
+                        if df is None or df.empty: 
+                            raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
+                        name = f"{os.path.basename(path)} [CDF/NC]"
+                        self._stage_insert(name, df, path)
+                    except Exception as e:
+                        error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
+                        QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                        continue
                 else:
                     QMessageBox.information(self, "ข้ามไฟล์", f"นามสกุลไม่รองรับ: {path}")
-
             except Exception as e:
                 QMessageBox.warning(self, "เพิ่มไฟล์ไม่สำเร็จ", f"{os.path.basename(path)}\nสาเหตุ: {e}")
 
     def stage_use_selected(self):
-        """กดปุ่ม 'ใช้ไฟล์นี้' → สลับ self._df ให้เป็นไฟล์ที่เลือก แล้วให้ผู้ใช้กดโหลดคอลัมน์"""
         item = self.lstFiles.currentItem()
         if not item:
             QMessageBox.information(self, "ยังไม่ได้เลือก", "โปรดเลือกไฟล์จากรายการก่อน")
@@ -638,22 +585,18 @@ class MainWindow(QMainWindow):
         self._current_path = data["path"]
         self.lblFile.setText(f"ใช้งานไฟล์: {name}")
         self.statusBar().showMessage("สลับไฟล์แล้ว • กด 'โหลดคอลัมน์จากข้อมูล' เพื่อเลือก X/Y")
-        # ไม่บังคับโหลดคอลัมน์ทันที ให้ผู้ใช้กดเองตาม flow เดิม
 
     def stage_remove_selected(self):
-        """กดปุ่ม 'ลบออก' → เอาออกจาก staging (ไม่ลบไฟล์จริง)"""
         row = self.lstFiles.currentRow()
         if row < 0:
             QMessageBox.information(self, "ยังไม่ได้เลือก", "โปรดเลือกไฟล์จากรายการก่อน")
             return
         item = self.lstFiles.item(row)
         name = item.text()
-        # ถ้ากำลังใช้งานอยู่ ให้ถามเพื่อกันพลาด
         if self._current_path and name in self._datasets and self._datasets[name]["path"] == self._current_path:
             ans = QMessageBox.question(self, "กำลังใช้งานไฟล์นี้อยู่", "ไฟล์นี้กำลังถูกใช้งานอยู่ ต้องการลบออกจากรายการหรือไม่?")
             if ans != QMessageBox.Yes:
                 return
-        # ลบออกจาก dict และ list
         self._datasets.pop(name, None)
         self.lstFiles.takeItem(row)
         self.statusBar().showMessage(f"นำออกจากรายการแล้ว: {name}")
@@ -674,7 +617,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "เกี่ยวกับโปรแกรม",
             "SciPlotter (Modular + Features)\n"
             "ไฟล์แยกเป็น main/dialogs/loaders/processors\n"
-            "ฟีเจอร์: เวลา+7h, |B|, Moving Average\n"
+            "ฟีเจอร์: เวลา+7h, |B|, Moving Average, FFT/Export\n"
             "เปิดไฟล์ → (CDF/NC เลือกตัวแปรแบบ On‑Demand) → โหลดคอลัมน์ → พล็อต")
 
     # DnD

@@ -1,0 +1,16 @@
+axes.facecolor: #121212
+figure.facecolor: #121212
+axes.edgecolor: #B9B9B9
+axes.labelcolor: #EAEAEA
+xtick.color: #B9B9B9
+ytick.color: #B9B9B9
+grid.color: #2A2A2A
+grid.linestyle: -
+grid.alpha: 0.6
+axes.grid: True
+lines.linewidth: 1.8
+lines.markersize: 5.5
+legend.facecolor: #1E1E1E
+legend.edgecolor: #2A2A2A
+savefig.facecolor: #121212
+savefig.edgecolor: #121212
