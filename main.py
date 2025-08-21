@@ -8,9 +8,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
-    QListWidget, QListWidgetItem, QToolBar, QInputDialog, QSplitter, QTabWidget, QSizePolicy
+    QListWidget, QListWidgetItem, QToolBar, QInputDialog, QSplitter, QTabWidget, QSizePolicy,
+    QFrame, QGroupBox, QStyle
 )
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
@@ -22,6 +23,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 from loaders import load_tabular, load_cdf_nc_on_demand
 from dialogs import MultiDimSliceDialog, ColumnTypeDialog
+from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
+from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
 from styles.theme import apply_theme  # UI-REFINE: ใช้ธีมอ่านง่าย
 
@@ -47,18 +50,33 @@ class MainWindow(QMainWindow):
         self._rs = None           # RectangleSelector (ใช้ใน Box Zoom)
         self._fft_df = None       # เก็บผล FFT ล่าสุด
         self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
+        self.current_aggregated_df = None  # UI-REFINE: เก็บผล aggregate ล่าสุดสำหรับ export
 
         # UI-REFINE: โครงสร้างหลักด้วย QSplitter (ซ้าย/กลาง/ขวา)
         central = QWidget(); self.setCentralWidget(central)
         v = QVBoxLayout(central)
+        # CHANGE: ครอบด้วย QFrame + margins/spacing เพื่อพื้นที่หายใจ
+        outer = QFrame(self)
+        outer.setFrameShape(QFrame.NoFrame)
+        ov = QVBoxLayout(outer)
+        ov.setContentsMargins(12, 12, 12, 12)  # CHANGE: margins 12
+        ov.setSpacing(10)  # CHANGE: spacing readable
         # UI-REFINE: ใช้ QSplitter แนวนอน
-        self.splitter = QSplitter(Qt.Horizontal, self); v.addWidget(self.splitter)
+        self.splitter = QSplitter(Qt.Horizontal, self)
+        ov.addWidget(self.splitter)
+        v.addWidget(outer)
 
         # กลาง = แคนวาส Matplotlib + toolbar
         mid = QWidget(self)
         mid_layout = QVBoxLayout(mid)
+        mid_layout.setContentsMargins(0, 0, 0, 0)  # CHANGE: tight inner
+        mid_layout.setSpacing(8)
         self.canvas = PlotCanvas(self); self.toolbar = NavigationToolbar(self.canvas, self)
-        mid_layout.addWidget(self.toolbar); mid_layout.addWidget(self.canvas)
+        mid_layout.addWidget(self.canvas)
+        try:
+            self.toolbar.setVisible(False)  # CHANGE: hide Matplotlib toolbar to free plot space
+        except Exception:
+            pass
         # UI-REFINE: plot_canvas ขยายเต็มที่
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.splitter.addWidget(mid)
@@ -66,6 +84,8 @@ class MainWindow(QMainWindow):
         # ซ้าย = File/Staging
         self._panel_left = QWidget(self)
         self._left_layout = QVBoxLayout(self._panel_left)
+        self._left_layout.setContentsMargins(8, 8, 8, 8)  # CHANGE: panel margins
+        self._left_layout.setSpacing(8)
         self._build_left_panel()  # UI-REFINE
         # UI-REFINE: sidebar ซ้ายมีความกว้างขั้นต่ำ
         self._panel_left.setMinimumWidth(180)
@@ -74,6 +94,8 @@ class MainWindow(QMainWindow):
         # ขวา = Inspector Tabs (Plot/Processing/Export)
         self._panel_right = QWidget(self)
         self._right_layout = QVBoxLayout(self._panel_right)
+        self._right_layout.setContentsMargins(8, 8, 8, 8)  # CHANGE: panel margins
+        self._right_layout.setSpacing(8)
         self._build_inspector_tabs()  # UI-REFINE
         # UI-REFINE: inspector ขวามีความกว้างขั้นต่ำ
         self._panel_right.setMinimumWidth(220)
@@ -81,6 +103,7 @@ class MainWindow(QMainWindow):
 
         # UI-REFINE: ขนาดสัดส่วนเริ่มต้น (ซ้าย=200, กลาง=600, ขวา=200)
         self.splitter.setSizes([200, 600, 200])
+        self.splitter.setHandleWidth(8)  # CHANGE: wider handle for usability
         # UI-REFINE: กลางต้องขยายเมื่อหน้าต่างกว้างขึ้น
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
@@ -89,16 +112,28 @@ class MainWindow(QMainWindow):
         # UI-REFINE: ทูลบาร์จัดกลุ่ม File / View / Process / Export (ต้องสร้างก่อนเมนู)
         self.tb = QToolBar("Toolbar", self); self.addToolBar(self.tb)
         self.actOpen = QAction("Open", self); self.actResetView = QAction("Reset View", self)
+        self.actClearView = QAction("Clear Plot", self)  # UI-REFINE
         # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
         self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
         self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
+        # CHANGE: ตั้งไอคอนด้วยไฟล์หรือ fallback มาตรฐาน
+        try:
+            self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
+            self.actResetView.setIcon(self._icon("reset", QStyle.StandardPixmap.SP_BrowserReload))
+            self.actClearView.setIcon(self._icon("clear", QStyle.StandardPixmap.SP_DialogResetButton))
+            self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+            self.actFFT.setIcon(self._icon("fft", QStyle.StandardPixmap.SP_ComputerIcon))
+            self.actExportFFT.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
+        except Exception:
+            pass
         self.actOpen.triggered.connect(self.open_file)
         self.actResetView.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
+        self.actClearView.triggered.connect(self.clear_plot)
         self.actToggleInspector.toggled.connect(self.toggle_inspector)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
         self.tb.addAction(self.actOpen); self.tb.addSeparator()
-        self.tb.addAction(self.actResetView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
+        self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
         self.tb.addAction(self.actFFT); self.tb.addSeparator()
         self.tb.addAction(self.actExportFFT)
 
@@ -124,21 +159,37 @@ class MainWindow(QMainWindow):
     def _build_left_panel(self):
         l = self._left_layout
         self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True); l.addWidget(self.lblFile)
-        l.addWidget(QLabel("ไฟล์ที่เตรียมไว้"))
-        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection); l.addWidget(self.lstFiles)
-        rowStage = QHBoxLayout();
+
+        # CHANGE: กล่อง "ไฟล์ที่เตรียมไว้"
+        gb_files = QGroupBox("ไฟล์ที่เตรียมไว้")
+        gbf = QVBoxLayout(gb_files); gbf.setContentsMargins(8, 8, 8, 8); gbf.setSpacing(8)
+        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection); gbf.addWidget(self.lstFiles)
+        rowStage = QHBoxLayout()
         self.btnAddStage = QPushButton("เพิ่มไฟล์…"); self.btnUseStage = QPushButton("ใช้ไฟล์นี้"); self.btnDelStage = QPushButton("ลบออก")
-        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage); l.addLayout(rowStage)
-        # มุมมอง
-        l.addWidget(QLabel("มุมมอง/เมาส์"))
-        viewRow = QHBoxLayout(); self.chkCross = QCheckBox("แสดง Crosshair"); self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
-        viewRow.addWidget(self.chkCross); viewRow.addWidget(self.btnBoxZoom); l.addLayout(viewRow)
+        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage); gbf.addLayout(rowStage)
+        l.addWidget(gb_files)
+
+        # CHANGE: กล่อง "แสดง Crosshair"
+        gb_cross = QGroupBox("แสดง Crosshair")
+        gbc = QVBoxLayout(gb_cross); gbc.setContentsMargins(8, 8, 8, 8); gbc.setSpacing(8)
+        self.chkCross = QCheckBox("แสดง Crosshair")
+        gbc.addWidget(self.chkCross)
+        l.addWidget(gb_cross)
+
+        # CHANGE: กล่อง "มุมมอง/เมาส์"
+        gb_view = QGroupBox("มุมมอง/เมาส์")
+        gbv = QVBoxLayout(gb_view); gbv.setContentsMargins(8, 8, 8, 8); gbv.setSpacing(8)
+        self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
+        gbv.addWidget(self.btnBoxZoom)
+        l.addWidget(gb_view)
+
         l.addStretch(1)
         # UI-REFINE: การเชื่อมสัญญาณย้ายไป _connect_signals()
 
     def _build_inspector_tabs(self):
         r = self._right_layout
         tabs = QTabWidget(self)
+        tabs.setDocumentMode(True)  # CHANGE: modern tabs look
         # Tab: Plot
         tab_plot = QWidget(); tp = QVBoxLayout(tab_plot)
         self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
@@ -148,19 +199,45 @@ class MainWindow(QMainWindow):
         styleRow = QHBoxLayout(); styleRow.addWidget(QLabel("ความหนาเส้น")); self.spLineWidth = QSpinBox(); self.spLineWidth.setRange(1,10); self.spLineWidth.setValue(2); styleRow.addWidget(self.spLineWidth); tp.addLayout(styleRow)
         markerRow = QHBoxLayout(); self.chkMarker = QCheckBox("แสดงจุดข้อมูล"); self.chkMarker.setChecked(False); markerRow.addWidget(self.chkMarker); markerRow.addStretch(1); tp.addLayout(markerRow)
         btnRow = QHBoxLayout(); self.btnLine = QPushButton("แสดงกราฟเส้น"); self.btnScatter = QPushButton("แสดงกราฟจุด (Scatter)"); btnRow.addWidget(self.btnLine); btnRow.addWidget(self.btnScatter); tp.addLayout(btnRow)
+        # UI-REFINE: ปุ่มล้างกราฟ (Clear Plot)
+        rowClear = QHBoxLayout(); self.btnClear = QPushButton("ล้างกราฟ"); rowClear.addWidget(self.btnClear); rowClear.addStretch(1); tp.addLayout(rowClear)
+        # UI-FIT: ปุ่ม Curve Fit
+        self.btnCurveFit = QPushButton("Curve Fit…"); tp.addWidget(self.btnCurveFit)
+        # UI-REFINE: Histogram controls
+        tp.addWidget(QLabel("Histogram"))
+        rowH1 = QHBoxLayout(); tp.addLayout(rowH1)
+        rowH1.addWidget(QLabel("คอลัมน์")); self.cbHist = QComboBox(); rowH1.addWidget(self.cbHist)
+        rowH1.addWidget(QLabel("bins")); self.spHistBins = QSpinBox(); self.spHistBins.setRange(5, 200); self.spHistBins.setValue(20); rowH1.addWidget(self.spHistBins)
+        rowH2 = QHBoxLayout(); self.chkHistFit = QCheckBox("Fit Normal curve"); self.btnHist = QPushButton("Plot Histogram"); rowH2.addWidget(self.chkHistFit); rowH2.addStretch(1); rowH2.addWidget(self.btnHist); tp.addLayout(rowH2)
         tabs.addTab(tab_plot, "Plot")
         # Tab: Processing
         tab_proc = QWidget(); pr = QVBoxLayout(tab_proc)
-        pr.addWidget(QLabel("ฟีเจอร์เสริม"))
-        row1 = QHBoxLayout(); self.btnTZ = QPushButton("เพิ่มคอลัมน์เวลา +7h (Bangkok)"); self.btnMag = QPushButton("เพิ่มคอลัมน์ |B| จาก 3 แกน"); row1.addWidget(self.btnTZ); row1.addWidget(self.btnMag); pr.addLayout(row1)
-        row2 = QHBoxLayout(); self.btnMA = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)"); row2.addWidget(self.btnMA); pr.addLayout(row2)
-        pr.addWidget(QLabel("การจัดรูปแบบข้อมูล")); row3 = QHBoxLayout(); self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์"); row3.addWidget(self.btnTypes); pr.addLayout(row3)
+        # CHANGE: กล่อง "ฟีเจอร์เสริม"
+        gb_feat = QGroupBox("ฟีเจอร์เสริม"); gbl = QVBoxLayout(gb_feat); gbl.setContentsMargins(8,8,8,8); gbl.setSpacing(8)
+        row1 = QHBoxLayout(); self.btnTZ = QPushButton("เพิ่มคอลัมน์เวลา +7h (Bangkok)"); self.btnMag = QPushButton("เพิ่มคอลัมน์ |B| จาก 3 แกน"); row1.addWidget(self.btnTZ); row1.addWidget(self.btnMag); gbl.addLayout(row1)
+        row2 = QHBoxLayout(); self.btnMA = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)"); row2.addWidget(self.btnMA); gbl.addLayout(row2)
+        rowAgg = QHBoxLayout(); self.btnAgg = QPushButton("Aggregate…"); rowAgg.addWidget(self.btnAgg); gbl.addLayout(rowAgg)
+        pr.addWidget(gb_feat)
+        # CHANGE: กล่อง "การจัดรูปแบบข้อมูล"
+        gb_fmt = QGroupBox("การจัดรูปแบบข้อมูล"); gbf = QVBoxLayout(gb_fmt); gbf.setContentsMargins(8,8,8,8); gbf.setSpacing(8)
+        row3 = QHBoxLayout(); self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์"); row3.addWidget(self.btnTypes); gbf.addLayout(row3)
+        pr.addWidget(gb_fmt)
         tabs.addTab(tab_proc, "Processing")
         # Tab: Export
         tab_exp = QWidget(); ex = QVBoxLayout(tab_exp)
         self.btnExport = QPushButton("บันทึกรูปภาพ (PNG)"); ex.addWidget(self.btnExport)
         self.btnExportRange = QPushButton("ส่งออกช่วงที่เห็น (CSV)"); ex.addWidget(self.btnExportRange)
+        # UI-REFINE: ปุ่ม Export ผล Aggregate เป็น CSV
+        self.btnExportAgg = QPushButton("Export Aggregated CSV")
+        ex.addWidget(self.btnExportAgg)
         tabs.addTab(tab_exp, "Export")
+        # CHANGE: ตั้งไอคอนแท็บ
+        try:
+            tabs.setTabIcon(0, self._icon("plot", QStyle.StandardPixmap.SP_FileDialogContentsView))
+            tabs.setTabIcon(1, self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+            tabs.setTabIcon(2, self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
+        except Exception:
+            pass
         r.addWidget(tabs)
 
     # UI-REFINE: รวมการเชื่อมสัญญาณไว้ที่เดียว เพื่อให้แน่ใจว่าวิดเจ็ตถูกสร้างครบก่อน
@@ -169,12 +246,16 @@ class MainWindow(QMainWindow):
         try:
             self.btnLoadCols.clicked.connect(self.load_columns_from_df)
             self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
+            self.btnCurveFit.clicked.connect(self._open_fit_dialog)  # UI-FIT
+            self.btnHist.clicked.connect(self.plot_histogram)  # UI-REFINE
             self.btnExport.clicked.connect(self.export_png)
             self.btnExportRange.clicked.connect(self.export_visible_range_csv)
             self.btnTZ.clicked.connect(self.feature_add_bkk_time)
             self.btnMag.clicked.connect(self.feature_add_magnitude)
             self.btnMA.clicked.connect(self.feature_add_moving_average)
             self.btnTypes.clicked.connect(self.feature_set_column_types)
+            self.btnAgg.clicked.connect(self.run_aggregate_dialog)  # UI-REFINE
+            self.btnExportAgg.clicked.connect(self.export_aggregated_csv)  # UI-REFINE
         except Exception:
             pass
         # Staging/View (ฝั่งซ้าย)
@@ -204,6 +285,7 @@ class MainWindow(QMainWindow):
         procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
         procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
         procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
+        procMenu.addAction("Aggregate…").triggered.connect(self.run_aggregate_dialog)  # UI-REFINE
 
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
@@ -283,6 +365,11 @@ class MainWindow(QMainWindow):
         cols = [str(c) for c in self._df.columns]
         self.cbX.clear(); self.cbY.clear()
         self.cbX.addItems(cols); self.cbY.addItems(cols)
+        # UI-REFINE: sync คอลัมน์ของ Histogram ด้วย
+        try:
+            self.cbHist.clear(); self.cbHist.addItems(cols)
+        except Exception:
+            pass
         self.statusBar().showMessage("โหลดคอลัมน์เรียบร้อย • เลือก X/Y แล้วพล็อตได้")
         # UI-REFINE: อัปเดตจำนวนแถว
         try: self._sb_rows.setText(f"rows: {len(self._df)}")
@@ -329,6 +416,340 @@ class MainWindow(QMainWindow):
         self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
         self.canvas.ax.legend(loc="best"); self.canvas.fig.tight_layout(); self.canvas.draw()
         self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
+
+    # UI-REFINE: Plot Histogram
+    def plot_histogram(self):
+        if self._df is None or self._df.empty:
+            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+        col = self.cbHist.currentText()
+        if not col or col not in self._df.columns:
+            QMessageBox.information(self, "เลือกคอลัมน์", "โปรดเลือกคอลัมน์ข้อมูลสำหรับฮิสโตแกรม"); return
+        try:
+            vals = pd.to_numeric(self._df[col], errors="coerce").dropna().values
+            if vals.size == 0:
+                QMessageBox.information(self, "ไม่มีข้อมูล", "คอลัมน์ที่เลือกไม่มีค่าตัวเลข"); return
+            bins = int(self.spHistBins.value())
+            self.canvas.clear()
+            n, b, _ = self.canvas.ax.hist(vals, bins=bins, alpha=0.7, color="#6aa0f8", edgecolor="#2d3a5a")
+            self.canvas.ax.set_xlabel(col)
+            self.canvas.ax.set_ylabel("count")
+            self.canvas.ax.set_title(f"Histogram of {col} (bins={bins})")
+
+            # ออปชัน: ฟิต Gaussian
+            if self.chkHistFit.isChecked():
+                try:
+                    import numpy as _np
+                    from math import sqrt, pi, exp
+                    # ไม่เพิ่ม dependency ใหม่: ใช้ค่าเฉลี่ย/ส่วนเบี่ยงเบนมาตรฐานจาก numpy และวาด pdf เอง
+                    mu = float(_np.mean(vals))
+                    sigma = float(_np.std(vals, ddof=0)) if vals.size > 0 else 0.0
+                    if sigma > 0:
+                        xs = _np.linspace(b[0], b[-1], 400)
+                        # สเกล pdf ให้เข้ากับสเกล histogram: pdf * N * bin_width
+                        bin_w = (b[-1] - b[0]) / bins if bins > 0 else 1.0
+                        pdf = (1.0/(sigma*sqrt(2*pi))) * _np.exp(-0.5*((xs-mu)/sigma)**2)
+                        pdf_scaled = pdf * vals.size * bin_w
+                        self.canvas.ax.plot(xs, pdf_scaled, color="#e36a6a", linewidth=2, label=f"Normal fit μ={mu:.2f}, σ={sigma:.2f}")
+                        self.canvas.ax.legend(loc="best")
+                except Exception:
+                    pass
+
+            self.canvas.fig.tight_layout(); self.canvas.draw()
+            self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
+        except Exception as e:
+            QMessageBox.critical(self, "พล็อตไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # UI-REFINE: วาดกราฟแท่งแบบง่าย
+    def plot_bar(self, x, y, *, xlabel: str = "", ylabel: str = "", title: str = ""):
+        self.canvas.clear()
+        self.canvas.ax.bar(range(len(x)), y)
+        self.canvas.ax.set_xticks(range(len(x)))
+        try:
+            self.canvas.ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+        except Exception:
+            pass
+        if xlabel: self.canvas.ax.set_xlabel(xlabel)
+        if ylabel: self.canvas.ax.set_ylabel(ylabel)
+        if title: self.canvas.ax.set_title(title)
+        self.canvas.fig.tight_layout(); self.canvas.draw()
+
+    # UI-REFINE: wrapper สำหรับ Aggregate ไม่แตะ logic core
+    def _aggregate_and_plot(self, df: pd.DataFrame, id_col: str, value_cols: list[str], agg: str, stacked: bool = False):
+        import pandas as pd
+        if not id_col or not value_cols:
+            return
+        if agg == "sum":
+            out = df.groupby(id_col)[value_cols].sum().reset_index()
+        elif agg == "mean":
+            out = df.groupby(id_col)[value_cols].mean().reset_index()
+        elif agg == "count":
+            out = df.groupby(id_col)[value_cols].count().reset_index()
+        elif agg == "max":
+            out = df.groupby(id_col)[value_cols].max().reset_index()
+        else:
+            out = df.groupby(id_col)[value_cols].min().reset_index()
+
+        # พล็อต: ถ้าเลือกหลายคอลัมน์
+        self.canvas.clear()
+        x = out[id_col]
+        if len(value_cols) == 1 or not stacked:
+            # ใช้คอลัมน์แรกทำ bar chart
+            y = out[value_cols[0]]
+            self.plot_bar(x=x, y=y, xlabel=id_col, ylabel=f"{agg}({value_cols[0]})", title=f"{agg} by {id_col}")
+        else:
+            import numpy as _np
+            ind = _np.arange(len(x))
+            bottom = _np.zeros(len(x))
+            for col in value_cols:
+                vals = out[col].values
+                self.canvas.ax.bar(ind, vals, bottom=bottom, label=col)
+                bottom = bottom + vals
+            self.canvas.ax.set_xticks(ind)
+            self.canvas.ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+            self.canvas.ax.set_xlabel(id_col)
+            self.canvas.ax.set_ylabel(f"{agg}(values)")
+            self.canvas.ax.set_title(f"{agg} by {id_col} (stacked)")
+            self.canvas.ax.legend(loc="best")
+            self.canvas.fig.tight_layout(); self.canvas.draw()
+
+        # เก็บผลไว้สำหรับ Export
+        self.current_aggregated_df = out
+        self.statusBar().showMessage("Aggregate สำเร็จ • ใช้แท็บ Export เพื่อบันทึกผลได้")
+
+    # UI-REFINE: เปิด dialog Aggregate และเรียกใช้งาน
+    def run_aggregate_dialog(self):
+        if self._df is None or self._df.empty:
+            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+        cols = [str(c) for c in self._df.columns]
+        dlg = AggregateDialog(self, self._df, cols)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        params = dlg.get_params()
+        id_col = params.get("id_col"); value_cols = params.get("value_cols", []); agg = params.get("agg", "sum"); stacked = bool(params.get("stacked", False))
+        try:
+            self._aggregate_and_plot(self._df, id_col=id_col, value_cols=value_cols, agg=agg, stacked=stacked)
+        except Exception as e:
+            QMessageBox.critical(self, "Aggregate ไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # UI-REFINE: ส่งออกผล Aggregate เป็น CSV
+    def export_aggregated_csv(self):
+        if getattr(self, "current_aggregated_df", None) is None:
+            QMessageBox.information(self, "ยังไม่มีผล Aggregate", "กรุณาทำ Aggregate ก่อน"); return
+        path, _ = QFileDialog.getSaveFileName(self, "บันทึกผล Aggregate เป็น CSV", "aggregate.csv", "CSV (*.csv)")
+        if not path: return
+        try:
+            self.current_aggregated_df.to_csv(path, index=False)
+            self.statusBar().showMessage(f"บันทึก Aggregate CSV แล้ว: {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # UI-FIT: เปิด FitDialog และเตรียมข้อมูลซีรีส์ปัจจุบัน
+    def _open_fit_dialog(self):
+        # สร้าง mapping label → (x,y) จากสิ่งที่พล็อตอยู่ในแกน
+        axes = self.canvas.ax
+        series_data = {}
+        series_is_seconds: dict[str, bool] = {}  # UI-FIT: ระบุว่า x ถูกแปลงเป็นวินาทีจากต้นทาง
+        labels = []
+        try:
+            for line in axes.get_lines():
+                lbl = line.get_label() or "series"
+                if lbl.startswith("_"):  # เส้นพิเศษของ Matplotlib
+                    continue
+                # UI-FIT: พยายามใช้ข้อมูลดิบจาก DataFrame ตาม label "Y vs X"
+                x = line.get_xdata(); y = line.get_ydata()
+                x_arr = np.asarray(x); y_arr = np.asarray(y)
+                used_seconds = False
+                try:
+                    if self._df is not None and " vs " in lbl:
+                        y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
+                        if x_name in self._df.columns and y_name in self._df.columns:
+                            x_ser = self._df[x_name]
+                            y_ser = self._df[y_name]
+                            # แปลง X เป็นวินาทีหากเป็นเวลา
+                            try:
+                                xs_dt = pd.to_datetime(x_ser, errors="coerce")
+                                if xs_dt.notna().sum() >= 2:
+                                    delta = (xs_dt - xs_dt.iloc[0]).dt.total_seconds()
+                                    x_arr = delta.values
+                                    y_arr = pd.to_numeric(y_ser, errors="coerce").values
+                                    used_seconds = True
+                                else:
+                                    # ไม่ใช่ datetime → ใช้ตัวเลขเดิม
+                                    x_arr = pd.to_numeric(x_ser, errors="coerce").values
+                                    y_arr = pd.to_numeric(y_ser, errors="coerce").values
+                            except Exception:
+                                x_arr = pd.to_numeric(x_ser, errors="coerce").values
+                                y_arr = pd.to_numeric(y_ser, errors="coerce").values
+                except Exception:
+                    pass
+                labels.append(lbl)
+                series_data[lbl] = (x_arr, y_arr)
+                series_is_seconds[lbl] = used_seconds
+        except Exception:
+            pass
+        if not labels:
+            QMessageBox.information(self, "ไม่มีซีรีส์", "ยังไม่มีเส้น/จุดบนกราฟให้ฟิต"); return
+        dlg = FitDialog(self, labels, series_data)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        params = dlg.get_params()
+        lbl = params.get("series_label"); model = params.get("model"); deg = params.get("degree")
+        show_eq = bool(params.get("show_eq", True)); show_resid = bool(params.get("show_resid", False))
+        x, y = series_data.get(lbl, (None, None))
+        if x is None or y is None:
+            return
+        try:
+            xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
+            self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=bool(series_is_seconds.get(lbl, False)))
+            # เก็บผลเพื่อ export
+            self.current_fit_result = {
+                "series": lbl,
+                "model": model,
+                "params": fit_params,
+                "metrics": metrics,
+                "xfit": xfit,
+                "yfit": yfit,
+            }
+        except Exception as e:
+            QMessageBox.critical(self, "Fit ไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # UI-FIT: ทำการฟิต (SciPy ถ้ามี; fallback ด้วย NumPy)
+    def _do_curve_fit(self, x: np.ndarray, y: np.ndarray, *, model: str, degree: int | None = None):
+        import numpy as _np
+        # clean
+        mask = _np.isfinite(x) & _np.isfinite(y)
+        x = _np.asarray(x)[mask]; y = _np.asarray(y)[mask]
+        if x.size < 5:
+            raise ValueError("ข้อมูลน้อยเกินไปสำหรับการฟิต")
+
+        # สร้างจุดสำหรับวาดเส้นฟิต
+        xs = _np.linspace(_np.nanmin(x), _np.nanmax(x), 400)
+
+        def metrics(y_true, y_pred):
+            resid = y_true - y_pred
+            ss_res = float(_np.sum(resid**2))
+            ss_tot = float(_np.sum((y_true - _np.mean(y_true))**2)) + 1e-12
+            r2 = 1.0 - ss_res/ss_tot
+            rmse = float(_np.sqrt(ss_res/max(1, y_true.size)))
+            return {"r2": r2, "rmse": rmse}
+
+        # พยายามใช้ SciPy ก่อน
+        try:
+            import scipy.optimize as opt  # type: ignore
+            import scipy.stats as stats  # type: ignore
+        except Exception:
+            opt = None; stats = None
+
+        model = (model or "linear").lower()
+
+        if model == "linear":
+            c = _np.polyfit(x, y, 1); p = _np.poly1d(c)
+            yhat = p(x); yfit = p(xs)
+            return xs, yfit, {"coeff": c.tolist()}, metrics(y, yhat)
+
+        if model == "polynomial":
+            d = max(2, int(degree or 2))
+            c = _np.polyfit(x, y, d); p = _np.poly1d(c)
+            yhat = p(x); yfit = p(xs)
+            return xs, yfit, {"coeff": c.tolist(), "degree": d}, metrics(y, yhat)
+
+        if model == "exponential":
+            # y ~ a*exp(bx) + c
+            def f(xv, a, b, c0):
+                return a * _np.exp(b*xv) + c0
+            if opt is not None:
+                p0 = [max(1e-6, float(_np.nanmax(y))), 0.0, float(_np.nanmin(y))]
+                popt, _ = opt.curve_fit(f, x, y, p0=p0, maxfev=10000)
+                yhat = f(x, *popt); yfit = f(xs, *popt)
+                return xs, yfit, {"a": float(popt[0]), "b": float(popt[1]), "c": float(popt[2])}, metrics(y, yhat)
+            # fallback: log-linear ด้วย c0≈min
+            c0 = float(_np.nanmin(y))
+            y1 = _np.clip(y - c0, 1e-9, _np.inf)
+            b, a0 = _np.polyfit(x, _np.log(y1), 1)
+            a = float(_np.exp(a0))
+            yhat = a*_np.exp(b*x)+c0; yfit = a*_np.exp(b*xs)+c0
+            return xs, yfit, {"a": a, "b": float(b), "c": c0}, metrics(y, yhat)
+
+        if model == "power":
+            # y ~ a*x^b (x>0,y>0)
+            m = (x>0) & (y>0)
+            if m.sum() < 2:
+                raise ValueError("Power-law ต้องการ x,y > 0 อย่างน้อย 2 จุด")
+            if opt is not None:
+                def f(xv, a, b):
+                    return a * (xv**b)
+                p0 = [float(_np.nanmax(y)), 1.0]
+                popt, _ = opt.curve_fit(f, x[m], y[m], p0=p0, maxfev=10000)
+                yhat = f(x, *popt); yfit = f(xs, *popt)
+                return xs, yfit, {"a": float(popt[0]), "b": float(popt[1])}, metrics(y, yhat)
+            b, a0 = _np.polyfit(_np.log(x[m]), _np.log(y[m]), 1)
+            a = float(_np.exp(a0))
+            yhat = a*(x**b); yfit = a*(xs**b)
+            return xs, yfit, {"a": a, "b": float(b)}, metrics(y, yhat)
+
+        if model == "gaussian":
+            # y ~ A*exp(-(x-μ)^2/(2σ^2)) + C
+            def g(xv, A, mu, sig, C0):
+                return A * _np.exp(-0.5*((xv-mu)/sig)**2) + C0
+            if opt is not None:
+                mu0 = float(x[_np.argmax(y)])
+                sig0 = float(max(1e-6, ( _np.percentile(x,95) - _np.percentile(x,5) )/4.0))
+                p0 = [float(_np.nanmax(y)), mu0, sig0, float(_np.nanmin(y))]
+                popt, _ = opt.curve_fit(g, x, y, p0=p0, maxfev=20000)
+                yhat = g(x, *popt); yfit = g(xs, *popt)
+                return xs, yfit, {"A": float(popt[0]), "mu": float(popt[1]), "sigma": float(popt[2]), "C": float(popt[3])}, metrics(y, yhat)
+            # fallback: LS เชิงเส้นสำหรับ A,C หลังตั้ง mu,sigma คร่าว ๆ
+            mu = float(x[_np.argmax(y)])
+            sig = float(max(1e-6, ( _np.percentile(x,95) - _np.percentile(x,5) )/4.0))
+            G = _np.exp(-0.5*((x-mu)/sig)**2)
+            X = _np.vstack([G, _np.ones_like(G)]).T
+            sol, *_ = _np.linalg.lstsq(X, y, rcond=None)
+            A, C0 = float(sol[0]), float(sol[1])
+            yhat = A*_np.exp(-0.5*((x-mu)/sig)**2)+C0
+            yfit = A*_np.exp(-0.5*((xs-mu)/sig)**2)+C0
+            return xs, yfit, {"A": A, "mu": mu, "sigma": sig, "C": C0}, metrics(y, yhat)
+
+        # sine
+        # y ~ A*sin(2π f x + φ) + C → หา f จาก FFT, แล้ว LS หาค่าอื่น
+        xnum = x
+        dt = _np.median(_np.diff(_np.sort(xnum)))
+        if not _np.isfinite(dt) or dt <= 0:
+            dt = 1.0
+        Y = _np.fft.rfft(y - _np.mean(y))
+        freq = _np.fft.rfftfreq(y.size, d=dt)
+        if freq.size > 1:
+            k = int(_np.argmax(_np.abs(Y[1:])) + 1)
+            f0 = float(freq[k])
+        else:
+            f0 = 1.0
+        w = 2*_np.pi*f0
+        S = _np.sin(w*x); Cc = _np.cos(w*x)
+        A_mat = _np.vstack([S, Cc, _np.ones_like(S)]).T
+        beta, *_ = _np.linalg.lstsq(A_mat, y, rcond=None)
+        s, c, c0 = beta
+        A = float(_np.sqrt(s**2 + c**2)); phi = float(_np.arctan2(c, s)); C0 = float(c0)
+        yhat = A*_np.sin(w*x + phi) + C0
+        yfit = A*_np.sin(w*xs + phi) + C0
+        return xs, yfit, {"A": A, "f": f0, "phi": phi, "C": C0}, metrics(y, yhat)
+
+    # UI-FIT: วาดเส้นฟิตทับ พร้อม annotation/metrics และ residuals
+    def _plot_fit_overlay(self, series_label: str, xfit: np.ndarray, yfit: np.ndarray, params: dict, metrics: dict, *, show_eq: bool, show_resid: bool, x_seconds: bool = False):
+        ax = self.canvas.ax
+        ax.plot(xfit, yfit, "-", linewidth=2, color="#E67E22", label=f"fit: {series_label}")
+        ax.legend(loc="best")
+        # annotation สมการอย่างย่อ
+        if show_eq:
+            try:
+                text = ", ".join([f"{k}={float(v):.3g}" for k,v in params.items() if isinstance(v,(int,float))])
+                text += f" | R²={metrics.get('r2', float('nan')):.3f}, RMSE={metrics.get('rmse', float('nan')):.3g}"
+                if x_seconds:
+                    text += " | x (seconds from start)"
+                ax.text(0.01, 0.99, text, transform=ax.transAxes, va="top", ha="left", fontsize=9,
+                        bbox=dict(boxstyle="round,pad=0.2", fc="#222", ec="#666", alpha=0.8))
+            except Exception:
+                pass
+        self.canvas.fig.tight_layout(); self.canvas.draw()
+        self.statusBar().showMessage(f"Fit สำเร็จ • R²={metrics.get('r2', float('nan')):.3f}  RMSE={metrics.get('rmse', float('nan')):.3g}")
 
     # ---------- Features ----------
     def feature_add_bkk_time(self):
@@ -657,6 +1078,20 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"บันทึกรูปภาพแล้ว: {path}")
         except Exception as e:
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # CHANGE: helper โหลดไอคอนจาก assets/icons หรือ fallback เป็น QStyle
+    def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
+        try:
+            base = os.path.dirname(__file__)
+            p = os.path.join(base, "assets", "icons", f"{name}.svg")
+            if os.path.isfile(p):
+                return QIcon(p)
+        except Exception:
+            pass
+        try:
+            return self.style().standardIcon(fallback_sp)
+        except Exception:
+            return QIcon()
 
     def show_about(self):
         QMessageBox.information(self, "เกี่ยวกับโปรแกรม",
