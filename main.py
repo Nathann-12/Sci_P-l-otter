@@ -1,3 +1,4 @@
+
 # main.py
 import os, sys
 import numpy as np
@@ -15,9 +16,20 @@ from PySide6.QtGui import QAction, QIcon
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+import matplotlib.dates as mdates  # CHANGE: handle datetime axes formatting
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor, RectangleSelector
 import matplotlib
+import matplotlib.pyplot as plt
+
+# Load custom dark style if available
+try:
+    style_path = os.path.join(os.path.dirname(__file__), "styles", "mpl_style_dark_pro.mplstyle")
+    if os.path.exists(style_path):
+        plt.style.use(style_path)
+except Exception:
+    pass  # Fallback to default style if loading fails
+
 matplotlib.rcParams["font.sans-serif"] = ["Tahoma", "Noto Sans Thai", "Arial", "DejaVu Sans"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
@@ -26,6 +38,7 @@ from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
+from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes  # CHANGE: datetime fit helpers + plot beautification
 from styles.theme import apply_theme  # UI-REFINE: ใช้ธีมอ่านง่าย
 
 APP_TITLE = "SciPlotter (Modular + Features)"
@@ -279,6 +292,15 @@ class MainWindow(QMainWindow):
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
         viewMenu.addAction(self.actToggleInspector)
+        
+        # Plot Style submenu
+        plotStyleMenu = viewMenu.addMenu("Plot Style")
+        self.actDarkStyle = plotStyleMenu.addAction("Dark")
+        self.actDefaultStyle = plotStyleMenu.addAction("Default")
+        self.actDarkStyle.setCheckable(True)
+        self.actDefaultStyle.setCheckable(True)
+        self.actDarkStyle.triggered.connect(lambda: self.change_plot_style("dark"))
+        self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
@@ -296,6 +318,93 @@ class MainWindow(QMainWindow):
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
             "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nF: FFT\nI: Toggle Inspector"
         ))
+        
+        # Load saved plot style preference
+        self._load_plot_style_config()
+
+    # ---------- Plot Style Configuration ----------
+    def _get_config_path(self):
+        """Get path to configuration file"""
+        import json
+        import os
+        # Try project root first, then user home
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(project_root, ".sciplotter_config.json")
+        if not os.path.exists(config_path):
+            config_path = os.path.join(os.path.expanduser("~"), ".sciplotter_config.json")
+        return config_path
+    
+    def _load_plot_style_config(self):
+        """Load plot style preference from config file"""
+        try:
+            config_path = self._get_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    style = config.get('plot_style', 'dark')
+                    self.change_plot_style(style, save_config=False)
+            else:
+                # No config file, default to dark style
+                self.change_plot_style('dark', save_config=False)
+        except Exception:
+            # Use default if loading fails
+            self.change_plot_style('dark', save_config=False)
+    
+    def _save_plot_style_config(self, style):
+        """Save plot style preference to config file"""
+        try:
+            import json
+            config_path = self._get_config_path()
+            config = {'plot_style': style}
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception:
+            pass  # Ignore save errors
+    
+    def change_plot_style(self, style, save_config=True):
+        """Change plot style and optionally save preference"""
+        try:
+            if style == "dark":
+                style_path = os.path.join(os.path.dirname(__file__), "styles", "mpl_style_dark_pro.mplstyle")
+                if os.path.exists(style_path):
+                    plt.style.use(style_path)
+                    # Update menu check state
+                    if hasattr(self, 'actDarkStyle'):
+                        self.actDarkStyle.setChecked(True)
+                        self.actDefaultStyle.setChecked(False)
+                else:
+                    QMessageBox.warning(self, "Style Not Found", "Dark style file not found. Using default style.")
+                    style = "default"
+            
+            if style == "default":
+                plt.style.use('default')
+                # Update menu check state
+                if hasattr(self, 'actDarkStyle'):
+                    self.actDarkStyle.setChecked(False)
+                    self.actDefaultStyle.setChecked(True)
+            
+            # Re-apply beautify_axes to current plot if possible
+            if hasattr(self, 'canvas') and hasattr(self.canvas, 'ax'):
+                try:
+                    # Detect if current X axis is datetime
+                    x_is_datetime = False
+                    if hasattr(self, '_df') and self._df is not None:
+                        x_col = self.cbX.currentText() if hasattr(self, 'cbX') else ""
+                        if x_col:
+                            x_is_datetime = self._is_datetime_column(x_col)
+                    
+                    beautify_axes(self.canvas.ax, x_is_datetime=x_is_datetime)
+                except Exception:
+                    pass  # Ignore beautification errors
+            
+            # Save preference if requested
+            if save_config:
+                self._save_plot_style_config(style)
+                
+            self.statusBar().showMessage(f"Plot style changed to: {style.title()}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Style Change Failed", f"Failed to change plot style: {str(e)}")
 
     # ---------- File ----------
     def open_file(self):
@@ -399,13 +508,30 @@ class MainWindow(QMainWindow):
             x = x[mask]; y = y[mask]
         return x, y
 
+    def _is_datetime_column(self, col_name):
+        """Check if a column contains datetime data"""
+        if self._df is None or col_name not in self._df.columns:
+            return False
+        try:
+            # Check if the column is already datetime type
+            if pd.api.types.is_datetime64_any_dtype(self._df[col_name]):
+                return True
+            # Try to convert a sample to see if it's datetime
+            sample = self._df[col_name].dropna().iloc[:5] if not self._df[col_name].empty else pd.Series()
+            if not sample.empty:
+                pd.to_datetime(sample, errors="coerce")
+                return True
+        except Exception:
+            pass
+        return False
+
     def plot_line(self):
         x, y = self._get_xy()
         if x is None: return
         lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
         self.canvas.ax.plot(x, y, linewidth=lw, marker=marker, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
         self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
-        self.canvas.ax.legend(loc="best"); self.canvas.fig.tight_layout(); self.canvas.draw()
+        beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
         self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
 
     def plot_scatter(self):
@@ -414,7 +540,7 @@ class MainWindow(QMainWindow):
         size = self.spLineWidth.value() * 5
         self.canvas.ax.scatter(x, y, s=size, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
         self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
-        self.canvas.ax.legend(loc="best"); self.canvas.fig.tight_layout(); self.canvas.draw()
+        beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
         self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
 
     # UI-REFINE: Plot Histogram
@@ -454,7 +580,7 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-            self.canvas.fig.tight_layout(); self.canvas.draw()
+            beautify_axes(self.canvas.ax)
             self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
         except Exception as e:
             QMessageBox.critical(self, "พล็อตไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -471,7 +597,7 @@ class MainWindow(QMainWindow):
         if xlabel: self.canvas.ax.set_xlabel(xlabel)
         if ylabel: self.canvas.ax.set_ylabel(ylabel)
         if title: self.canvas.ax.set_title(title)
-        self.canvas.fig.tight_layout(); self.canvas.draw()
+        beautify_axes(self.canvas.ax, title=title)
 
     # UI-REFINE: wrapper สำหรับ Aggregate ไม่แตะ logic core
     def _aggregate_and_plot(self, df: pd.DataFrame, id_col: str, value_cols: list[str], agg: str, stacked: bool = False):
@@ -509,8 +635,7 @@ class MainWindow(QMainWindow):
             self.canvas.ax.set_xlabel(id_col)
             self.canvas.ax.set_ylabel(f"{agg}(values)")
             self.canvas.ax.set_title(f"{agg} by {id_col} (stacked)")
-            self.canvas.ax.legend(loc="best")
-            self.canvas.fig.tight_layout(); self.canvas.draw()
+            beautify_axes(self.canvas.ax, title=f"{agg} by {id_col} (stacked)")
 
         # เก็บผลไว้สำหรับ Export
         self.current_aggregated_df = out
@@ -599,17 +724,67 @@ class MainWindow(QMainWindow):
         if x is None or y is None:
             return
         try:
-            xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
-            self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=bool(series_is_seconds.get(lbl, False)))
-            # เก็บผลเพื่อ export
-            self.current_fit_result = {
-                "series": lbl,
-                "model": model,
-                "params": fit_params,
-                "metrics": metrics,
-                "xfit": xfit,
-                "yfit": yfit,
-            }
+            used_seconds = bool(series_is_seconds.get(lbl, False))
+            model_l = (model or "linear").lower()
+            if used_seconds and model_l in ("linear", "polynomial"):
+                # CHANGE: ฟิตโดยแปลง X เป็นวินาทีจากต้นทาง แล้วแปลงกลับ datetime สำหรับพล็อต
+                x_name = None; y_name = None
+                try:
+                    if " vs " in lbl:
+                        y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
+                except Exception:
+                    pass
+                if x_name and y_name and (x_name in self._df.columns) and (y_name in self._df.columns):
+                    order = 1 if model_l == "linear" else max(2, int(deg or 2))
+                    x_fit_dt, y_fit, meta = fit_poly_datetime(self._df[x_name], self._df[y_name], order=order)
+                    # คำนวณ metrics บนสเกลเดียวกับตอนฟิต
+                    t_sec, _t0 = _to_seconds_from_start(self._df[x_name])
+                    scale = float(max(np.max(t_sec) - np.min(t_sec), 1.0))
+                    t_scaled = (t_sec - float(np.mean(t_sec))) / scale
+                    p = np.poly1d(meta.get("coeffs"))
+                    y_arr = np.asarray(self._df[y_name], dtype=float)
+                    y_pred = p(t_scaled)
+                    resid = y_arr - y_pred
+                    rmse = float(np.sqrt(np.mean(resid**2)))
+                    ss_res = float(np.sum(resid**2))
+                    ss_tot = float(np.sum((y_arr - float(np.mean(y_arr)))**2))
+                    r2 = (1.0 - ss_res/ss_tot) if ss_tot > 0 else float("nan")
+                    metrics = {"r2": r2, "rmse": rmse}
+                    # วาดเส้นบนแกนเวลาเดิม
+                    self._plot_fit_overlay(lbl, x_fit_dt, y_fit, meta, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=False)
+                    try:
+                        self.canvas.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S'))
+                        self.canvas.fig.autofmt_xdate()
+                        self.canvas.draw()
+                    except Exception:
+                        pass
+                    # เก็บผล
+                    self.current_fit_result = {
+                        "series": lbl,
+                        "model": model,
+                        "params": meta,
+                        "metrics": metrics,
+                        "xfit": x_fit_dt,
+                        "yfit": y_fit,
+                    }
+                else:
+                    # fallback: ใช้เส้นทางเดิม
+                    xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
+                    self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
+                    self.current_fit_result = {"series": lbl, "model": model, "params": fit_params, "metrics": metrics, "xfit": xfit, "yfit": yfit}
+            else:
+                # เดิม: ฟิตบน x ที่เป็นตัวเลขอยู่แล้ว
+                xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
+                self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
+                # เก็บผลเพื่อ export
+                self.current_fit_result = {
+                    "series": lbl,
+                    "model": model,
+                    "params": fit_params,
+                    "metrics": metrics,
+                    "xfit": xfit,
+                    "yfit": yfit,
+                }
         except Exception as e:
             QMessageBox.critical(self, "Fit ไม่สำเร็จ", f"สาเหตุ: {e}")
 
@@ -619,8 +794,8 @@ class MainWindow(QMainWindow):
         # clean
         mask = _np.isfinite(x) & _np.isfinite(y)
         x = _np.asarray(x)[mask]; y = _np.asarray(y)[mask]
-        if x.size < 5:
-            raise ValueError("ข้อมูลน้อยเกินไปสำหรับการฟิต")
+        if x.size < 3:  # แก้ไข: ลดจาก 5 เป็น 3 เพื่อให้ยืดหยุ่นมากขึ้น
+            raise ValueError("ข้อมูลน้อยเกินไปสำหรับการฟิต (ต้องการอย่างน้อย 3 จุด)")
 
         # สร้างจุดสำหรับวาดเส้นฟิต
         xs = _np.linspace(_np.nanmin(x), _np.nanmax(x), 400)
@@ -644,13 +819,13 @@ class MainWindow(QMainWindow):
 
         if model == "linear":
             c = _np.polyfit(x, y, 1); p = _np.poly1d(c)
-            yhat = p(x); yfit = p(xs)
+            yhat = p(xs); yfit = p(xs)  # แก้ไข: ใช้ xs แทน x สำหรับ yhat
             return xs, yfit, {"coeff": c.tolist()}, metrics(y, yhat)
 
         if model == "polynomial":
             d = max(2, int(degree or 2))
             c = _np.polyfit(x, y, d); p = _np.poly1d(c)
-            yhat = p(x); yfit = p(xs)
+            yhat = p(xs); yfit = p(xs)  # แก้ไข: ใช้ xs แทน x สำหรับ yhat
             return xs, yfit, {"coeff": c.tolist(), "degree": d}, metrics(y, yhat)
 
         if model == "exponential":
@@ -660,7 +835,7 @@ class MainWindow(QMainWindow):
             if opt is not None:
                 p0 = [max(1e-6, float(_np.nanmax(y))), 0.0, float(_np.nanmin(y))]
                 popt, _ = opt.curve_fit(f, x, y, p0=p0, maxfev=10000)
-                yhat = f(x, *popt); yfit = f(xs, *popt)
+                yhat = f(xs, *popt); yfit = f(xs, *popt)  # แก้ไข: ใช้ xs แทน x สำหรับ yhat
                 return xs, yfit, {"a": float(popt[0]), "b": float(popt[1]), "c": float(popt[2])}, metrics(y, yhat)
             # fallback: log-linear ด้วย c0≈min
             c0 = float(_np.nanmin(y))
@@ -680,7 +855,7 @@ class MainWindow(QMainWindow):
                     return a * (xv**b)
                 p0 = [float(_np.nanmax(y)), 1.0]
                 popt, _ = opt.curve_fit(f, x[m], y[m], p0=p0, maxfev=10000)
-                yhat = f(x, *popt); yfit = f(xs, *popt)
+                yhat = f(xs, *popt); yfit = f(xs, *popt)  # แก้ไข: ใช้ xs แทน x[m] สำหรับ yhat
                 return xs, yfit, {"a": float(popt[0]), "b": float(popt[1])}, metrics(y, yhat)
             b, a0 = _np.polyfit(_np.log(x[m]), _np.log(y[m]), 1)
             a = float(_np.exp(a0))
@@ -696,7 +871,7 @@ class MainWindow(QMainWindow):
                 sig0 = float(max(1e-6, ( _np.percentile(x,95) - _np.percentile(x,5) )/4.0))
                 p0 = [float(_np.nanmax(y)), mu0, sig0, float(_np.nanmin(y))]
                 popt, _ = opt.curve_fit(g, x, y, p0=p0, maxfev=20000)
-                yhat = g(x, *popt); yfit = g(xs, *popt)
+                yhat = g(xs, *popt); yfit = g(xs, *popt)  # แก้ไข: ใช้ xs แทน x สำหรับ yhat
                 return xs, yfit, {"A": float(popt[0]), "mu": float(popt[1]), "sigma": float(popt[2]), "C": float(popt[3])}, metrics(y, yhat)
             # fallback: LS เชิงเส้นสำหรับ A,C หลังตั้ง mu,sigma คร่าว ๆ
             mu = float(x[_np.argmax(y)])
@@ -736,7 +911,7 @@ class MainWindow(QMainWindow):
     def _plot_fit_overlay(self, series_label: str, xfit: np.ndarray, yfit: np.ndarray, params: dict, metrics: dict, *, show_eq: bool, show_resid: bool, x_seconds: bool = False):
         ax = self.canvas.ax
         ax.plot(xfit, yfit, "-", linewidth=2, color="#E67E22", label=f"fit: {series_label}")
-        ax.legend(loc="best")
+        beautify_axes(ax, x_is_datetime=x_seconds)
         # annotation สมการอย่างย่อ
         if show_eq:
             try:
@@ -748,7 +923,6 @@ class MainWindow(QMainWindow):
                         bbox=dict(boxstyle="round,pad=0.2", fc="#222", ec="#666", alpha=0.8))
             except Exception:
                 pass
-        self.canvas.fig.tight_layout(); self.canvas.draw()
         self.statusBar().showMessage(f"Fit สำเร็จ • R²={metrics.get('r2', float('nan')):.3f}  RMSE={metrics.get('rmse', float('nan')):.3g}")
 
     # ---------- Features ----------
@@ -832,10 +1006,7 @@ class MainWindow(QMainWindow):
             self.canvas.ax.plot(df_fft["freq_Hz"].values, df_fft["amplitude"].values, linewidth=2)
             self.canvas.ax.set_xlabel("Frequency (Hz)")
             self.canvas.ax.set_ylabel("Amplitude")
-            self.canvas.ax.set_title(f"FFT of {y_col} (fs≈{fs:.3f} Hz, window={window}, detrend={detrend})")
-            self.canvas.ax.grid(True)
-            self.canvas.fig.tight_layout()
-            self.canvas.draw()
+            beautify_axes(self.canvas.ax, title=f"FFT of {y_col} (fs≈{fs:.3f} Hz, window={window}, detrend={detrend})")
             self.statusBar().showMessage("คำนวณ FFT เสร็จแล้ว • ใช้ Export FFT เพื่อบันทึกผลได้")
 
         except Exception as e:

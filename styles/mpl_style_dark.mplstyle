@@ -1,32 +1,22 @@
-; CHANGE: Modern dark style aligned with QSS and accent #4F9CF9
-axes.facecolor: #121212
-figure.facecolor: #121212
-figure.edgecolor: #121212
-axes.edgecolor: #B9B9B9
-axes.labelcolor: #EAEAEA
-axes.titlecolor: #FFFFFF
-xtick.color: #B9B9B9
-ytick.color: #B9B9B9
-text.color: #EAEAEA
-
-grid.color: #2A2A2A
+axes.facecolor: black
+figure.facecolor: black
+figure.edgecolor: black
+axes.edgecolor: lightgray
+axes.labelcolor: white
+axes.titlecolor: white
+xtick.color: lightgray
+ytick.color: lightgray
+text.color: white
+grid.color: darkgray
 grid.linestyle: -
 grid.alpha: 0.6
 axes.grid: True
-
 lines.linewidth: 1.8
 lines.markersize: 5.5
-
-legend.facecolor: #1E1E1E
-legend.edgecolor: #2A2A2A
+legend.facecolor: black
+legend.edgecolor: darkgray
 legend.fontsize: 10
-
-savefig.facecolor: #121212
-savefig.edgecolor: #121212
-
-; CHANGE: Font to match UI
+savefig.facecolor: black
+savefig.edgecolor: black
 font.family: sans-serif
 font.sans-serif: Noto Sans Thai, Sarabun, Segoe UI, Tahoma, Arial, DejaVu Sans
-
-; CHANGE: Accent-first color cycle
-axes.prop_cycle: cycler('color', ['#4F9CF9', '#E67E22', '#2ECC71', '#E74C3C', '#9B59B6', '#1ABC9C', '#F1C40F'])

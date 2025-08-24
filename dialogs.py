@@ -509,6 +509,7 @@ class FitDialog(QDialog):
 
             self.ax.clear(); self.ax.plot(x, y, ".", alpha=0.6, label="data")
             self.ax.plot(xs, ys, "-", label="fit")
+            # Note: beautify_axes not available in this context, keep original styling
             self.ax.legend(loc="best"); self.fig.tight_layout(); self.canvas.draw()
         except Exception:
             self.ax.clear(); self.canvas.draw()

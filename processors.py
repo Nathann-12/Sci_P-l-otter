@@ -105,3 +105,87 @@ def compute_fft(df: pd.DataFrame, x_col: str, y_col: str, detrend=True, window="
     })
     # คืนทั้งผลลัพธ์ FFT และอัตราสุ่ม เพื่อให้ฝั่ง UI/unpack ใช้งานได้ถูกต้อง
     return df_fft, fs
+
+# CHANGE: Utilities for curve fitting with datetime X
+def _to_seconds_from_start(x_dt):
+    """รับ pandas Series/Index แบบ datetime64 คืนเป็น (t_sec, t0)
+    ที่ t_sec คือวินาทีจากจุดเริ่มต้น และ t0 คือเวลาเริ่ม (Timestamp)
+    """
+    x_dt = pd.to_datetime(x_dt)
+    t0 = x_dt.iloc[0] if hasattr(x_dt, "iloc") else x_dt[0]
+    # บางเวอร์ชันต้องใช้ .dt.total_seconds()
+    if hasattr(x_dt, "dt"):
+        t_sec = (x_dt - t0).dt.total_seconds()
+    else:
+        t_sec = (x_dt - t0).total_seconds()  # type: ignore
+    return t_sec.to_numpy(dtype=float), pd.to_datetime(t0)
+
+def fit_poly_datetime(x_dt, y, order: int = 1, n_points: int = 400):
+    """
+    ฟิต y = P(t) โดย t คือ 'วินาทีจากจุดเริ่ม', แล้วแปลงกลับเป็น datetime สำหรับพล็อต
+    คืนค่า: x_fit_datetime (Series of Timestamp), y_fit (ndarray), meta (dict)
+    """
+    t_sec, t0 = _to_seconds_from_start(x_dt)
+    scale = float(max(np.max(t_sec) - np.min(t_sec), 1.0))
+    t_scaled = (t_sec - float(np.mean(t_sec))) / scale
+    
+    # แก้ไข: จัดการ NaN values ก่อนการฟิต
+    y_clean = np.asarray(y, dtype=float)
+    mask = np.isfinite(y_clean) & np.isfinite(t_scaled)
+    if mask.sum() < order + 1:
+        raise ValueError(f"ข้อมูลที่ใช้ได้น้อยเกินไปสำหรับการฟิตพอลิโนเมียลระดับ {order}")
+    
+    t_clean = t_scaled[mask]
+    y_clean = y_clean[mask]
+    
+    coeffs = np.polyfit(t_clean, y_clean, order)
+    p = np.poly1d(coeffs)
+    t_scaled_fit = np.linspace(float(np.min(t_scaled)), float(np.max(t_scaled)), int(n_points))
+    y_fit = p(t_scaled_fit)
+    t_fit_sec = t_scaled_fit * scale + float(np.mean(t_sec))
+    x_fit_dt = pd.to_datetime(t0) + pd.to_timedelta(t_fit_sec, unit="s")
+    meta = {"coeffs": coeffs, "t0": t0, "scale": scale}
+    return x_fit_dt, y_fit, meta
+
+# ---- Plot Beautification ----
+def beautify_axes(ax, title=None, x_is_datetime=False):
+    """
+    Beautify matplotlib axes with consistent styling:
+    - Enable minor ticks and light minor grid
+    - Set datetime formatting if x_is_datetime=True
+    - Set optional left-aligned title
+    - Configure legend with transparency
+    - Call tight_layout and redraw
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    
+    # Enable minor ticks and grid
+    ax.minorticks_on()
+    ax.grid(True, which='major', alpha=0.3)
+    ax.grid(True, which='minor', alpha=0.1)
+    
+    # Set datetime formatting if needed
+    if x_is_datetime:
+        try:
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))
+        except Exception:
+            pass  # Fallback to default if datetime formatting fails
+    
+    # Set optional title
+    if title:
+        ax.set_title(title, loc='left', pad=10)
+    
+    # Configure legend
+    if ax.get_legend():
+        legend = ax.get_legend()
+        legend.set_frame_alpha(0.15)
+        legend.set_edgecolor('#3b3f46')
+    
+    # Ensure tight layout and redraw
+    try:
+        ax.figure.tight_layout()
+        ax.figure.canvas.draw()
+    except Exception:
+        pass
