@@ -6,9 +6,6 @@ import numpy as np
 import pandas as pd
 import cdflib
 
-# =========================
-# ตัวช่วยเล็ก ๆ ให้โค้ดทนทาน
-# =========================
 
 def _b2s(x: Any) -> str:
     """แปลง bytes/bytearray → str แบบปลอดภัย"""

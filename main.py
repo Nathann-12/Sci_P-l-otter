@@ -1,8 +1,25 @@
-
 # main.py
 import os, sys
 import numpy as np
 import pandas as pd
+import logging
+import locale
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# บังคับให้ Python ใช้ locale ภาษาอังกฤษเพื่อแสดงเลขอารบิก
+try:
+    locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
+    logger.info("Locale set to English (en_US.UTF-8)")
+except Exception as e:
+    try:
+        # Fallback สำหรับ Windows
+        locale.setlocale(locale.LC_ALL, "English_United States.1252")
+        logger.info("Locale set to English (English_United States.1252)")
+    except Exception as e2:
+        logger.warning(f"Could not set English locale: {e2}")
 
 from PySide6 import QtGui
 from PySide6.QtCore import Qt
@@ -22,6 +39,11 @@ from matplotlib.widgets import Cursor, RectangleSelector
 import matplotlib
 import matplotlib.pyplot as plt
 
+# บังคับให้ Matplotlib ไม่ใช้ locale และแสดงเลขอารบิก
+matplotlib.rcParams["axes.formatter.use_locale"] = False
+matplotlib.rcParams["axes.formatter.use_mathtext"] = False
+matplotlib.rcParams["axes.unicode_minus"] = False
+
 # Load custom dark style if available
 try:
     style_path = os.path.join(os.path.dirname(__file__), "styles", "mpl_style_dark_pro.mplstyle")
@@ -30,7 +52,28 @@ try:
 except Exception:
     pass  # Fallback to default style if loading fails
 
-matplotlib.rcParams["font.sans-serif"] = ["Tahoma", "Noto Sans Thai", "Arial", "DejaVu Sans"]
+# Font settings - use fonts that are commonly available on Windows
+matplotlib.rcParams["font.sans-serif"] = [
+    "Segoe UI", "Microsoft YaHei", "Tahoma", "Arial", 
+    "DejaVu Sans", "Liberation Sans", "Helvetica"
+]
+
+# Set default font to one that is available
+try:
+    import matplotlib.font_manager as fm
+    # Use fonts that are commonly available on Windows
+    available_fonts = ["Segoe UI", "Microsoft YaHei", "Tahoma", "Arial"]
+    for font_name in available_fonts:
+        try:
+            font_path = fm.findfont(fm.FontProperties(family=font_name))
+            if font_path and "DejaVuSans" not in font_path:  # Avoid fallback
+                matplotlib.rcParams["font.family"] = font_name
+                break
+        except Exception:
+            continue
+except Exception:
+    matplotlib.rcParams["font.family"] = "Segoe UI"  # Fallback
+
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 from loaders import load_tabular, load_cdf_nc_on_demand
@@ -39,7 +82,9 @@ from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
 from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes  # CHANGE: datetime fit helpers + plot beautification
-from styles.theme import apply_theme  # UI-REFINE: ใช้ธีมอ่านง่าย
+from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config, refresh_matplotlib_canvases  # UI-REFINE: ใช้ธีมอ่านง่าย
+from settings import settings_manager
+from dialogs_settings import SettingsDialog
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -49,8 +94,47 @@ class PlotCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig); self.setParent(parent)
         self.fig.tight_layout()
+    
     def clear(self):
-        self.fig.clf(); self.ax = self.fig.add_subplot(111); self.fig.tight_layout(); self.draw()
+        """Clear the canvas and recreate axes with error handling"""
+        try:
+            # Store current theme colors
+            import matplotlib
+            current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e1e1e")
+            current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e1e1e")
+            
+            self.fig.clf()
+            self.ax = self.fig.add_subplot(111)
+            
+            # Apply theme colors to new figure
+            self.fig.patch.set_facecolor(current_facecolor)
+            self.ax.set_facecolor(current_axes_facecolor)
+            
+            self.fig.tight_layout()
+            # Use safer draw method
+            try:
+                self.draw()
+            except Exception:
+                # Fallback to figure canvas draw
+                self.fig.canvas.draw()
+        except Exception as e:
+            print(f"Canvas clear error: {e}")
+            # Emergency fallback - recreate figure completely
+            try:
+                self.fig = Figure(figsize=(6, 4), dpi=100)
+                self.ax = self.fig.add_subplot(111)
+                
+                # Apply theme colors to new figure
+                import matplotlib
+                current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e1e1e")
+                current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e1e1e")
+                self.fig.patch.set_facecolor(current_facecolor)
+                self.ax.set_facecolor(current_axes_facecolor)
+                
+                self.fig.tight_layout()
+                self.draw()
+            except Exception:
+                print(f"Emergency canvas recreation failed: {e}")
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -129,9 +213,12 @@ class MainWindow(QMainWindow):
         # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
         self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
         self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
+        # Settings action
+        self.actSettings = QAction("Settings", self)
         # CHANGE: ตั้งไอคอนด้วยไฟล์หรือ fallback มาตรฐาน
         try:
             self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
+            self.actSettings.setIcon(self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
             self.actResetView.setIcon(self._icon("reset", QStyle.StandardPixmap.SP_BrowserReload))
             self.actClearView.setIcon(self._icon("clear", QStyle.StandardPixmap.SP_DialogResetButton))
             self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogDetailedView))
@@ -145,10 +232,12 @@ class MainWindow(QMainWindow):
         self.actToggleInspector.toggled.connect(self.toggle_inspector)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
+        self.actSettings.triggered.connect(self.show_settings)
         self.tb.addAction(self.actOpen); self.tb.addSeparator()
         self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
         self.tb.addAction(self.actFFT); self.tb.addSeparator()
-        self.tb.addAction(self.actExportFFT)
+        self.tb.addAction(self.actExportFFT); self.tb.addSeparator()
+        self.tb.addAction(self.actSettings)
 
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
@@ -313,14 +402,24 @@ class MainWindow(QMainWindow):
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
         exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
 
+        toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
+        toolsMenu.addAction(self.actSettings)
+
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
             "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nF: FFT\nI: Toggle Inspector"
         ))
         
+        # Add keyboard shortcuts
+        self.actOpen.setShortcut("Ctrl+O")
+        self.actSettings.setShortcut("Ctrl+,")
+        
         # Load saved plot style preference
         self._load_plot_style_config()
+        
+        # Load and apply settings from config
+        self._load_and_apply_settings()
 
     # ---------- Plot Style Configuration ----------
     def _get_config_path(self):
@@ -361,41 +460,113 @@ class MainWindow(QMainWindow):
         except Exception:
             pass  # Ignore save errors
     
+    def _load_and_apply_settings(self):
+        """Load and apply settings from configuration"""
+        try:
+            # Apply Qt theme from config
+            from styles.theme import apply_theme_from_config
+            app_config = settings_manager.get_appearance()
+            apply_theme_from_config(QApplication.instance(), app_config)
+            
+            # Apply matplotlib settings from config
+            from styles.theme import apply_mpl_from_config
+            mpl_config = settings_manager.get_matplotlib()
+            apply_mpl_from_config(mpl_config)
+            
+            logger.info("Settings loaded and applied successfully")
+        except Exception as e:
+            logger.error(f"Error loading settings: {e}")
+    
+    def show_settings(self):
+        """Show settings dialog"""
+        try:
+            dialog = SettingsDialog(settings_manager, self)
+            dialog.settingsApplied.connect(self._on_settings_applied)
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open settings: {str(e)}")
+    
+    def _on_settings_applied(self):
+        """Handle settings applied signal"""
+        try:
+            # Refresh all canvases to apply new settings
+            self.refresh_all_canvases()
+            logger.info("Settings applied and canvases refreshed")
+        except Exception as e:
+            logger.error(f"Error applying settings: {e}")
+    
+    def refresh_all_canvases(self):
+        """Refresh all matplotlib canvases to apply new settings"""
+        try:
+            # Refresh main canvas
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas.draw()
+            
+            # Refresh any other canvases that might exist
+            from styles.theme import refresh_matplotlib_canvases
+            refresh_matplotlib_canvases()
+            
+            logger.info("All canvases refreshed")
+        except Exception as e:
+            logger.error(f"Error refreshing canvases: {e}")
+    
     def change_plot_style(self, style, save_config=True):
         """Change plot style and optionally save preference"""
         try:
+            import matplotlib
+            
             if style == "dark":
+                # Try to load dark style file first
                 style_path = os.path.join(os.path.dirname(__file__), "styles", "mpl_style_dark_pro.mplstyle")
                 if os.path.exists(style_path):
                     plt.style.use(style_path)
-                    # Update menu check state
-                    if hasattr(self, 'actDarkStyle'):
-                        self.actDarkStyle.setChecked(True)
-                        self.actDefaultStyle.setChecked(False)
+                    logger.info("Dark style file loaded successfully")
                 else:
-                    QMessageBox.warning(self, "Style Not Found", "Dark style file not found. Using default style.")
-                    style = "default"
+                    # Apply fallback dark theme using rcParams
+                    matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
+                    matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
+                    matplotlib.rcParams["axes.edgecolor"] = "#404040"
+                    matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
+                    matplotlib.rcParams["xtick.color"] = "#ffffff"
+                    matplotlib.rcParams["ytick.color"] = "#ffffff"
+                    matplotlib.rcParams["text.color"] = "#ffffff"
+                    matplotlib.rcParams["grid.color"] = "#404040"
+                    matplotlib.rcParams["grid.alpha"] = 0.3
+                    logger.info("Fallback dark theme applied")
+                
+                # Update menu check state
+                if hasattr(self, 'actDarkStyle'):
+                    self.actDarkStyle.setChecked(True)
+                    self.actDefaultStyle.setChecked(False)
             
-            if style == "default":
+            elif style == "default":
                 plt.style.use('default')
+                # Reset to default colors
+                matplotlib.rcParams["figure.facecolor"] = "white"
+                matplotlib.rcParams["axes.facecolor"] = "white"
+                matplotlib.rcParams["axes.edgecolor"] = "black"
+                matplotlib.rcParams["axes.labelcolor"] = "black"
+                matplotlib.rcParams["xtick.color"] = "black"
+                matplotlib.rcParams["ytick.color"] = "black"
+                matplotlib.rcParams["text.color"] = "black"
+                matplotlib.rcParams["grid.color"] = "black"
+                matplotlib.rcParams["grid.alpha"] = 0.3
+                logger.info("Default theme applied")
+                
                 # Update menu check state
                 if hasattr(self, 'actDarkStyle'):
                     self.actDarkStyle.setChecked(False)
                     self.actDefaultStyle.setChecked(True)
             
-            # Re-apply beautify_axes to current plot if possible
-            if hasattr(self, 'canvas') and hasattr(self.canvas, 'ax'):
+            # Force canvas redraw to apply new style
+            if hasattr(self, 'canvas') and self.canvas:
                 try:
-                    # Detect if current X axis is datetime
-                    x_is_datetime = False
-                    if hasattr(self, '_df') and self._df is not None:
-                        x_col = self.cbX.currentText() if hasattr(self, 'cbX') else ""
-                        if x_col:
-                            x_is_datetime = self._is_datetime_column(x_col)
-                    
-                    beautify_axes(self.canvas.ax, x_is_datetime=x_is_datetime)
-                except Exception:
-                    pass  # Ignore beautification errors
+                    # Clear and redraw canvas to apply new style
+                    self.canvas.clear()
+                    self.canvas.draw()
+                    logger.info("Canvas redrawn with new style")
+                except Exception as e:
+                    logger.error(f"Canvas redraw error: {e}")
             
             # Save preference if requested
             if save_config:
@@ -405,6 +576,7 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Style Change Failed", f"Failed to change plot style: {str(e)}")
+            logger.error(f"Style change error: {e}")
 
     # ---------- File ----------
     def open_file(self):
@@ -495,18 +667,48 @@ class MainWindow(QMainWindow):
         if x_col not in self._df.columns or y_col not in self._df.columns:
             QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่"); return None, None
 
-        x = self._df[x_col].values; y = self._df[y_col].values
-        try: y = pd.to_numeric(y, errors="coerce")
-        except Exception: pass
-        mask = ~(pd.isna(y))
-        if np.issubdtype(type(x[0]), np.datetime64):
-            x = x[mask]; y = y[mask]
-        else:
-            try: x = pd.to_numeric(x, errors="coerce")
-            except Exception: pass
-            mask = ~(pd.isna(x) | pd.isna(y))
-            x = x[mask]; y = y[mask]
-        return x, y
+        try:
+            x = self._df[x_col].values; y = self._df[y_col].values
+            
+            # Convert Y to numeric with error handling
+            try: 
+                y = pd.to_numeric(y, errors="coerce")
+            except Exception as e:
+                print(f"Y column conversion error: {e}")
+                y = pd.to_numeric(y, errors="coerce")  # Try again
+            
+            # Handle datetime X axis
+            if np.issubdtype(type(x[0]), np.datetime64):
+                mask = ~(pd.isna(y))
+                x = x[mask]; y = y[mask]
+            else:
+                # Convert X to numeric with error handling
+                try: 
+                    x = pd.to_numeric(x, errors="coerce")
+                except Exception as e:
+                    print(f"X column conversion error: {e}")
+                    x = pd.to_numeric(x, errors="coerce")  # Try again
+                
+                # Remove NaN values from both X and Y
+                mask = ~(pd.isna(x) | pd.isna(y))
+                x = x[mask]; y = y[mask]
+            
+            # Validate final data
+            if len(x) == 0 or len(y) == 0:
+                QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", "คอลัมน์ที่เลือกไม่มีข้อมูลตัวเลขที่ใช้พล็อตได้")
+                return None, None
+            
+            if len(x) != len(y):
+                QMessageBox.warning(self, "ข้อมูลไม่ตรงกัน", f"จำนวนข้อมูล X ({len(x)}) และ Y ({len(y)}) ไม่เท่ากัน")
+                return None, None
+            
+            return x, y
+            
+        except Exception as e:
+            QMessageBox.critical(self, "เกิดข้อผิดพลาดในการประมวลผลข้อมูล", f"สาเหตุ: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
 
     def _is_datetime_column(self, col_name):
         """Check if a column contains datetime data"""
@@ -528,20 +730,58 @@ class MainWindow(QMainWindow):
     def plot_line(self):
         x, y = self._get_xy()
         if x is None: return
-        lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
-        self.canvas.ax.plot(x, y, linewidth=lw, marker=marker, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
-        self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
-        beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
-        self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
+        
+        try:
+            lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
+            self.canvas.ax.plot(x, y, linewidth=lw, marker=marker, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
+            self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
+            
+            # Apply beautification with error handling
+            try:
+                beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+            except Exception as beautify_error:
+                print(f"Line plot beautify error: {beautify_error}")
+            
+            # Force canvas redraw
+            try:
+                self.canvas.draw()
+                self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
+            except Exception as draw_error:
+                print(f"Line plot draw error: {draw_error}")
+                self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ (การแสดงผลอาจมีปัญหา)")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "พล็อตกราฟเส้นไม่สำเร็จ", f"สาเหตุ: {e}")
+            import traceback
+            traceback.print_exc()
 
     def plot_scatter(self):
         x, y = self._get_xy()
         if x is None: return
-        size = self.spLineWidth.value() * 5
-        self.canvas.ax.scatter(x, y, s=size, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
-        self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
-        beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
-        self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
+        
+        try:
+            size = self.spLineWidth.value() * 5
+            self.canvas.ax.scatter(x, y, s=size, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
+            self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
+            
+            # Apply beautification with error handling
+            try:
+                beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+            except Exception as beautify_error:
+                print(f"Scatter plot beautify error: {beautify_error}")
+            
+            # Force canvas redraw
+            try:
+                self.canvas.draw()
+                self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
+            except Exception as draw_error:
+                print(f"Scatter plot draw error: {draw_error}")
+                self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ (การแสดงผลอาจมีปัญหา)")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "พล็อตกราฟจุดไม่สำเร็จ", f"สาเหตุ: {e}")
+            import traceback
+            traceback.print_exc()
 
     # UI-REFINE: Plot Histogram
     def plot_histogram(self):
@@ -550,16 +790,30 @@ class MainWindow(QMainWindow):
         col = self.cbHist.currentText()
         if not col or col not in self._df.columns:
             QMessageBox.information(self, "เลือกคอลัมน์", "โปรดเลือกคอลัมน์ข้อมูลสำหรับฮิสโตแกรม"); return
+        
         try:
+            # Validate data
             vals = pd.to_numeric(self._df[col], errors="coerce").dropna().values
             if vals.size == 0:
                 QMessageBox.information(self, "ไม่มีข้อมูล", "คอลัมน์ที่เลือกไม่มีค่าตัวเลข"); return
+            
             bins = int(self.spHistBins.value())
+            if bins <= 0:
+                bins = 20  # Default fallback
+            
+            # Clear canvas and create histogram
             self.canvas.clear()
-            n, b, _ = self.canvas.ax.hist(vals, bins=bins, alpha=0.7, color="#6aa0f8", edgecolor="#2d3a5a")
-            self.canvas.ax.set_xlabel(col)
-            self.canvas.ax.set_ylabel("count")
-            self.canvas.ax.set_title(f"Histogram of {col} (bins={bins})")
+            
+            # Create histogram with error handling
+            try:
+                n, b, _ = self.canvas.ax.hist(vals, bins=bins, alpha=0.7, color="#6aa0f8", edgecolor="#2d3a5a")
+                # Use English labels to avoid font issues
+                self.canvas.ax.set_xlabel(col)
+                self.canvas.ax.set_ylabel("Count")
+                self.canvas.ax.set_title(f"Histogram of {col} (bins={bins})")
+            except Exception as hist_error:
+                QMessageBox.critical(self, "สร้างฮิสโตแกรมไม่สำเร็จ", f"สาเหตุ: {hist_error}")
+                return
 
             # ออปชัน: ฟิต Gaussian
             if self.chkHistFit.isChecked():
@@ -575,15 +829,36 @@ class MainWindow(QMainWindow):
                         bin_w = (b[-1] - b[0]) / bins if bins > 0 else 1.0
                         pdf = (1.0/(sigma*sqrt(2*pi))) * _np.exp(-0.5*((xs-mu)/sigma)**2)
                         pdf_scaled = pdf * vals.size * bin_w
-                        self.canvas.ax.plot(xs, pdf_scaled, color="#e36a6a", linewidth=2, label=f"Normal fit μ={mu:.2f}, σ={sigma:.2f}")
+                        # Use English labels to avoid font issues
+                        self.canvas.ax.plot(xs, pdf_scaled, color="#e36a6a", linewidth=2, label=f"Normal fit mu={mu:.2f}, sigma={sigma:.2f}")
                         self.canvas.ax.legend(loc="best")
-                except Exception:
-                    pass
+                except Exception as fit_error:
+                    print(f"Gaussian fit error: {fit_error}")  # Debug info
 
-            beautify_axes(self.canvas.ax)
-            self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
+            # Apply beautification with error handling
+            try:
+                beautify_axes(self.canvas.ax)
+            except Exception as beautify_error:
+                print(f"Beautify error: {beautify_error}")  # Debug info
+            
+            # Force canvas redraw with error handling
+            try:
+                self.canvas.draw()
+                self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
+            except Exception as draw_error:
+                print(f"Canvas draw error: {draw_error}")  # Debug info
+                # Try alternative redraw method
+                try:
+                    self.canvas.figure.canvas.draw()
+                    self.statusBar().showMessage("พล็อต Histogram สำเร็จ (ใช้วิธีสำรอง)")
+                except Exception:
+                    QMessageBox.warning(self, "การวาดกราฟ", "กราฟถูกสร้างแล้วแต่การแสดงผลอาจมีปัญหา")
+                    self.statusBar().showMessage("พล็อต Histogram สำเร็จ (การแสดงผลอาจมีปัญหา)")
+                
         except Exception as e:
             QMessageBox.critical(self, "พล็อตไม่สำเร็จ", f"สาเหตุ: {e}")
+            import traceback
+            traceback.print_exc()  # Debug info
 
     # UI-REFINE: วาดกราฟแท่งแบบง่าย
     def plot_bar(self, x, y, *, xlabel: str = "", ylabel: str = "", title: str = ""):
@@ -615,11 +890,11 @@ class MainWindow(QMainWindow):
         else:
             out = df.groupby(id_col)[value_cols].min().reset_index()
 
-        # พล็อต: ถ้าเลือกหลายคอลัมน์
+        # Plot: if multiple columns selected
         self.canvas.clear()
         x = out[id_col]
         if len(value_cols) == 1 or not stacked:
-            # ใช้คอลัมน์แรกทำ bar chart
+            # Use first column for bar chart
             y = out[value_cols[0]]
             self.plot_bar(x=x, y=y, xlabel=id_col, ylabel=f"{agg}({value_cols[0]})", title=f"{agg} by {id_col}")
         else:
@@ -634,12 +909,13 @@ class MainWindow(QMainWindow):
             self.canvas.ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
             self.canvas.ax.set_xlabel(id_col)
             self.canvas.ax.set_ylabel(f"{agg}(values)")
+            # Use English title to avoid font issues
             self.canvas.ax.set_title(f"{agg} by {id_col} (stacked)")
             beautify_axes(self.canvas.ax, title=f"{agg} by {id_col} (stacked)")
 
-        # เก็บผลไว้สำหรับ Export
+        # Store result for Export
         self.current_aggregated_df = out
-        self.statusBar().showMessage("Aggregate สำเร็จ • ใช้แท็บ Export เพื่อบันทึกผลได้")
+        self.statusBar().showMessage("Aggregate successful • Use Export tab to save results")
 
     # UI-REFINE: เปิด dialog Aggregate และเรียกใช้งาน
     def run_aggregate_dialog(self):
@@ -654,139 +930,140 @@ class MainWindow(QMainWindow):
         try:
             self._aggregate_and_plot(self._df, id_col=id_col, value_cols=value_cols, agg=agg, stacked=stacked)
         except Exception as e:
-            QMessageBox.critical(self, "Aggregate ไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Aggregate failed", f"Reason: {e}")
 
     # UI-REFINE: ส่งออกผล Aggregate เป็น CSV
     def export_aggregated_csv(self):
         if getattr(self, "current_aggregated_df", None) is None:
-            QMessageBox.information(self, "ยังไม่มีผล Aggregate", "กรุณาทำ Aggregate ก่อน"); return
-        path, _ = QFileDialog.getSaveFileName(self, "บันทึกผล Aggregate เป็น CSV", "aggregate.csv", "CSV (*.csv)")
+            QMessageBox.information(self, "No Aggregate result", "Please run Aggregate first"); return
+        path, _ = QFileDialog.getSaveFileName(self, "Save Aggregate result as CSV", "aggregate.csv", "CSV (*.csv)")
         if not path: return
         try:
             self.current_aggregated_df.to_csv(path, index=False)
-            self.statusBar().showMessage(f"บันทึก Aggregate CSV แล้ว: {path}")
+            self.statusBar().showMessage(f"Aggregate CSV saved: {path}")
         except Exception as e:
-            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
     # UI-FIT: เปิด FitDialog และเตรียมข้อมูลซีรีส์ปัจจุบัน
     def _open_fit_dialog(self):
-        # สร้าง mapping label → (x,y) จากสิ่งที่พล็อตอยู่ในแกน
-        axes = self.canvas.ax
-        series_data = {}
-        series_is_seconds: dict[str, bool] = {}  # UI-FIT: ระบุว่า x ถูกแปลงเป็นวินาทีจากต้นทาง
-        labels = []
-        try:
-            for line in axes.get_lines():
-                lbl = line.get_label() or "series"
-                if lbl.startswith("_"):  # เส้นพิเศษของ Matplotlib
-                    continue
-                # UI-FIT: พยายามใช้ข้อมูลดิบจาก DataFrame ตาม label "Y vs X"
-                x = line.get_xdata(); y = line.get_ydata()
-                x_arr = np.asarray(x); y_arr = np.asarray(y)
-                used_seconds = False
-                try:
-                    if self._df is not None and " vs " in lbl:
-                        y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
-                        if x_name in self._df.columns and y_name in self._df.columns:
-                            x_ser = self._df[x_name]
-                            y_ser = self._df[y_name]
-                            # แปลง X เป็นวินาทีหากเป็นเวลา
-                            try:
-                                xs_dt = pd.to_datetime(x_ser, errors="coerce")
-                                if xs_dt.notna().sum() >= 2:
-                                    delta = (xs_dt - xs_dt.iloc[0]).dt.total_seconds()
-                                    x_arr = delta.values
-                                    y_arr = pd.to_numeric(y_ser, errors="coerce").values
-                                    used_seconds = True
-                                else:
-                                    # ไม่ใช่ datetime → ใช้ตัวเลขเดิม
+            # สร้าง mapping label → (x,y) จากสิ่งที่พล็อตอยู่ในแกน
+            axes = self.canvas.ax
+            series_data = {}
+            series_is_seconds: dict[str, bool] = {}  # UI-FIT: ระบุว่า x ถูกแปลงเป็นวินาทีจากต้นทาง
+            labels = []
+            try:
+                for line in axes.get_lines():
+                    lbl = line.get_label() or "series"
+                    if lbl.startswith("_"):  # เส้นพิเศษของ Matplotlib
+                        continue
+                    # UI-FIT: พยายามใช้ข้อมูลดิบจาก DataFrame ตาม label "Y vs X"
+                    x = line.get_xdata(); y = line.get_ydata()
+                    x_arr = np.asarray(x); y_arr = np.asarray(y)
+                    used_seconds = False
+                    try:
+                        if self._df is not None and " vs " in lbl:
+                            y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
+                            if x_name in self._df.columns and y_name in self._df.columns:
+                                x_ser = self._df[x_name]
+                                y_ser = self._df[y_name]
+                                # แปลง X เป็นวินาทีหากเป็นเวลา
+                                try:
+                                    xs_dt = pd.to_datetime(x_ser, errors="coerce")
+                                    if xs_dt.notna().sum() >= 2:
+                                        delta = (xs_dt - xs_dt.iloc[0]).dt.total_seconds()
+                                        x_arr = delta.values
+                                        y_arr = pd.to_numeric(y_ser, errors="coerce").values
+                                        used_seconds = True
+                                    else:
+                                        # ไม่ใช่ datetime → ใช้ตัวเลขเดิม
+                                        x_arr = pd.to_numeric(x_ser, errors="coerce").values
+                                        y_arr = pd.to_numeric(y_ser, errors="coerce").values
+                                except Exception:
                                     x_arr = pd.to_numeric(x_ser, errors="coerce").values
                                     y_arr = pd.to_numeric(y_ser, errors="coerce").values
-                            except Exception:
-                                x_arr = pd.to_numeric(x_ser, errors="coerce").values
-                                y_arr = pd.to_numeric(y_ser, errors="coerce").values
-                except Exception:
-                    pass
-                labels.append(lbl)
-                series_data[lbl] = (x_arr, y_arr)
-                series_is_seconds[lbl] = used_seconds
-        except Exception:
-            pass
-        if not labels:
-            QMessageBox.information(self, "ไม่มีซีรีส์", "ยังไม่มีเส้น/จุดบนกราฟให้ฟิต"); return
-        dlg = FitDialog(self, labels, series_data)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        params = dlg.get_params()
-        lbl = params.get("series_label"); model = params.get("model"); deg = params.get("degree")
-        show_eq = bool(params.get("show_eq", True)); show_resid = bool(params.get("show_resid", False))
-        x, y = series_data.get(lbl, (None, None))
-        if x is None or y is None:
-            return
-        try:
-            used_seconds = bool(series_is_seconds.get(lbl, False))
-            model_l = (model or "linear").lower()
-            if used_seconds and model_l in ("linear", "polynomial"):
-                # CHANGE: ฟิตโดยแปลง X เป็นวินาทีจากต้นทาง แล้วแปลงกลับ datetime สำหรับพล็อต
-                x_name = None; y_name = None
-                try:
-                    if " vs " in lbl:
-                        y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
-                except Exception:
-                    pass
-                if x_name and y_name and (x_name in self._df.columns) and (y_name in self._df.columns):
-                    order = 1 if model_l == "linear" else max(2, int(deg or 2))
-                    x_fit_dt, y_fit, meta = fit_poly_datetime(self._df[x_name], self._df[y_name], order=order)
-                    # คำนวณ metrics บนสเกลเดียวกับตอนฟิต
-                    t_sec, _t0 = _to_seconds_from_start(self._df[x_name])
-                    scale = float(max(np.max(t_sec) - np.min(t_sec), 1.0))
-                    t_scaled = (t_sec - float(np.mean(t_sec))) / scale
-                    p = np.poly1d(meta.get("coeffs"))
-                    y_arr = np.asarray(self._df[y_name], dtype=float)
-                    y_pred = p(t_scaled)
-                    resid = y_arr - y_pred
-                    rmse = float(np.sqrt(np.mean(resid**2)))
-                    ss_res = float(np.sum(resid**2))
-                    ss_tot = float(np.sum((y_arr - float(np.mean(y_arr)))**2))
-                    r2 = (1.0 - ss_res/ss_tot) if ss_tot > 0 else float("nan")
-                    metrics = {"r2": r2, "rmse": rmse}
-                    # วาดเส้นบนแกนเวลาเดิม
-                    self._plot_fit_overlay(lbl, x_fit_dt, y_fit, meta, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=False)
-                    try:
-                        self.canvas.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S'))
-                        self.canvas.fig.autofmt_xdate()
-                        self.canvas.draw()
                     except Exception:
                         pass
-                    # เก็บผล
+                    labels.append(lbl)
+                    series_data[lbl] = (x_arr, y_arr)
+                    series_is_seconds[lbl] = used_seconds
+            except Exception:
+                pass
+            if not labels:
+                QMessageBox.information(self, "No series", "No lines/points on graph to fit"); return
+            dlg = FitDialog(self, labels, series_data)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            params = dlg.get_params()
+            lbl = params.get("series_label"); model = params.get("model"); deg = params.get("degree")
+            show_eq = bool(params.get("show_eq", True)); show_resid = bool(params.get("show_resid", False))
+            x, y = series_data.get(lbl, (None, None))
+            if x is None or y is None:
+                return
+            try:
+                used_seconds = bool(series_is_seconds.get(lbl, False))
+                model_l = (model or "linear").lower()
+                if used_seconds and model_l in ("linear", "polynomial"):
+                    # CHANGE: ฟิตโดยแปลง X เป็นวินาทีจากต้นทาง แล้วแปลงกลับ datetime สำหรับพล็อต
+                    x_name = None; y_name = None
+                    try:
+                        if " vs " in lbl:
+                            y_name, x_name = [s.strip() for s in lbl.split(" vs ", 1)]
+                    except Exception:
+                        pass
+                    
+                    if x_name and y_name and (x_name in self._df.columns) and (y_name in self._df.columns):
+                        order = 1 if model_l == "linear" else max(2, int(deg or 2))
+                        x_fit_dt, y_fit, meta = fit_poly_datetime(self._df[x_name], self._df[y_name], order=order)
+                        # คำนวณ metrics บนสเกลเดียวกับตอนฟิต
+                        t_sec, _t0 = _to_seconds_from_start(self._df[x_name])
+                        scale = float(max(np.max(t_sec) - np.min(t_sec), 1.0))
+                        t_scaled = (t_sec - float(np.mean(t_sec))) / scale
+                        p = np.poly1d(meta.get("coeffs"))
+                        y_arr = np.asarray(self._df[y_name], dtype=float)
+                        y_pred = p(t_scaled)
+                        resid = y_arr - y_pred
+                        rmse = float(np.sqrt(np.mean(resid**2)))
+                        ss_res = float(np.sum(resid**2))
+                        ss_tot = float(np.sum((y_arr - float(np.mean(y_arr)))**2))
+                        r2 = (1.0 - ss_res/ss_tot) if ss_tot > 0 else float("nan")
+                        metrics = {"r2": r2, "rmse": rmse}
+                        # วาดเส้นบนแกนเวลาเดิม
+                        self._plot_fit_overlay(lbl, x_fit_dt, y_fit, meta, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=False)
+                        try:
+                            self.canvas.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M:%S'))
+                            self.canvas.fig.autofmt_xdate()
+                            self.canvas.draw()
+                        except Exception:
+                            pass
+                        # เก็บผล
+                        self.current_fit_result = {
+                            "series": lbl,
+                            "model": model,
+                            "params": meta,
+                            "metrics": metrics,
+                            "xfit": x_fit_dt,
+                            "yfit": y_fit,
+                        }
+                    else:
+                        # fallback: ใช้เส้นทางเดิม
+                        xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
+                        self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
+                        self.current_fit_result = {"series": lbl, "model": model, "params": fit_params, "metrics": metrics, "xfit": xfit, "yfit": yfit}
+                else:
+                    # เดิม: ฟิตบน x ที่เป็นตัวเลขอยู่แล้ว
+                    xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
+                    self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
+                    # เก็บผลเพื่อ export
                     self.current_fit_result = {
                         "series": lbl,
                         "model": model,
-                        "params": meta,
+                        "params": fit_params,
                         "metrics": metrics,
-                        "xfit": x_fit_dt,
-                        "yfit": y_fit,
+                        "xfit": xfit,
+                        "yfit": yfit,
                     }
-                else:
-                    # fallback: ใช้เส้นทางเดิม
-                    xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
-                    self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
-                    self.current_fit_result = {"series": lbl, "model": model, "params": fit_params, "metrics": metrics, "xfit": xfit, "yfit": yfit}
-            else:
-                # เดิม: ฟิตบน x ที่เป็นตัวเลขอยู่แล้ว
-                xfit, yfit, fit_params, metrics = self._do_curve_fit(np.asarray(x), np.asarray(y), model=model, degree=deg)
-                self._plot_fit_overlay(lbl, xfit, yfit, fit_params, metrics, show_eq=show_eq, show_resid=show_resid, x_seconds=used_seconds)
-                # เก็บผลเพื่อ export
-                self.current_fit_result = {
-                    "series": lbl,
-                    "model": model,
-                    "params": fit_params,
-                    "metrics": metrics,
-                    "xfit": xfit,
-                    "yfit": yfit,
-                }
-        except Exception as e:
-            QMessageBox.critical(self, "Fit ไม่สำเร็จ", f"สาเหตุ: {e}")
+            except Exception as e:
+                QMessageBox.critical(self, "Fit failed", f"Reason: {e}")
 
     # UI-FIT: ทำการฟิต (SciPy ถ้ามี; fallback ด้วย NumPy)
     def _do_curve_fit(self, x: np.ndarray, y: np.ndarray, *, model: str, degree: int | None = None):
@@ -1250,13 +1527,19 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
-    # CHANGE: helper โหลดไอคอนจาก assets/icons หรือ fallback เป็น QStyle
+    # CHANGE: helper โหลดไอคอนจากโฟลเดอร์ logo หรือ fallback เป็น QStyle
     def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
         try:
             base = os.path.dirname(__file__)
-            p = os.path.join(base, "assets", "icons", f"{name}.svg")
-            if os.path.isfile(p):
-                return QIcon(p)
+            # ลองหาไอคอนในโฟลเดอร์ logo ก่อน (PNG format)
+            logo_path = os.path.join(base, "logo", f"{name}.png")
+            if os.path.isfile(logo_path):
+                return QIcon(logo_path)
+            
+            # ถ้าไม่มีใน logo ลองหาใน assets/icons (SVG format)
+            assets_path = os.path.join(base, "assets", "icons", f"{name}.svg")
+            if os.path.isfile(assets_path):
+                return QIcon(assets_path)
         except Exception:
             pass
         try:
@@ -1282,8 +1565,27 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
-    apply_theme(app)  # UI-REFINE: เรียกใช้ธีม
-    win = MainWindow(); win.show()
+    
+    # Load and apply settings from configuration
+    try:
+        from styles.theme import apply_theme_from_config, apply_mpl_from_config
+        app_config = settings_manager.get_appearance()
+        mpl_config = settings_manager.get_matplotlib()
+        
+        # Apply Qt theme
+        apply_theme_from_config(app, app_config)
+        
+        # Apply matplotlib settings
+        apply_mpl_from_config(mpl_config)
+        
+        logger.info("Settings applied from configuration")
+    except Exception as e:
+        logger.error(f"Error applying settings from config: {e}")
+        # Fallback to default theme
+        apply_theme(app)
+    
+    win = MainWindow()
+    win.show()
     sys.exit(app.exec())
 
 if __name__ == "__main__":

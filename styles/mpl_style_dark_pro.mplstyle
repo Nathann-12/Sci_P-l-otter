@@ -8,6 +8,8 @@ axes.spines.right: False
 font.family: sans-serif
 font.sans-serif: Noto Sans Thai, Sarabun, Segoe UI, Arial
 axes.unicode_minus: False
+axes.formatter.use_locale: False
+axes.formatter.use_mathtext: False
 axes.titlesize: 12
 axes.labelsize: 11
 xtick.labelsize: 10

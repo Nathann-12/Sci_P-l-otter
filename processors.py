@@ -173,19 +173,51 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
         except Exception:
             pass  # Fallback to default if datetime formatting fails
     
-    # Set optional title
+    # Set optional title - ensure it's displayable
     if title:
-        ax.set_title(title, loc='left', pad=10)
+        try:
+            # Try to set title with original text
+            ax.set_title(title, loc='left', pad=10)
+        except Exception:
+            # If title contains problematic characters, use a safe fallback
+            try:
+                safe_title = str(title).encode('ascii', 'ignore').decode('ascii')
+                if safe_title.strip():
+                    ax.set_title(safe_title, loc='left', pad=10)
+                else:
+                    ax.set_title("Chart", loc='left', pad=10)
+            except Exception:
+                ax.set_title("Chart", loc='left', pad=10)
     
-    # Configure legend
+    # Configure legend - use safer methods that work across matplotlib versions
     if ax.get_legend():
         legend = ax.get_legend()
-        legend.set_frame_alpha(0.15)
-        legend.set_edgecolor('#3b3f46')
+        try:
+            # Try multiple methods to set legend properties
+            if hasattr(legend, 'set_frame_alpha'):
+                legend.set_frame_alpha(0.15)
+            elif hasattr(legend, 'get_frame') and hasattr(legend.get_frame(), 'set_alpha'):
+                legend.get_frame().set_alpha(0.15)
+            
+            if hasattr(legend, 'set_edgecolor'):
+                legend.set_edgecolor('#3b3f46')
+            elif hasattr(legend, 'get_frame') and hasattr(legend.get_frame(), 'set_edgecolor'):
+                legend.get_frame().set_edgecolor('#3b3f46')
+        except Exception:
+            # If all methods fail, just continue without legend styling
+            pass
     
-    # Ensure tight layout and redraw
+    # Ensure tight layout and redraw with better error handling
     try:
         ax.figure.tight_layout()
-        ax.figure.canvas.draw()
     except Exception:
-        pass
+        pass  # Continue without tight layout
+    
+    try:
+        # Try multiple redraw methods
+        if hasattr(ax.figure, 'canvas') and hasattr(ax.figure.canvas, 'draw'):
+            ax.figure.canvas.draw()
+        elif hasattr(ax, 'figure') and hasattr(ax.figure, 'draw'):
+            ax.figure.draw()
+    except Exception:
+        pass  # Continue without redraw

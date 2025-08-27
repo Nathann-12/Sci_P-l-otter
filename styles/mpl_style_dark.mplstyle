@@ -20,3 +20,6 @@ savefig.facecolor: black
 savefig.edgecolor: black
 font.family: sans-serif
 font.sans-serif: Noto Sans Thai, Sarabun, Segoe UI, Tahoma, Arial, DejaVu Sans
+axes.unicode_minus: False
+axes.formatter.use_locale: False
+axes.formatter.use_mathtext: False
