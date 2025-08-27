@@ -80,8 +80,10 @@ from loaders import load_tabular, load_cdf_nc_on_demand
 from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
+from dialogs_spectrogram import SpectrogramDialog  # UI-SPECTROGRAM: Spectrogram dialog
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
 from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes  # CHANGE: datetime fit helpers + plot beautification
+from processors_spectrogram import compute_spectrogram, compute_cwt, export_spectrogram_data  # UI-SPECTROGRAM: spectrogram functions
 from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config, refresh_matplotlib_canvases  # UI-REFINE: ใช้ธีมอ่านง่าย
 from settings import settings_manager
 from dialogs_settings import SettingsDialog
@@ -311,6 +313,8 @@ class MainWindow(QMainWindow):
         rowClear = QHBoxLayout(); self.btnClear = QPushButton("ล้างกราฟ"); rowClear.addWidget(self.btnClear); rowClear.addStretch(1); tp.addLayout(rowClear)
         # UI-FIT: ปุ่ม Curve Fit
         self.btnCurveFit = QPushButton("Curve Fit…"); tp.addWidget(self.btnCurveFit)
+        # UI-SPECTROGRAM: ปุ่ม Spectrogram
+        self.btnSpectrogram = QPushButton("Spectrogram…"); tp.addWidget(self.btnSpectrogram)
         # UI-REFINE: Histogram controls
         tp.addWidget(QLabel("Histogram"))
         rowH1 = QHBoxLayout(); tp.addLayout(rowH1)
@@ -355,6 +359,7 @@ class MainWindow(QMainWindow):
             self.btnLoadCols.clicked.connect(self.load_columns_from_df)
             self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
             self.btnCurveFit.clicked.connect(self._open_fit_dialog)  # UI-FIT
+            self.btnSpectrogram.clicked.connect(self.open_spectrogram_dialog)  # UI-SPECTROGRAM
             self.btnHist.clicked.connect(self.plot_histogram)  # UI-REFINE
             self.btnExport.clicked.connect(self.export_png)
             self.btnExportRange.clicked.connect(self.export_visible_range_csv)
@@ -399,6 +404,7 @@ class MainWindow(QMainWindow):
 
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
+        procMenu.addAction("Spectrogram…").triggered.connect(self.open_spectrogram_dialog)  # UI-SPECTROGRAM
         procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
         procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
         procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
@@ -1347,6 +1353,331 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
+    # UI-SPECTROGRAM: ฟีเจอร์ Spectrogram
+    def open_spectrogram_dialog(self):
+        """เปิด dialog สำหรับ Spectrogram Analysis"""
+        if self._df is None or self._df.empty:
+            QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดเปิดไฟล์ข้อมูลก่อน")
+            return
+        
+        # เปิด dialog
+        dialog = SpectrogramDialog(self._df, self)
+        
+        # เชื่อมต่อ signals
+        dialog.preview_requested.connect(self.on_spectrogram_preview)
+        dialog.export_image_requested.connect(self.on_spectrogram_export_image)
+        dialog.export_csv_requested.connect(self.on_spectrogram_export_csv)
+        dialog.send_to_fft_requested.connect(self.on_spectrogram_send_to_fft)
+        dialog.send_to_curvefit_requested.connect(self.on_spectrogram_send_to_curvefit)
+        
+        # แสดง dialog
+        dialog.exec()
+    
+    def on_spectrogram_preview(self, params):
+        """แสดง preview ของ Spectrogram"""
+        try:
+            # ดึงข้อมูล
+            time_col = params["time_col"]
+            signal_col = params["signal_col"]
+            mode = params["mode"]
+            to_db = params["to_db"]
+            
+            # ตรวจสอบคอลัมน์
+            if time_col not in self._df.columns or signal_col not in self._df.columns:
+                QMessageBox.warning(self, "ไม่พบคอลัมน์", "โปรดเลือกคอลัมน์ที่ถูกต้อง")
+                return
+            
+            # ตรวจสอบข้อมูลเพิ่มเติม
+            time_data = self._df[time_col]
+            signal_data = self._df[signal_col]
+            
+            # ตรวจสอบว่าข้อมูลไม่ว่าง
+            if time_data.empty or signal_data.empty:
+                QMessageBox.warning(self, "ข้อมูลว่าง", "คอลัมน์ที่เลือกไม่มีข้อมูล")
+                return
+            
+            # ตรวจสอบว่าข้อมูลมีค่าที่ใช้ได้
+            valid_time = time_data.notna().sum()
+            valid_signal = signal_data.notna().sum()
+            
+            if valid_time < 10 or valid_signal < 10:
+                QMessageBox.warning(self, "ข้อมูลไม่เพียงพอ", 
+                                  f"คอลัมน์เวลา: {valid_time} จุด, คอลัมน์สัญญาณ: {valid_signal} จุด\nต้องมีอย่างน้อย 10 จุด")
+                return
+            
+            # ตรวจสอบว่าข้อมูลเวลาเรียงลำดับ
+            if pd.api.types.is_datetime64_any_dtype(time_data):
+                if not time_data.is_monotonic_increasing:
+                    QMessageBox.warning(self, "ข้อมูลเวลาไม่เรียงลำดับ", 
+                                      "ข้อมูลเวลาต้องเรียงลำดับจากน้อยไปมาก")
+                    return
+            
+            # คำนวณ spectrogram
+            if "STFT" in mode:
+                # STFT parameters
+                window = params["window"]
+                nperseg = params["nperseg"]
+                noverlap = params["noverlap"]
+                scaling = params["scaling"]
+                detrend = params.get("detrend", True)
+                contrast_percentiles = params.get("contrast_percentiles", (5, 95))
+                max_frequency = params.get("max_frequency", 80)
+                
+                T, F, S, meta = compute_spectrogram(
+                    self._df[time_col], self._df[signal_col],
+                    fs=None, window=window, nperseg=nperseg,
+                    noverlap=noverlap, scaling=scaling, to_db=to_db,
+                    detrend=detrend, contrast_percentiles=contrast_percentiles
+                )
+            else:
+                # CWT parameters
+                wavelet = params["wavelet"]
+                scales = params["scales"]
+                
+                T, F, S, meta = compute_cwt(
+                    self._df[time_col], self._df[signal_col],
+                    wavelet=wavelet, scales=scales, to_db=to_db
+                )
+            
+            # แสดง spectrogram บน axes หลัก
+            self.canvas.ax.clear()
+            
+            # ลบ colorbar เก่าถ้ามี
+            if hasattr(self, '_last_cbar') and self._last_cbar is not None:
+                try:
+                    self._last_cbar.remove()
+                except Exception:
+                    pass
+                self._last_cbar = None
+            
+            # ใช้ imshow สำหรับ spectrogram
+            if meta["is_datetime"]:
+                # สำหรับ datetime ใช้ extent ที่เหมาะสม
+                time_start = meta["time_range"][0]
+                time_end = meta["time_range"][1]
+                extent = [0, len(T), F.min(), F.max()]
+                
+                im = self.canvas.ax.imshow(S, origin='lower', aspect='auto', 
+                                         extent=extent, cmap='viridis')
+                
+                # ตั้งค่าแกนเวลา
+                time_ticks = np.linspace(0, len(T), 5)
+                time_labels = pd.date_range(start=time_start, end=time_end, periods=5)
+                self.canvas.ax.set_xticks(time_ticks)
+                self.canvas.ax.set_xticklabels([t.strftime('%H:%M:%S') for t in time_labels])
+                
+            else:
+                # สำหรับข้อมูลตัวเลข
+                extent = [T.min(), T.max(), F.min(), F.max()]
+                im = self.canvas.ax.imshow(S, origin='lower', aspect='auto', 
+                                         extent=extent, cmap='viridis')
+            
+            # ตั้งค่า contrast limits
+            if "vmin" in meta and "vmax" in meta:
+                im.set_clim(meta["vmin"], meta["vmax"])
+            
+            # ตั้งค่าแกนความถี่
+            if "max_frequency" in params:
+                max_freq = params["max_frequency"]
+                self.canvas.ax.set_ylim(0, max_freq)
+            
+            # เพิ่ม colorbar
+            self._last_cbar = self.canvas.fig.colorbar(im, ax=self.canvas.ax)
+            power_label = "Power (dB)" if to_db else "Power"
+            self._last_cbar.set_label(power_label)
+            
+            # ตั้งชื่อแกน
+            self.canvas.ax.set_xlabel('Time')
+            self.canvas.ax.set_ylabel('Frequency (Hz)')
+            
+            # ตั้งชื่อกราฟ
+            method = "STFT" if "STFT" in mode else "CWT"
+            title = f"Spectrogram ({method}) - {signal_col}"
+            self.canvas.ax.set_title(title)
+            
+            # จัดรูปแบบกราฟ
+            self.canvas.ax.grid(True, alpha=0.3)
+            
+            # อัปเดตกราฟ
+            self.canvas.draw()
+            
+            # เพิ่ม crosshair callback สำหรับ spectrogram
+            if hasattr(self, '_cid_motion') and self._cid_motion is not None:
+                try:
+                    self.canvas.mpl_disconnect(self._cid_motion)
+                except Exception:
+                    pass
+            
+            # เชื่อมต่อ crosshair สำหรับ spectrogram
+            self._cid_motion = self.canvas.mpl_connect('motion_notify_event', self._on_spectrogram_mouse_move)
+            
+            # แสดงสถานะ
+            self.statusBar().showMessage(f"Spectrogram preview เสร็จสิ้น: {method}")
+            
+            # เก็บข้อมูลสำหรับ export
+            self._current_spectrogram = {
+                'T': T, 'F': F, 'S': S, 'meta': meta, 'params': params
+            }
+            
+        except ImportError as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถใช้งานได้: {str(e)}")
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการคำนวณ: {str(e)}")
+            print(f"Spectrogram error: {e}")
+    
+    def on_spectrogram_export_image(self, params):
+        """Export Spectrogram เป็นรูปภาพ PNG"""
+        try:
+            if not hasattr(self, '_current_spectrogram'):
+                QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดทำ Preview ก่อน")
+                return
+            
+            # เลือกไฟล์สำหรับบันทึก
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "บันทึก Spectrogram", 
+                f"spectrogram_{params['mode'].split()[0].lower()}.png",
+                "PNG Files (*.png)"
+            )
+            
+            if filename:
+                # บันทึกกราฟปัจจุบัน
+                self.canvas.fig.savefig(filename, dpi=150, bbox_inches='tight')
+                self.statusBar().showMessage(f"บันทึก Spectrogram เป็น {filename}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการบันทึก: {str(e)}")
+    
+    def on_spectrogram_export_csv(self, params):
+        """Export Spectrogram เป็นไฟล์ CSV"""
+        try:
+            if not hasattr(self, '_current_spectrogram'):
+                QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดทำ Preview ก่อน")
+                return
+            
+            # เลือกไฟล์สำหรับบันทึก
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "บันทึก Spectrogram CSV", 
+                f"spectrogram_{params['mode'].split()[0].lower()}.csv",
+                "CSV Files (*.csv)"
+            )
+            
+            if filename:
+                # Export ข้อมูล
+                T = self._current_spectrogram['T']
+                F = self._current_spectrogram['S']
+                S = self._current_spectrogram['S']
+                meta = self._current_spectrogram['meta']
+                
+                export_spectrogram_data(T, F, S, meta, filename)
+                self.statusBar().showMessage(f"บันทึก Spectrogram CSV เป็น {filename}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการบันทึก: {str(e)}")
+
+    def on_spectrogram_send_to_fft(self, params):
+        """ส่งข้อมูลจาก Spectrogram ไปยัง FFT"""
+        try:
+            if not hasattr(self, '_current_spectrogram'):
+                QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดทำ Preview ก่อน")
+                return
+            
+            # ดึงข้อมูล spectrogram
+            T = self._current_spectrogram['T']
+            F = self._current_spectrogram['F']
+            S = self._current_spectrogram['S']
+            meta = self._current_spectrogram['meta']
+            
+            # สร้างข้อมูลใหม่สำหรับ FFT โดยใช้ช่วงเวลาที่เลือก
+            time_col = params["time_col"]
+            signal_col = params["signal_col"]
+            
+            # ใช้ข้อมูลต้นฉบับจาก DataFrame
+            if time_col in self._df.columns and signal_col in self._df.columns:
+                # เปิด FFT dialog
+                self.run_fft_dialog()
+                self.statusBar().showMessage("ส่งข้อมูลไปยัง FFT แล้ว")
+            else:
+                QMessageBox.warning(self, "ไม่พบคอลัมน์", "ไม่พบคอลัมน์ที่เลือกในข้อมูล")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาด: {str(e)}")
+    
+    def on_spectrogram_send_to_curvefit(self, params):
+        """ส่งข้อมูลจาก Spectrogram ไปยัง CurveFit"""
+        try:
+            if not hasattr(self, '_current_spectrogram'):
+                QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดทำ Preview ก่อน")
+                return
+            
+            # ดึงข้อมูล spectrogram
+            T = self._current_spectrogram['T']
+            F = self._current_spectrogram['F']
+            S = self._current_spectrogram['S']
+            meta = self._current_spectrogram['meta']
+            
+            # สร้างข้อมูลใหม่สำหรับ CurveFit โดยใช้ช่วงเวลาที่เลือก
+            time_col = params["time_col"]
+            signal_col = params["signal_col"]
+            
+            # ใช้ข้อมูลต้นฉบับจาก DataFrame
+            if time_col in self._df.columns and signal_col in self._df.columns:
+                # เปิด CurveFit dialog
+                self._open_fit_dialog()
+                self.statusBar().showMessage("ส่งข้อมูลไปยัง CurveFit แล้ว")
+            else:
+                QMessageBox.warning(self, "ไม่พบคอลัมน์", "ไม่พบคอลัมน์ที่เลือกในข้อมูล")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาด: {str(e)}")
+
+    def _on_spectrogram_mouse_move(self, event):
+        """Crosshair callback สำหรับ spectrogram"""
+        if not hasattr(self, '_current_spectrogram') or event.inaxes != self.canvas.ax:
+            return
+        
+        try:
+            # ดึงข้อมูล spectrogram
+            T = self._current_spectrogram['T']
+            F = self._current_spectrogram['F']
+            S = self._current_spectrogram['S']
+            meta = self._current_spectrogram['meta']
+            
+            # แปลงพิกัดเมาส์เป็นเวลาและความถี่
+            x_data, y_data = event.xdata, event.ydata
+            
+            if x_data is None or y_data is None:
+                return
+            
+            # หาค่าเวลาและความถี่ที่ใกล้ที่สุด
+            if meta["is_datetime"]:
+                time_idx = int(x_data)
+                if 0 <= time_idx < len(T):
+                    time_val = T[time_idx]
+                    time_str = time_val.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    time_str = "N/A"
+            else:
+                time_val = x_data
+                time_str = f"{time_val:.3f}"
+            
+            freq_val = y_data
+            freq_str = f"{freq_val:.2f} Hz"
+            
+            # หาค่า power ที่ตำแหน่งนั้น
+            if 0 <= int(x_data) < S.shape[0] and 0 <= int(y_data) < S.shape[1]:
+                power_val = S[int(x_data), int(y_data)]
+                power_str = f"{power_val:.2f} {'dB' if meta.get('to_db', False) else ''}"
+            else:
+                power_str = "N/A"
+            
+            # แสดงข้อมูลใน status bar
+            status_text = f"Time: {time_str} | Freq: {freq_str} | Power: {power_str}"
+            self.statusBar().showMessage(status_text)
+            
+        except Exception as e:
+            # ถ้าเกิดข้อผิดพลาด ให้แสดงข้อความปกติ
+            pass
+
     def toggle_crosshair(self, checked: bool):
         if self._cursor is not None:
             self._cursor = None
@@ -1600,7 +1931,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกรูปภาพเป็น", "plot.png", "PNG Image (*.png)")
         if not path: return
         try:
-            self.canvas.fig.savefig(path, dpi=300, bbox_inches="tight")
+            self.canvas.fig.savefig(path, dpi=300, bbox_inches="ight")
             self.statusBar().showMessage(f"บันทึกรูปภาพแล้ว: {path}")
         except Exception as e:
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -1642,6 +1973,11 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # บังคับทั้งแอปให้ใช้เลขอารบิก, จุดทศนิยมเป็น "." ฯลฯ
+    from PySide6.QtCore import QLocale
+    QLocale.setDefault(QLocale(QLocale.English, QLocale.UnitedStates))
+    
     app.setApplicationName(APP_TITLE)
     
     # Load and apply settings from configuration
