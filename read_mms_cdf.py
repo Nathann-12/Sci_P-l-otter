@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import cdflib
 
-
 def _b2s(x: Any) -> str:
     """แปลง bytes/bytearray → str แบบปลอดภัย"""
     if isinstance(x, (bytes, bytearray)):

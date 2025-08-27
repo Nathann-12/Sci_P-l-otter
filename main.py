@@ -85,6 +85,8 @@ from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes 
 from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config, refresh_matplotlib_canvases  # UI-REFINE: ใช้ธีมอ่านง่าย
 from settings import settings_manager
 from dialogs_settings import SettingsDialog
+from report_generator import export_report
+from dialogs_report import ExportReportDialog
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -213,6 +215,8 @@ class MainWindow(QMainWindow):
         # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
         self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
         self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
+        # Export Report action
+        self.actExportReport = QAction("Export Report", self)
         # Settings action
         self.actSettings = QAction("Settings", self)
         # CHANGE: ตั้งไอคอนด้วยไฟล์หรือ fallback มาตรฐาน
@@ -224,6 +228,7 @@ class MainWindow(QMainWindow):
             self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogDetailedView))
             self.actFFT.setIcon(self._icon("fft", QStyle.StandardPixmap.SP_ComputerIcon))
             self.actExportFFT.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
+            self.actExportReport.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
         except Exception:
             pass
         self.actOpen.triggered.connect(self.open_file)
@@ -232,11 +237,12 @@ class MainWindow(QMainWindow):
         self.actToggleInspector.toggled.connect(self.toggle_inspector)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
+        self.actExportReport.triggered.connect(self.on_export_report)
         self.actSettings.triggered.connect(self.show_settings)
         self.tb.addAction(self.actOpen); self.tb.addSeparator()
         self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
         self.tb.addAction(self.actFFT); self.tb.addSeparator()
-        self.tb.addAction(self.actExportFFT); self.tb.addSeparator()
+        self.tb.addAction(self.actExportFFT); self.tb.addAction(self.actExportReport); self.tb.addSeparator()
         self.tb.addAction(self.actSettings)
 
         self._init_menu()
@@ -1517,6 +1523,78 @@ class MainWindow(QMainWindow):
 
     def clear_plot(self):
         self.canvas.clear(); self.statusBar().showMessage("ล้างกราฟแล้ว")
+
+    def on_export_report(self):
+        """Export a comprehensive report to PDF containing data analysis and plots"""
+        if self._df is None:
+            QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดเปิดไฟล์ข้อมูลก่อน")
+            return
+            
+        if not hasattr(self.canvas, 'fig') or not self.canvas.fig:
+            QMessageBox.warning(self, "ไม่มีกราฟ", "โปรดสร้างกราฟก่อน")
+            return
+            
+        # Show Export Report Dialog
+        dialog = ExportReportDialog(self._df, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+            
+        # Get options from dialog
+        options = dialog.get_options()
+        
+        # Validate options
+        if not options["include_meta"] and not options["include_stats"] and not options["include_fig"]:
+            QMessageBox.warning(self, "ไม่มีการเลือกเนื้อหา", "โปรดเลือกเนื้อหาอย่างน้อยหนึ่งอย่าง")
+            return
+            
+        # Get save path from user
+        path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "บันทึกรายงานเป็น PDF", 
+            "sciplotter_report.pdf", 
+            "PDF Document (*.pdf)"
+        )
+        
+        if not path:
+            return
+            
+        try:
+            # Prepare metadata with more information
+            meta = {
+                'filename': os.path.basename(self._current_path) if self._current_path else 'Unknown',
+                'columns_used': []
+            }
+            
+            # Get columns used for plotting if available
+            if hasattr(self, 'cbX') and self.cbX.currentText():
+                meta['columns_used'].append(self.cbX.currentText())
+            if hasattr(self, 'cbY') and self.cbY.currentText():
+                meta['columns_used'].append(self.cbY.currentText())
+            
+            # Add more metadata if available
+            if hasattr(self, '_datasets') and self._current_path:
+                for name, data in self._datasets.items():
+                    if data.get('path') == self._current_path:
+                        meta['dataset_name'] = name
+                        break
+            
+            # Generate report with options
+            success = export_report(
+                fig=self.canvas.fig,
+                df=self._df,
+                meta=meta,
+                save_path=path,
+                options=options
+            )
+            
+            if success:
+                self.statusBar().showMessage(f"บันทึกรายงานแล้ว: {path}")
+                QMessageBox.information(self, "สำเร็จ", f"บันทึกรายงานแล้ว:\n{path}")
+            else:
+                QMessageBox.critical(self, "บันทึกไม่สำเร็จ", "เกิดข้อผิดพลาดในการสร้างรายงาน")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกรูปภาพเป็น", "plot.png", "PNG Image (*.png)")

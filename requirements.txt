@@ -10,3 +10,4 @@ pytest>=7.0.0
 cdflib>=1.2
 pandas>=2.1
 numpy>=1.25
+reportlab>=4.0.0
