@@ -81,6 +81,8 @@ from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from dialogs_spectrogram import SpectrogramDialog  # UI-SPECTROGRAM: Spectrogram dialog
+from dialogs_units import UnitsDialog  # UI-UNITS: Units and calibration dialog
+from core.units import UNIT_REGISTRY  # UI-UNITS: Unit registry for conversions
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
 from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes  # CHANGE: datetime fit helpers + plot beautification
 from processors_spectrogram import compute_spectrogram, compute_cwt, export_spectrogram_data  # UI-SPECTROGRAM: spectrogram functions
@@ -402,6 +404,9 @@ class MainWindow(QMainWindow):
         self.actDarkStyle.triggered.connect(lambda: self.change_plot_style("dark"))
         self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
+        dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
+        dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
+        
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
         procMenu.addAction("Spectrogram…").triggered.connect(self.open_spectrogram_dialog)  # UI-SPECTROGRAM
@@ -886,6 +891,37 @@ class MainWindow(QMainWindow):
         if title: self.canvas.ax.set_title(title)
         beautify_axes(self.canvas.ax, title=title)
 
+    def refresh_plot(self, keep_limits: bool = True) -> None:
+        """
+        อะแดปเตอร์เรียกวาดกราฟใหม่
+        - keep_limits: ถ้า True พยายามรักษา xlim/ylim เดิมไว้
+        """
+        # เดาว่าคุณมีฟังก์ชันวาดอยู่แล้ว เช่น update_plot()/redraw_plot()
+        # ปรับชื่อให้ตรงกับของคุณ
+        target = None
+        for name in ("update_plot", "redraw_plot", "plot_current", "plot_data"):
+            if hasattr(self, name):
+                target = getattr(self, name)
+                break
+
+        if target is None:
+            # fallback แบบเบา ๆ: เคลียร์แกนแล้ววาดใหม่จากข้อมูลล่าสุดถ้ามี
+            fig = self.canvas.figure
+            ax = fig.axes[0] if fig.axes else fig.add_subplot(111)
+            xlim = ax.get_xlim() if keep_limits else None
+            ylim = ax.get_ylim() if keep_limits else None
+            ax.clear()
+            # ถ้ามีเมธอดช่วยดึงข้อมูลปัจจุบัน ให้เรียกที่นี่แทน
+            if hasattr(self, "_plot_current"):
+                self._plot_current(ax)  # ปรับชื่อให้ตรงโปรเจกต์คุณ
+            fig.canvas.draw_idle()
+            if keep_limits and xlim and ylim:
+                ax.set_xlim(*xlim); ax.set_ylim(*ylim)
+            return
+
+        # ถ้ามีเมธอดหลักอยู่แล้วก็เรียกเลย
+        target()
+
     # UI-REFINE: wrapper สำหรับ Aggregate ไม่แตะ logic core
     def _aggregate_and_plot(self, df: pd.DataFrame, id_col: str, value_cols: list[str], agg: str, stacked: bool = False):
         import pandas as pd
@@ -1264,6 +1300,8 @@ class MainWindow(QMainWindow):
         try:
             apply_column_types(self._df, mapping)
             self.load_columns_from_df()
+            # รีเฟรชกราฟหลังจากแปลงชนิดข้อมูล
+            self.refresh_plot()
             self.statusBar().showMessage("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
         except Exception as e:
             QMessageBox.critical(self, "แปลงไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -1925,7 +1963,59 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "บันทึกไม่สำเร็จ", "เกิดข้อผิดพลาดในการสร้างรายงาน")
                 
         except Exception as e:
-            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+                            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    def open_units_dialog(self):
+        """Open units and calibration dialog"""
+        if self._df is None or self._df.empty:
+            QMessageBox.warning(self, "No Data", "ยังไม่มีข้อมูล")
+            return
+        
+        try:
+            dlg = UnitsDialog(self._df, self)
+            if dlg.exec():
+                mapping = dlg.result  # {col: {dim, from_unit, to_unit, a, b}}
+                
+                # Apply transformations
+                df_new = self._df.copy()
+                from core.units import apply_to_dataframe
+                
+                for col, cfg in mapping.items():
+                    if col in df_new.columns:
+                        # Get the units
+                        from_unit = UNIT_REGISTRY.find_unit(cfg['from_unit'])
+                        to_unit = UNIT_REGISTRY.find_unit(cfg['to_unit'])
+                        
+                        if from_unit and to_unit:
+                            # Generate new column name
+                            new_col = f"{col} ({cfg['to_unit']})"
+                            
+                            # Apply transformation
+                            df_new = apply_to_dataframe(
+                                df_new, column=col,
+                                a=cfg["a"], b=cfg["b"],
+                                unit_from=from_unit, unit_to=to_unit,
+                                new_col=new_col
+                            )
+                
+                # Update dataframe
+                self._df = df_new
+                
+                # Store units mapping in metadata
+                if not hasattr(self, 'meta'):
+                    self.meta = {}
+                self.meta.setdefault("units", {})
+                self.meta["units"].update(mapping)
+                
+                # Refresh display
+                self.refresh_plot()
+                if hasattr(self, "refresh_stats"):
+                    self.refresh_stats()
+                
+                QMessageBox.information(self, "Done", "แปลงหน่วยและสอบเทียบเรียบร้อย (สร้างคอลัมน์ใหม่)")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"เกิดข้อผิดพลาด: {str(e)}")
 
     def export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกรูปภาพเป็น", "plot.png", "PNG Image (*.png)")

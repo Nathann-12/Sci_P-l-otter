@@ -132,6 +132,16 @@ class ExportReportDialog(QDialog):
             item = self.column_list.item(i)
             item.setCheckState(Qt.Unchecked)
     
+    def _dedupe_columns(self, columns):
+        """Remove duplicate columns while preserving order"""
+        seen = set()
+        deduped = []
+        for col in columns:
+            if col not in seen:
+                seen.add(col)
+                deduped.append(col)
+        return deduped
+    
     def get_selected_columns(self):
         """Get list of selected column names"""
         selected_columns = []
@@ -142,11 +152,21 @@ class ExportReportDialog(QDialog):
         return selected_columns
     
     def get_options(self):
-        """Get all selected options as a dictionary"""
+        """Get all selected options as a dictionary with deduplication and default title"""
+        # Get title and set default if empty
+        title = self.title_edit.text().strip()
+        if not title:
+            title = "รายงานการวิเคราะห์ข้อมูล SciPlotter"
+        
+        # Get columns and dedupe them
+        columns = self.get_selected_columns()
+        if columns:
+            columns = self._dedupe_columns(columns)
+        
         return {
-            "title": self.title_edit.text().strip(),
+            "title": title,
             "include_meta": self.include_meta.isChecked(),
             "include_stats": self.include_stats.isChecked(),
             "include_fig": self.include_fig.isChecked(),
-            "columns": self.get_selected_columns()
+            "columns": columns
         }
