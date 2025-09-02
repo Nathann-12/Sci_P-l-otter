@@ -5,9 +5,13 @@ import pandas as pd
 import logging
 import locale
 
-# Set up logging
+# Set up logging (will be overridden by setup_logging() in main())
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ปิด matplotlib debug messages
+import matplotlib
+matplotlib.set_loglevel("WARNING")
 
 # บังคับให้ Python ใช้ locale ภาษาอังกฤษเพื่อแสดงเลขอารบิก
 try:
@@ -92,6 +96,8 @@ from dialogs_settings import SettingsDialog
 from report_generator import export_report
 from dialogs_report import ExportReportDialog
 from dialogs_tabs import SelectTabsDialog
+from core.logging_setup import setup_logging
+from UI.widgets.error_panel import ErrorPanel
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -398,6 +404,10 @@ class MainWindow(QMainWindow):
         # Keep reference to current canvas for backward compatibility
         self.canvas = None  # Will be set by _update_canvas_reference
         self._update_canvas_reference()
+        
+        # Error Panel (hidden by default)
+        self.error_panel = ErrorPanel(self)
+        self.error_panel.hide()  # ซ่อนไว้ก่อน
 
         # ซ้าย = File/Staging
         self._panel_left = QWidget(self)
@@ -427,44 +437,8 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
 
-        # UI-REFINE: ทูลบาร์จัดกลุ่ม File / View / Process / Export (ต้องสร้างก่อนเมนู)
-        self.tb = QToolBar("Toolbar", self); self.addToolBar(self.tb)
-        self.actOpen = QAction("Open", self); self.actResetView = QAction("Reset View", self)
-        self.actClearView = QAction("Clear Plot", self)  # UI-REFINE
-        self.actAddTab = QAction("Add Tab", self)  # UI-REFINE: Add new tab
-        # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
-        self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
-        self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
-        # Export Report action
-        self.actExportReport = QAction("Export Report", self)
-        # Settings action
-        self.actSettings = QAction("Settings", self)
-        # CHANGE: ตั้งไอคอนด้วยไฟล์หรือ fallback มาตรฐาน
-        try:
-            self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
-            self.actSettings.setIcon(self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
-            self.actResetView.setIcon(self._icon("reset", QStyle.StandardPixmap.SP_BrowserReload))
-            self.actClearView.setIcon(self._icon("clear", QStyle.StandardPixmap.SP_DialogResetButton))
-            self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogDetailedView))
-            self.actFFT.setIcon(self._icon("fft", QStyle.StandardPixmap.SP_ComputerIcon))
-            self.actExportFFT.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
-            self.actExportReport.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
-        except Exception:
-            pass
-        self.actOpen.triggered.connect(self.open_file)
-        self.actResetView.triggered.connect(self._reset_view)
-        self.actClearView.triggered.connect(self.clear_plot)
-        self.actAddTab.triggered.connect(self._add_new_tab)
-        self.actToggleInspector.toggled.connect(self.toggle_inspector)
-        self.actFFT.triggered.connect(self.run_fft_dialog)
-        self.actExportFFT.triggered.connect(self.export_fft_dialog)
-        self.actExportReport.triggered.connect(self.on_export_report)
-        self.actSettings.triggered.connect(self.show_settings)
-        self.tb.addAction(self.actOpen); self.tb.addSeparator()
-        self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actAddTab); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
-        self.tb.addAction(self.actFFT); self.tb.addSeparator()
-        self.tb.addAction(self.actExportFFT); self.tb.addAction(self.actExportReport); self.tb.addSeparator()
-        self.tb.addAction(self.actSettings)
+        # Build toolbar with organized groups
+        self.build_toolbar()
 
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
@@ -614,6 +588,15 @@ class MainWindow(QMainWindow):
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
         viewMenu.addAction(self.actToggleInspector)
+        
+        # Test Error menu
+        test_action = viewMenu.addAction("Raise Test Error")
+        def _raise_test_error():
+            try:
+                raise RuntimeError("นี่คือเออเรอร์ทดสอบจากเมนู")
+            except Exception:
+                logging.getLogger("Demo").exception("เกิดข้อผิดพลาดทดสอบ")
+        test_action.triggered.connect(_raise_test_error)
         
         # Plot Style submenu
         plotStyleMenu = viewMenu.addMenu("Plot Style")
@@ -2053,6 +2036,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def toggle_error_panel(self, checked: bool):
+        """เปิด/ปิด Error Panel"""
+        try:
+            if checked:
+                # แสดง Error Panel เป็น floating window
+                self.error_panel.setFloating(True)
+                self.error_panel.show()
+                self.error_panel.raise_()
+                self.error_panel.activateWindow()
+            else:
+                self.error_panel.hide()
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Error toggling error panel: {e}")
+
     def start_box_zoom(self):
         if self._rs is not None:
             try: self._rs.set_active(False)
@@ -2395,6 +2392,9 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # Setup logging system
+    setup_logging()
     
     # บังคับทั้งแอปให้ใช้เลขอารบิก, จุดทศนิยมเป็น "." ฯลฯ
     from PySide6.QtCore import QLocale

@@ -1,0 +1,87 @@
+2025-09-02 20:34:03 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-02 20:34:03 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:34:03 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:34:03 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:34:03 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:34:03 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:34:03 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:34:03 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:34:03 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:34:03 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:34:03 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:34:03 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:34:03 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:34:03 | INFO | __main__ | Settings applied from configuration
+2025-09-02 20:34:04 | INFO | __main__ | Dark style file loaded successfully
+2025-09-02 20:34:09 | INFO | __main__ | Canvas redrawn with new style
+2025-09-02 20:34:09 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:34:09 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:34:09 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:34:09 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:34:09 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:34:09 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:34:09 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:34:09 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:34:09 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:34:09 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:34:09 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:34:09 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:34:09 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-02 20:36:45 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-02 20:36:45 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:36:45 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:36:45 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:36:45 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:36:45 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:36:45 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:36:45 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:36:45 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:36:45 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:36:45 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:36:45 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:36:45 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:36:45 | INFO | __main__ | Settings applied from configuration
+2025-09-02 20:36:45 | INFO | __main__ | Dark style file loaded successfully
+2025-09-02 20:36:50 | INFO | __main__ | Canvas redrawn with new style
+2025-09-02 20:36:50 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:36:50 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:36:50 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:36:50 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:36:50 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:36:50 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:36:50 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:36:50 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:36:50 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:36:50 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:36:51 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:36:51 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:36:51 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-02 20:38:57 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-02 20:38:57 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:38:57 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:38:57 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:38:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:38:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:38:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:38:57 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:38:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:38:57 | INFO | __main__ | Settings applied from configuration
+2025-09-02 20:38:57 | INFO | __main__ | Dark style file loaded successfully
+2025-09-02 20:38:57 | INFO | __main__ | Canvas redrawn with new style
+2025-09-02 20:38:57 | INFO | styles.theme | Applying theme from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Script MT size 10
+2025-09-02 20:38:57 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-02 20:38:57 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-02 20:38:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:38:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:38:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-02 20:38:57 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-02 20:38:57 | INFO | styles.theme | Color cycle set with 3 colors
+2025-09-02 20:38:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-02 20:38:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-02 20:38:57 | INFO | __main__ | Settings loaded and applied successfully
