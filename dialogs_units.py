@@ -99,7 +99,7 @@ class UnitsDialog(QDialog):
         
         self.setWindowTitle("การตั้งค่าหน่วยและการสอบเทียบ")
         self.setModal(True)
-        self.resize(1400, 800)  # เพิ่มความกว้างจาก 1000 เป็น 1400
+        self.resize(1600, 800)  # เพิ่มความกว้างจาก 1400 เป็น 1600 เพื่อรองรับคอลัมน์ที่ขยายขึ้น
         
         self.setup_ui()
         self.populate_table()
@@ -139,8 +139,6 @@ class UnitsDialog(QDialog):
             }
             QPushButton:hover { 
                 background: #45a049; 
-                transform: translateY(-1px);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             }
         """)
         self.btn_clear.setStyleSheet("""
@@ -153,8 +151,6 @@ class UnitsDialog(QDialog):
             }
             QPushButton:hover { 
                 background: #da190b; 
-                transform: translateY(-1px);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             }
         """)
         bar.addWidget(self.btn_autodetect)
@@ -184,9 +180,9 @@ class UnitsDialog(QDialog):
         
         # Set fixed column widths for better readability
         header.resizeSection(0, 200)  # Column name - 200px
-        header.resizeSection(1, 120)  # Dimension - 120px
-        header.resizeSection(2, 100)  # From Unit - 100px
-        header.resizeSection(3, 100)  # To Unit - 100px
+        header.resizeSection(1, 180)  # Dimension - 180px (เพิ่มจาก 120px)
+        header.resizeSection(2, 160)  # From Unit - 160px (เพิ่มจาก 100px)
+        header.resizeSection(3, 160)  # To Unit - 160px (เพิ่มจาก 100px)
         header.resizeSection(4, 120)  # Calibrate - 120px
         
         # Style the table
@@ -271,7 +267,7 @@ class UnitsDialog(QDialog):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([800, 600])  # เพิ่มความกว้างฝั่งซ้ายจาก 560 เป็น 800
+        splitter.setSizes([1000, 600])  # เพิ่มความกว้างฝั่งซ้ายจาก 800 เป็น 1000 เพื่อรองรับคอลัมน์ที่ขยายขึ้น
         
         # ปุ่มล่าง
         button_layout = QHBoxLayout()
@@ -291,8 +287,6 @@ class UnitsDialog(QDialog):
             }
             QPushButton:hover { 
                 background: #0056b3; 
-                transform: translateY(-1px);
-                box-shadow: 0 2px 6px rgba(0,0,0,0.2);
             }
             QPushButton:pressed { background: #004085; }
         """)
@@ -307,8 +301,6 @@ class UnitsDialog(QDialog):
             }
             QPushButton:hover { 
                 background: #545b62; 
-                transform: translateY(-1px);
-                box-shadow: 0 2px 6px rgba(0,0,0,0.2);
             }
             QPushButton:pressed { background: #3d4449; }
         """)
@@ -409,6 +401,9 @@ class UnitsDialog(QDialog):
             dim_combo = QComboBox()
             dim_combo.addItem("Select dimension...")
             dim_combo.addItems(dimensions)
+            dim_combo.setMinimumWidth(140)  # ตั้งค่าขนาดขั้นต่ำของ ComboBox
+            dim_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)  # ปรับขนาดตามเนื้อหา
+            dim_combo.setMaxVisibleItems(15)  # แสดงรายการได้มากขึ้น
             dim_combo.setStyleSheet("""
                 QComboBox {
                     padding: 6px 8px;
@@ -417,7 +412,6 @@ class UnitsDialog(QDialog):
                     background-color: white;
                     font-size: 11px;
                     font-family: 'Segoe UI', Arial, sans-serif;
-                    min-width: 80px;
                 }
                 QComboBox::drop-down {
                     border: none;
@@ -441,12 +435,69 @@ class UnitsDialog(QDialog):
             # From unit combo
             from_combo = QComboBox()
             from_combo.addItem("Auto-guess...")
-            from_combo.setStyleSheet(dim_combo.styleSheet())
+            from_combo.setMinimumWidth(140)  # ตั้งค่าขนาดขั้นต่ำของ ComboBox
+            from_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)  # ปรับขนาดตามเนื้อหา
+            from_combo.setMaxVisibleItems(15)  # แสดงรายการได้มากขึ้น
+            from_combo.setStyleSheet("""
+                QComboBox {
+                    padding: 6px 8px;
+                    border: 1px solid #ced4da;
+                    border-radius: 4px;
+                    background-color: white;
+                    font-size: 11px;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: none;
+                    border-left: 5px solid transparent;
+                    border-right: 5px solid transparent;
+                    border-top: 5px solid #6c757d;
+                    margin-right: 5px;
+                }
+                QComboBox QAbstractItemView {
+                    border: 1px solid #ced4da;
+                    background-color: white;
+                    selection-background-color: #007bff;
+                    selection-color: white;
+                }
+            """)
             
             # To unit combo
             to_combo = QComboBox()
             to_combo.addItem("Select unit...")
-            to_combo.setStyleSheet(dim_combo.styleSheet())
+            to_combo.setMinimumWidth(140)  # ตั้งค่าขนาดขั้นต่ำของ ComboBox
+            to_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)  # ปรับขนาดตามเนื้อหา
+            to_combo.setMaxVisibleItems(15)  # แสดงรายการได้มากขึ้น
+            to_combo.setStyleSheet("""
+                QComboBox {
+                    padding: 6px 8px;
+                    border: 1px solid #ced4da;
+                    border-radius: 4px;
+                    background-color: white;
+                    font-size: 11px;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    border-left: 5px solid transparent;
+                    border-right: 5px solid transparent;
+                    border-top: 5px solid #6c757d;
+                    margin-right: 5px;
+                }
+                QComboBox QAbstractItemView {
+                    border: 1px solid #ced4da;
+                    background-color: white;
+                    selection-background-color: #007bff;
+                    selection-color: white;
+                }
+            """)
             
             # Calibrate button
             calib_btn = QPushButton("🔧 Calibrate...")
@@ -460,7 +511,6 @@ class UnitsDialog(QDialog):
                 }
                 QPushButton:hover { 
                     background: #e0a800; 
-                    transform: translateY(-1px);
                 }
                 QPushButton:pressed { background: #d39e00; }
             """)

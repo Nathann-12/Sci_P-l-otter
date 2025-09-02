@@ -3,6 +3,11 @@ Settings dialog for SciPlotter
 Provides UI for configuring appearance and matplotlib settings with live previews
 """
 
+# Set encoding to UTF-8 for proper text display (only once at module level)
+import sys
+if hasattr(sys, 'setdefaultencoding'):
+    sys.setdefaultencoding('utf-8')
+
 import re
 import os
 from pathlib import Path
@@ -14,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QSettings, QLocale
 from PySide6.QtGui import QFontDatabase, QColor, QPalette, QFont
+from PySide6.QtWidgets import QApplication
 
 from settings import SettingsManager, AppConfig
 from widgets.color_button import ColorButtonWithLabel
@@ -26,6 +32,9 @@ class ColorCycleEditor(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Set font that supports multiple languages
+        self.setFont(QFont("Segoe UI", 9))
+            
         self.setLayout(QVBoxLayout())
         
         # Color list
@@ -166,15 +175,33 @@ class SettingsDialog(QDialog):
     
     def __init__(self, settings_manager: SettingsManager, parent=None):
         super().__init__(parent)
+        
+        # Set font that supports multiple languages
+        self.setFont(QFont("Segoe UI", 9))
+            
         self.settings_manager = settings_manager
         self.original_config = self.settings_manager.config
         
         # Force English locale for number inputs
         self.setLocale(QLocale(QLocale.English, QLocale.UnitedStates))
         
+        # Set default font that supports multiple languages
+        app = QApplication.instance()
+        if app:
+            # Try to set a font that supports multiple languages
+            default_font = QFont("Segoe UI", 9)
+            if not default_font.exactMatch():
+                default_font = QFont("Arial", 9)
+            if not default_font.exactMatch():
+                default_font = QFont("Helvetica", 9)
+            app.setFont(default_font)
+            
+            # Set font for this dialog
+            self.setFont(default_font)
+        
         self.setWindowTitle("Settings - SciPlotter")
         self.setModal(True)
-        self.resize(1000, 700)  # Increased size for side-by-side layout
+        self.resize(1200, 800)  # Increased size for better text display and side-by-side layout
         
         self.setup_ui()
         self.load_current_settings()
@@ -223,18 +250,21 @@ class SettingsDialog(QDialog):
         # Theme Section
         theme_group = QGroupBox("Theme")
         theme_layout = QFormLayout(theme_group)
+        theme_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
         
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Built-in Dark", "Built-in Light", "Custom QSS"])
+        self.theme_combo.setMinimumWidth(200)  # Set minimum width for better text display
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         
         self.qss_path_edit = QLineEdit()
         self.qss_path_edit.setPlaceholderText("Path to custom QSS file")
+        self.qss_path_edit.setMinimumWidth(300)  # Set minimum width for better text display
         self.qss_browse_btn = QPushButton("Browse...")
         self.qss_browse_btn.clicked.connect(self._browse_qss)
         
         qss_layout = QHBoxLayout()
-        qss_layout.addWidget(self.qss_path_edit)
+        qss_layout.addWidget(self.qss_path_edit, 1)  # Give more space to path edit
         qss_layout.addWidget(self.qss_browse_btn)
         
         theme_layout.addRow("Theme:", self.theme_combo)
@@ -245,14 +275,29 @@ class SettingsDialog(QDialog):
         # Fonts Section
         font_group = QGroupBox("Fonts")
         font_layout = QFormLayout(font_group)
+        font_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
         
         self.font_family_combo = QComboBox()
-        self.font_family_combo.addItems(QFontDatabase().families())
+        # Get available fonts and prioritize common fonts that support multiple languages
+        available_fonts = QFontDatabase().families()
+        # Prioritize fonts that are known to work well with multiple languages
+        priority_fonts = ["Segoe UI", "Arial", "Helvetica", "DejaVu Sans", "Liberation Sans", "Ubuntu", "Noto Sans"]
+        
+        # Add priority fonts first if they exist
+        for font in priority_fonts:
+            if font in available_fonts:
+                self.font_family_combo.addItem(font)
+                available_fonts.remove(font)
+        
+        # Add remaining fonts
+        self.font_family_combo.addItems(available_fonts)
+        self.font_family_combo.setMinimumWidth(250)  # Set minimum width for better text display
         self.font_family_combo.currentTextChanged.connect(self._update_font_preview)
         
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 24)
         self.font_size_spin.setValue(10)
+        self.font_size_spin.setMinimumWidth(100)  # Set minimum width for better text display
         self.font_size_spin.valueChanged.connect(self._update_font_preview)
         
         self.apply_to_matplotlib_check = QCheckBox("Apply to Matplotlib")
@@ -269,14 +314,14 @@ class SettingsDialog(QDialog):
         preview_layout = QVBoxLayout(preview_group)
         
         # Font preview
-        self.font_preview_label = QLabel("ตัวอย่างฟอนต์: AaBbCc 123")
+        self.font_preview_label = QLabel("Font Preview: AaBbCc 123")
         self.font_preview_label.setAlignment(Qt.AlignCenter)
         self.font_preview_label.setFrameStyle(QFrame.Box)
         self.font_preview_label.setMinimumHeight(40)
         preview_layout.addWidget(self.font_preview_label)
         
         # Theme preview
-        self.theme_preview_label = QLabel("ตัวอย่างธีม")
+        self.theme_preview_label = QLabel("Theme Preview")
         self.theme_preview_label.setAlignment(Qt.AlignCenter)
         self.theme_preview_label.setFrameStyle(QFrame.Box)
         self.theme_preview_label.setMinimumHeight(40)
@@ -297,18 +342,21 @@ class SettingsDialog(QDialog):
         # Mode Section
         mode_group = QGroupBox("Mode")
         mode_layout = QFormLayout(mode_group)
+        mode_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
         
         self.mpl_mode_combo = QComboBox()
         self.mpl_mode_combo.addItems(["Use .mplstyle file", "Custom overrides"])
+        self.mpl_mode_combo.setMinimumWidth(200)  # Set minimum width for better text display
         self.mpl_mode_combo.currentTextChanged.connect(self._on_mpl_mode_changed)
         
         self.mpl_style_path_edit = QLineEdit()
         self.mpl_style_path_edit.setPlaceholderText("Path to .mplstyle file")
+        self.mpl_style_path_edit.setMinimumWidth(300)  # Set minimum width for better text display
         self.mpl_style_browse_btn = QPushButton("Browse...")
         self.mpl_style_browse_btn.clicked.connect(self._browse_mpl_style)
         
         mpl_style_layout = QHBoxLayout()
-        mpl_style_layout.addWidget(self.mpl_style_path_edit)
+        mpl_style_layout.addWidget(self.mpl_style_path_edit, 1)  # Give more space to path edit
         mpl_style_layout.addWidget(self.mpl_style_browse_btn)
         
         mode_layout.addRow("Mode:", self.mpl_mode_combo)
@@ -319,6 +367,7 @@ class SettingsDialog(QDialog):
         # Overrides Section
         self.overrides_group = QGroupBox("Custom Overrides")
         overrides_layout = QFormLayout(self.overrides_group)
+        overrides_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
         
         # Grid settings
         self.grid_enabled_check = QCheckBox("Enable Grid")
@@ -328,15 +377,17 @@ class SettingsDialog(QDialog):
         self.grid_alpha_spin.setRange(0.0, 1.0)
         self.grid_alpha_spin.setSingleStep(0.05)
         self.grid_alpha_spin.setValue(0.25)
+        self.grid_alpha_spin.setMinimumWidth(100)  # Set minimum width for better text display
         self.grid_alpha_spin.valueChanged.connect(self._update_mpl_preview)
         
         self.grid_linestyle_combo = QComboBox()
         self.grid_linestyle_combo.addItems([
-            "เส้นทึบ (-)", 
-            "เส้นประ (--)", 
-            "เส้นจุด (:)", 
-            "เส้นประ-จุด (-.)"
+            "Solid (-)", 
+            "Dashed (--)", 
+            "Dotted (:)", 
+            "Dash-Dot (-.)"
         ])
+        self.grid_linestyle_combo.setMinimumWidth(150)  # Set minimum width for better text display
         self.grid_linestyle_combo.currentTextChanged.connect(self._update_mpl_preview)
         
         overrides_layout.addRow("Grid:", self.grid_enabled_check)
@@ -375,7 +426,7 @@ class SettingsDialog(QDialog):
         right_layout.addWidget(preview_group)
         
         # Add layouts to main layout
-        layout.addLayout(left_layout, 1)   # Settings take 1 part
+        layout.addLayout(left_layout, 2)   # Settings take 2 parts (more space for text)
         layout.addLayout(right_layout, 1)  # Preview takes 1 part
         
         return tab
@@ -416,30 +467,30 @@ class SettingsDialog(QDialog):
         
         font = QFont(font_family, font_size)
         self.font_preview_label.setFont(font)
-        self.font_preview_label.setText(f"ตัวอย่างฟอนต์: {font_family} {font_size}pt")
+        self.font_preview_label.setText(f"Font Preview: {font_family} {font_size}pt")
     
     def _update_theme_preview(self):
         """Update theme preview"""
         theme = self.theme_combo.currentText()
         if theme == "Built-in Dark":
-            self.theme_preview_label.setText("🌙 Dark Theme - สีพื้นหลังเข้ม สีข้อความสว่าง")
+            self.theme_preview_label.setText("🌙 Dark Theme - Dark background with light text")
             self.theme_preview_label.setStyleSheet("background-color: #2b2b2b; color: #ffffff; padding: 10px;")
         elif theme == "Built-in Light":
-            self.theme_preview_label.setText("☀️ Light Theme - สีพื้นหลังสว่าง สีข้อความเข้ม")
+            self.theme_preview_label.setText("☀️ Light Theme - Light background with dark text")
             self.theme_preview_label.setStyleSheet("background-color: #f0f0f0; color: #000000; padding: 10px;")
         else:  # Custom QSS
-            self.theme_preview_label.setText("🎨 Custom QSS - ใช้ไฟล์ QSS ที่กำหนดเอง")
+            self.theme_preview_label.setText("🎨 Custom QSS - Use custom QSS file")
             self.theme_preview_label.setStyleSheet("background-color: #e8f4fd; color: #0066cc; padding: 10px;")
     
-    def _get_linestyle_from_thai(self, thai_text: str) -> str:
-        """Convert Thai description to matplotlib linestyle value"""
-        if "เส้นทึบ" in thai_text:
+    def _get_linestyle_from_description(self, description_text: str) -> str:
+        """Convert description to matplotlib linestyle value"""
+        if "Solid" in description_text:
             return "-"
-        elif "เส้นประ" in thai_text:
+        elif "Dashed" in description_text:
             return "--"
-        elif "เส้นจุด" in thai_text:
+        elif "Dotted" in description_text:
             return ":"
-        elif "เส้นประ-จุด" in thai_text:
+        elif "Dash-Dot" in description_text:
             return "-."
         else:
             return "-"
@@ -447,8 +498,8 @@ class SettingsDialog(QDialog):
     def _update_mpl_preview(self):
         """Update matplotlib preview with current settings"""
         if self.mpl_mode_combo.currentText() == "Custom overrides":
-            # Convert Thai description to actual linestyle value
-            linestyle = self._get_linestyle_from_thai(self.grid_linestyle_combo.currentText())
+            # Convert description to actual linestyle value
+            linestyle = self._get_linestyle_from_description(self.grid_linestyle_combo.currentText())
             
             style_dict = {
                 'grid': {
@@ -494,7 +545,21 @@ class SettingsDialog(QDialog):
             else:
                 self.theme_combo.setCurrentText("Built-in Light")
             
-            self.font_family_combo.setCurrentText(app_config.font_family)
+            # Set font family, fallback to a known working font if the saved font doesn't exist
+            if app_config.font_family in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
+                self.font_family_combo.setCurrentText(app_config.font_family)
+            else:
+                # Fallback to a known working font
+                fallback_fonts = ["Segoe UI", "Arial", "Helvetica"]
+                for font in fallback_fonts:
+                    if font in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
+                        self.font_family_combo.setCurrentText(font)
+                        break
+                else:
+                    # If no fallback font found, use the first available font
+                    if self.font_family_combo.count() > 0:
+                        self.font_family_combo.setCurrentIndex(0)
+            
             self.font_size_spin.setValue(app_config.font_size)
             
             # Matplotlib
@@ -508,15 +573,15 @@ class SettingsDialog(QDialog):
             self.grid_alpha_spin.setValue(mpl_config.grid_alpha)
             # Set grid linestyle combo box based on current setting
             if mpl_config.grid_linestyle == "-":
-                self.grid_linestyle_combo.setCurrentText("เส้นทึบ (-)")
+                self.grid_linestyle_combo.setCurrentText("Solid (-)")
             elif mpl_config.grid_linestyle == "--":
-                self.grid_linestyle_combo.setCurrentText("เส้นประ (--)")
+                self.grid_linestyle_combo.setCurrentText("Dashed (--)")
             elif mpl_config.grid_linestyle == ":":
-                self.grid_linestyle_combo.setCurrentText("เส้นจุด (:)")
+                self.grid_linestyle_combo.setCurrentText("Dotted (:)")
             elif mpl_config.grid_linestyle == "-.":
-                self.grid_linestyle_combo.setCurrentText("เส้นประ-จุด (-.)")
+                self.grid_linestyle_combo.setCurrentText("Dash-Dot (-.)")
             else:
-                self.grid_linestyle_combo.setCurrentText("เส้นทึบ (-)")
+                self.grid_linestyle_combo.setCurrentText("Solid (-)")
             
             # Convert hex colors to QColor
             if mpl_config.axes_edgecolor:
@@ -549,7 +614,7 @@ class SettingsDialog(QDialog):
                 'mpl_style_path': self.mpl_style_path_edit.text() if self.mpl_mode_combo.currentText() == "Use .mplstyle file" else "",
                 'grid_enabled': self.grid_enabled_check.isChecked(),
                 'grid_alpha': self.grid_alpha_spin.value(),
-                'grid_linestyle': self._get_linestyle_from_thai(self.grid_linestyle_combo.currentText()),
+                'grid_linestyle': self._get_linestyle_from_description(self.grid_linestyle_combo.currentText()),
                 'axes_edgecolor': self.axes_color_button.color().name(),
                 'text_color': self.text_color_button.color().name(),
                 'color_cycle': self.color_cycle_editor.get_colors()
@@ -564,7 +629,20 @@ class SettingsDialog(QDialog):
             # Appearance
             self.theme_combo.setCurrentText("Built-in Light")
             self.qss_path_edit.clear()
-            self.font_family_combo.setCurrentText(default_config.appearance.font_family)
+            # Set default font family, fallback to a known working font
+            if default_config.appearance.font_family in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
+                self.font_family_combo.setCurrentText(default_config.appearance.font_family)
+            else:
+                # Fallback to a known working font
+                fallback_fonts = ["Segoe UI", "Arial", "Helvetica"]
+                for font in fallback_fonts:
+                    if font in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
+                        self.font_family_combo.setCurrentText(font)
+                        break
+                else:
+                    # If no fallback font found, use the first available font
+                    if self.font_family_combo.count() > 0:
+                        self.font_family_combo.setCurrentIndex(0)
             self.font_size_spin.setValue(default_config.appearance.font_size)
             self.apply_to_matplotlib_check.setChecked(True)
             
@@ -574,7 +652,7 @@ class SettingsDialog(QDialog):
             self.grid_enabled_check.setChecked(default_config.matplotlib.grid_enabled)
             self.grid_alpha_spin.setValue(default_config.matplotlib.grid_alpha)
             # Set default grid linestyle
-            self.grid_linestyle_combo.setCurrentText("เส้นทึบ (-)")
+            self.grid_linestyle_combo.setCurrentText("Solid (-)")
             
             # Reset colors to defaults
             self.axes_color_button.setColor(QColor("#000000"))

@@ -91,6 +91,7 @@ from settings import settings_manager
 from dialogs_settings import SettingsDialog
 from report_generator import export_report
 from dialogs_report import ExportReportDialog
+from dialogs_tabs import SelectTabsDialog
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -142,6 +143,223 @@ class PlotCanvas(FigureCanvas):
             except Exception:
                 print(f"Emergency canvas recreation failed: {e}")
 
+
+class GraphTab(QWidget):
+    """
+    Individual graph tab containing a matplotlib canvas and toolbar.
+    """
+    def __init__(self, tab_id, name="Graph", parent=None):
+        super().__init__(parent)
+        self.tab_id = tab_id
+        self.name = name
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Create canvas
+        self.canvas = PlotCanvas(self)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        # Add widgets to layout
+        layout.addWidget(self.canvas)
+        layout.addWidget(self.toolbar)
+        
+        # Hide toolbar by default (consistent with original)
+        try:
+            self.toolbar.setVisible(False)
+        except Exception:
+            pass
+        
+        # Set size policy
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+    def clear(self):
+        """Clear the canvas"""
+        self.canvas.clear()
+        
+    def get_axes(self):
+        """Get the matplotlib axes"""
+        return self.canvas.ax
+        
+    def get_figure(self):
+        """Get the matplotlib figure"""
+        return self.canvas.fig
+        
+    def draw(self):
+        """Draw the canvas"""
+        self.canvas.draw()
+
+
+class TabManager(QTabWidget):
+    """
+    Manages multiple graph tabs with browser-like functionality.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.tab_counter = 0
+        self.tabs = {}  # tab_id -> GraphTab
+        
+        # Set up tab widget properties
+        self.setTabsClosable(True)
+        self.setMovable(True)
+        self.setAcceptDrops(False)
+        
+        # Connect signals
+        self.tabCloseRequested.connect(self._on_tab_close_requested)
+        self.tabBar().tabBarDoubleClicked.connect(self._on_tab_double_clicked)
+        
+        # Create context menu for right-click rename
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+        
+        # Create initial tab
+        self.add_tab("Graph 1")
+        
+    def add_tab(self, name=None):
+        """Add a new graph tab"""
+        self.tab_counter += 1
+        if name is None:
+            name = f"Graph {self.tab_counter}"
+            
+        tab_id = f"tab_{self.tab_counter}"
+        graph_tab = GraphTab(tab_id, name, self)
+        
+        # Add to tab widget
+        index = self.addTab(graph_tab, name)
+        self.setCurrentIndex(index)
+        
+        # Store reference
+        self.tabs[tab_id] = graph_tab
+        
+        return tab_id
+        
+    def _on_tab_close_requested(self, index):
+        """Handle tab close request"""
+        if self.count() <= 1:
+            # Don't allow closing the last tab
+            return
+            
+        # Remove tab
+        tab_widget = self.widget(index)
+        tab_id = None
+        
+        # Find tab_id for this widget
+        for tid, tab in self.tabs.items():
+            if tab == tab_widget:
+                tab_id = tid
+                break
+                
+        if tab_id:
+            del self.tabs[tab_id]
+            
+        self.removeTab(index)
+        
+    def _on_tab_double_clicked(self, index):
+        """Handle tab double-click for rename"""
+        self._rename_tab(index)
+        
+    def _on_context_menu(self, position):
+        """Handle right-click context menu"""
+        tab_bar = self.tabBar()
+        index = tab_bar.tabAt(position)
+        
+        if index >= 0:
+            from PySide6.QtWidgets import QMenu
+            menu = QMenu(self)
+            
+            rename_action = menu.addAction("Rename")
+            rename_action.triggered.connect(lambda: self._rename_tab(index))
+            
+            menu.exec(self.mapToGlobal(position))
+            
+    def _rename_tab(self, index):
+        """Rename a tab"""
+        current_name = self.tabText(index)
+        from PySide6.QtWidgets import QInputDialog
+        
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Tab", "Enter new tab name:", 
+            text=current_name
+        )
+        
+        if ok and new_name.strip():
+            self.setTabText(index, new_name.strip())
+            # Update the GraphTab name as well
+            tab_widget = self.widget(index)
+            if hasattr(tab_widget, 'name'):
+                tab_widget.name = new_name.strip()
+                
+    def get_current_tab_id(self):
+        """Get the current tab ID"""
+        current_widget = self.currentWidget()
+        for tab_id, tab in self.tabs.items():
+            if tab == current_widget:
+                return tab_id
+        return None
+        
+    def get_open_tabs(self):
+        """Get list of (tab_id, tab_name) tuples for open tabs"""
+        result = []
+        for i in range(self.count()):
+            tab_widget = self.widget(i)
+            tab_name = self.tabText(i)
+            
+            # Find tab_id for this widget
+            for tab_id, tab in self.tabs.items():
+                if tab == tab_widget:
+                    result.append((tab_id, tab_name))
+                    break
+        return result
+        
+    def plot_to_tabs(self, tab_ids, x, y, label="", style="line", **kwargs):
+        """
+        Plot data to specified tabs.
+        
+        Args:
+            tab_ids: List of tab IDs to plot to
+            x: X data
+            y: Y data  
+            label: Plot label
+            style: Plot style ('line', 'scatter', etc.)
+            **kwargs: Additional plot parameters
+        """
+        for tab_id in tab_ids:
+            if tab_id in self.tabs:
+                tab = self.tabs[tab_id]
+                ax = tab.get_axes()
+                
+                if style == "line":
+                    ax.plot(x, y, label=label, **kwargs)
+                elif style == "scatter":
+                    ax.scatter(x, y, label=label, **kwargs)
+                elif style == "bar":
+                    ax.bar(range(len(x)), y, label=label, **kwargs)
+                    # Set x-axis labels for bar plots
+                    ax.set_xticks(range(len(x)))
+                    try:
+                        ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                    except Exception:
+                        pass
+                elif style == "histogram":
+                    ax.hist(y, label=label, **kwargs)
+                else:
+                    # Default to line plot
+                    ax.plot(x, y, label=label, **kwargs)
+                    
+                # Set labels if provided
+                if 'xlabel' in kwargs:
+                    ax.set_xlabel(kwargs['xlabel'])
+                if 'ylabel' in kwargs:
+                    ax.set_ylabel(kwargs['ylabel'])
+                if 'title' in kwargs:
+                    ax.set_title(kwargs['title'])
+                    
+                # Draw the canvas
+                tab.draw()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -169,20 +387,23 @@ class MainWindow(QMainWindow):
         ov.addWidget(self.splitter)
         v.addWidget(outer)
 
-        # กลาง = แคนวาส Matplotlib + toolbar
+        # กลาง = TabManager สำหรับกราฟหลายแท็บ
         mid = QWidget(self)
         mid_layout = QVBoxLayout(mid)
         mid_layout.setContentsMargins(0, 0, 0, 0)  # CHANGE: tight inner
         mid_layout.setSpacing(8)
-        self.canvas = PlotCanvas(self); self.toolbar = NavigationToolbar(self.canvas, self)
-        mid_layout.addWidget(self.canvas)
-        try:
-            self.toolbar.setVisible(False)  # CHANGE: hide Matplotlib toolbar to free plot space
-        except Exception:
-            pass
-        # UI-REFINE: plot_canvas ขยายเต็มที่
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # สร้าง TabManager แทน canvas เดี่ยว
+        self.tabs = TabManager(self)
+        mid_layout.addWidget(self.tabs)
+        
+        # UI-REFINE: tabs ขยายเต็มที่
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.splitter.addWidget(mid)
+        
+        # Keep reference to current canvas for backward compatibility
+        self.canvas = None  # Will be set by _update_canvas_reference
+        self._update_canvas_reference()
 
         # ซ้าย = File/Staging
         self._panel_left = QWidget(self)
@@ -216,6 +437,7 @@ class MainWindow(QMainWindow):
         self.tb = QToolBar("Toolbar", self); self.addToolBar(self.tb)
         self.actOpen = QAction("Open", self); self.actResetView = QAction("Reset View", self)
         self.actClearView = QAction("Clear Plot", self)  # UI-REFINE
+        self.actAddTab = QAction("Add Tab", self)  # UI-REFINE: Add new tab
         # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
         self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
         self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
@@ -236,15 +458,16 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.actOpen.triggered.connect(self.open_file)
-        self.actResetView.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
+        self.actResetView.triggered.connect(self._reset_view)
         self.actClearView.triggered.connect(self.clear_plot)
+        self.actAddTab.triggered.connect(self._add_new_tab)
         self.actToggleInspector.toggled.connect(self.toggle_inspector)
         self.actFFT.triggered.connect(self.run_fft_dialog)
         self.actExportFFT.triggered.connect(self.export_fft_dialog)
         self.actExportReport.triggered.connect(self.on_export_report)
         self.actSettings.triggered.connect(self.show_settings)
         self.tb.addAction(self.actOpen); self.tb.addSeparator()
-        self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
+        self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actAddTab); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
         self.tb.addAction(self.actFFT); self.tb.addSeparator()
         self.tb.addAction(self.actExportFFT); self.tb.addAction(self.actExportReport); self.tb.addSeparator()
         self.tb.addAction(self.actSettings)
@@ -266,6 +489,9 @@ class MainWindow(QMainWindow):
         self._panel_right.setVisible(False)
         try: self.actToggleInspector.setChecked(False)
         except Exception: pass
+        
+        # Connect tab change signal to update canvas reference
+        self.tabs.currentChanged.connect(self._update_canvas_reference)
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _build_left_panel(self):
@@ -748,24 +974,40 @@ class MainWindow(QMainWindow):
         x, y = self._get_xy()
         if x is None: return
         
+        # Get selected tabs
+        open_tabs = self.tabs.get_open_tabs()
+        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
+        
+        if not selected_tab_ids:
+            return  # User cancelled
+            
         try:
-            lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
-            self.canvas.ax.plot(x, y, linewidth=lw, marker=marker, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
-            self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
+            lw = self.spLineWidth.value()
+            marker = "o" if self.chkMarker.isChecked() else None
+            label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
             
-            # Apply beautification with error handling
-            try:
-                beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
-            except Exception as beautify_error:
-                print(f"Line plot beautify error: {beautify_error}")
+            # Plot to selected tabs
+            self.tabs.plot_to_tabs(
+                selected_tab_ids, x, y, 
+                label=label, 
+                style="line",
+                linewidth=lw, 
+                marker=marker,
+                xlabel=self.cbX.currentText(),
+                ylabel=self.cbY.currentText()
+            )
             
-            # Force canvas redraw
-            try:
-                self.canvas.draw()
-                self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
-            except Exception as draw_error:
-                print(f"Line plot draw error: {draw_error}")
-                self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ (การแสดงผลอาจมีปัญหา)")
+            # Apply beautification to each tab
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    tab = self.tabs.tabs[tab_id]
+                    try:
+                        beautify_axes(tab.get_axes(), x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                    except Exception as beautify_error:
+                        print(f"Line plot beautify error: {beautify_error}")
+                    tab.draw()
+            
+            self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
                 
         except Exception as e:
             QMessageBox.critical(self, "พล็อตกราฟเส้นไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -776,24 +1018,38 @@ class MainWindow(QMainWindow):
         x, y = self._get_xy()
         if x is None: return
         
+        # Get selected tabs
+        open_tabs = self.tabs.get_open_tabs()
+        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
+        
+        if not selected_tab_ids:
+            return  # User cancelled
+            
         try:
             size = self.spLineWidth.value() * 5
-            self.canvas.ax.scatter(x, y, s=size, label=f"{self.cbY.currentText()} vs {self.cbX.currentText()}")
-            self.canvas.ax.set_xlabel(self.cbX.currentText()); self.canvas.ax.set_ylabel(self.cbY.currentText())
+            label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
             
-            # Apply beautification with error handling
-            try:
-                beautify_axes(self.canvas.ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
-            except Exception as beautify_error:
-                print(f"Scatter plot beautify error: {beautify_error}")
+            # Plot to selected tabs
+            self.tabs.plot_to_tabs(
+                selected_tab_ids, x, y, 
+                label=label, 
+                style="scatter",
+                s=size,
+                xlabel=self.cbX.currentText(),
+                ylabel=self.cbY.currentText()
+            )
             
-            # Force canvas redraw
-            try:
-                self.canvas.draw()
-                self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
-            except Exception as draw_error:
-                print(f"Scatter plot draw error: {draw_error}")
-                self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ (การแสดงผลอาจมีปัญหา)")
+            # Apply beautification to each tab
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    tab = self.tabs.tabs[tab_id]
+                    try:
+                        beautify_axes(tab.get_axes(), x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                    except Exception as beautify_error:
+                        print(f"Scatter plot beautify error: {beautify_error}")
+                    tab.draw()
+            
+            self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
                 
         except Exception as e:
             QMessageBox.critical(self, "พล็อตกราฟจุดไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -808,6 +1064,13 @@ class MainWindow(QMainWindow):
         if not col or col not in self._df.columns:
             QMessageBox.information(self, "เลือกคอลัมน์", "โปรดเลือกคอลัมน์ข้อมูลสำหรับฮิสโตแกรม"); return
         
+        # Get selected tabs
+        open_tabs = self.tabs.get_open_tabs()
+        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
+        
+        if not selected_tab_ids:
+            return  # User cancelled
+        
         try:
             # Validate data
             vals = pd.to_numeric(self._df[col], errors="coerce").dropna().values
@@ -818,59 +1081,58 @@ class MainWindow(QMainWindow):
             if bins <= 0:
                 bins = 20  # Default fallback
             
-            # Clear canvas and create histogram
-            self.canvas.clear()
+            # Clear selected tabs and create histogram
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    self.tabs.tabs[tab_id].clear()
             
-            # Create histogram with error handling
-            try:
-                n, b, _ = self.canvas.ax.hist(vals, bins=bins, alpha=0.7, color="#6aa0f8", edgecolor="#2d3a5a")
-                # Use English labels to avoid font issues
-                self.canvas.ax.set_xlabel(col)
-                self.canvas.ax.set_ylabel("Count")
-                self.canvas.ax.set_title(f"Histogram of {col} (bins={bins})")
-            except Exception as hist_error:
-                QMessageBox.critical(self, "สร้างฮิสโตแกรมไม่สำเร็จ", f"สาเหตุ: {hist_error}")
-                return
-
-            # ออปชัน: ฟิต Gaussian
-            if self.chkHistFit.isChecked():
-                try:
-                    import numpy as _np
-                    from math import sqrt, pi, exp
-                    # ไม่เพิ่ม dependency ใหม่: ใช้ค่าเฉลี่ย/ส่วนเบี่ยงเบนมาตรฐานจาก numpy และวาด pdf เอง
-                    mu = float(_np.mean(vals))
-                    sigma = float(_np.std(vals, ddof=0)) if vals.size > 0 else 0.0
-                    if sigma > 0:
-                        xs = _np.linspace(b[0], b[-1], 400)
-                        # สเกล pdf ให้เข้ากับสเกล histogram: pdf * N * bin_width
-                        bin_w = (b[-1] - b[0]) / bins if bins > 0 else 1.0
-                        pdf = (1.0/(sigma*sqrt(2*pi))) * _np.exp(-0.5*((xs-mu)/sigma)**2)
-                        pdf_scaled = pdf * vals.size * bin_w
+            # Create histogram on selected tabs
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    tab = self.tabs.tabs[tab_id]
+                    ax = tab.get_axes()
+                    
+                    try:
+                        n, b, _ = ax.hist(vals, bins=bins, alpha=0.7, color="#6aa0f8", edgecolor="#2d3a5a")
                         # Use English labels to avoid font issues
-                        self.canvas.ax.plot(xs, pdf_scaled, color="#e36a6a", linewidth=2, label=f"Normal fit mu={mu:.2f}, sigma={sigma:.2f}")
-                        self.canvas.ax.legend(loc="best")
-                except Exception as fit_error:
-                    print(f"Gaussian fit error: {fit_error}")  # Debug info
+                        ax.set_xlabel(col)
+                        ax.set_ylabel("Count")
+                        ax.set_title(f"Histogram of {col} (bins={bins})")
+                        
+                        # ออปชัน: ฟิต Gaussian
+                        if self.chkHistFit.isChecked():
+                            try:
+                                import numpy as _np
+                                from math import sqrt, pi, exp
+                                # ไม่เพิ่ม dependency ใหม่: ใช้ค่าเฉลี่ย/ส่วนเบี่ยงเบนมาตรฐานจาก numpy และวาด pdf เอง
+                                mu = float(_np.mean(vals))
+                                sigma = float(_np.std(vals, ddof=0)) if vals.size > 0 else 0.0
+                                if sigma > 0:
+                                    xs = _np.linspace(b[0], b[-1], 400)
+                                    # สเกล pdf ให้เข้ากับสเกล histogram: pdf * N * bin_width
+                                    bin_w = (b[-1] - b[0]) / bins if bins > 0 else 1.0
+                                    pdf = (1.0/(sigma*sqrt(2*pi))) * _np.exp(-0.5*((xs-mu)/sigma)**2)
+                                    pdf_scaled = pdf * vals.size * bin_w
+                                    # Use English labels to avoid font issues
+                                    ax.plot(xs, pdf_scaled, color="#e36a6a", linewidth=2, label=f"Normal fit mu={mu:.2f}, sigma={sigma:.2f}")
+                                    ax.legend(loc="best")
+                            except Exception as fit_error:
+                                print(f"Gaussian fit error: {fit_error}")  # Debug info
 
-            # Apply beautification with error handling
-            try:
-                beautify_axes(self.canvas.ax)
-            except Exception as beautify_error:
-                print(f"Beautify error: {beautify_error}")  # Debug info
+                        # Apply beautification with error handling
+                        try:
+                            beautify_axes(ax)
+                        except Exception as beautify_error:
+                            print(f"Beautify error: {beautify_error}")  # Debug info
+                        
+                        # Draw the canvas
+                        tab.draw()
+                        
+                    except Exception as hist_error:
+                        QMessageBox.critical(self, "สร้างฮิสโตแกรมไม่สำเร็จ", f"สาเหตุ: {hist_error}")
+                        return
             
-            # Force canvas redraw with error handling
-            try:
-                self.canvas.draw()
-                self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
-            except Exception as draw_error:
-                print(f"Canvas draw error: {draw_error}")  # Debug info
-                # Try alternative redraw method
-                try:
-                    self.canvas.figure.canvas.draw()
-                    self.statusBar().showMessage("พล็อต Histogram สำเร็จ (ใช้วิธีสำรอง)")
-                except Exception:
-                    QMessageBox.warning(self, "การวาดกราฟ", "กราฟถูกสร้างแล้วแต่การแสดงผลอาจมีปัญหา")
-                    self.statusBar().showMessage("พล็อต Histogram สำเร็จ (การแสดงผลอาจมีปัญหา)")
+            self.statusBar().showMessage("พล็อต Histogram สำเร็จ")
                 
         except Exception as e:
             QMessageBox.critical(self, "พล็อตไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -879,17 +1141,37 @@ class MainWindow(QMainWindow):
 
     # UI-REFINE: วาดกราฟแท่งแบบง่าย
     def plot_bar(self, x, y, *, xlabel: str = "", ylabel: str = "", title: str = ""):
-        self.canvas.clear()
-        self.canvas.ax.bar(range(len(x)), y)
-        self.canvas.ax.set_xticks(range(len(x)))
-        try:
-            self.canvas.ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
-        except Exception:
-            pass
-        if xlabel: self.canvas.ax.set_xlabel(xlabel)
-        if ylabel: self.canvas.ax.set_ylabel(ylabel)
-        if title: self.canvas.ax.set_title(title)
-        beautify_axes(self.canvas.ax, title=title)
+        # Get selected tabs
+        open_tabs = self.tabs.get_open_tabs()
+        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
+        
+        if not selected_tab_ids:
+            return  # User cancelled
+            
+        # Plot to selected tabs
+        self.tabs.plot_to_tabs(
+            selected_tab_ids, x, y, 
+            style="bar",
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=title
+        )
+        
+        # Apply beautification to each tab
+        for tab_id in selected_tab_ids:
+            if tab_id in self.tabs.tabs:
+                tab = self.tabs.tabs[tab_id]
+                ax = tab.get_axes()
+                
+                # Set x-axis labels
+                ax.set_xticks(range(len(x)))
+                try:
+                    ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                except Exception:
+                    pass
+                    
+                beautify_axes(ax, title=title)
+                tab.draw()
 
     def refresh_plot(self, keep_limits: bool = True) -> None:
         """
@@ -1891,7 +2173,38 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"นำออกจากรายการแล้ว: {name}")
 
     def clear_plot(self):
-        self.canvas.clear(); self.statusBar().showMessage("ล้างกราฟแล้ว")
+        # Clear current tab
+        current_tab_id = self.tabs.get_current_tab_id()
+        if current_tab_id and current_tab_id in self.tabs.tabs:
+            self.tabs.tabs[current_tab_id].clear()
+            self.statusBar().showMessage("ล้างกราฟแล้ว")
+            
+    def _reset_view(self):
+        """Reset view for current tab"""
+        current_tab_id = self.tabs.get_current_tab_id()
+        if current_tab_id and current_tab_id in self.tabs.tabs:
+            tab = self.tabs.tabs[current_tab_id]
+            tab.get_axes().set_xlim(auto=True)
+            tab.get_axes().set_ylim(auto=True)
+            tab.draw()
+            
+    def _update_canvas_reference(self):
+        """Update canvas reference to point to current tab's canvas"""
+        current_tab_id = self.tabs.get_current_tab_id()
+        if current_tab_id and current_tab_id in self.tabs.tabs:
+            self.canvas = self.tabs.tabs[current_tab_id].canvas
+        elif self.tabs.count() > 0:
+            # Fallback: get first tab's canvas
+            first_tab_widget = self.tabs.widget(0)
+            for tab_id, tab in self.tabs.tabs.items():
+                if tab == first_tab_widget:
+                    self.canvas = tab.canvas
+                    break
+            
+    def _add_new_tab(self):
+        """Add a new graph tab"""
+        self.tabs.add_tab()
+        self.statusBar().showMessage("เพิ่มแท็บใหม่แล้ว")
 
     def on_export_report(self):
         """Export a comprehensive report to PDF containing data analysis and plots"""
