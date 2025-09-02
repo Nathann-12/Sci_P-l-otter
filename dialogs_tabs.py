@@ -103,7 +103,10 @@ class SelectTabsDialog(QDialog):
         """
         if len(open_tabs) <= 1:
             # If only one tab or no tabs, return the first tab ID
-            return [open_tabs[0][0]] if open_tabs else []
+            if open_tabs:
+                return [open_tabs[0][0]]
+            else:
+                return []
             
         dialog = SelectTabsDialog(parent, open_tabs)
         if dialog.exec() == QDialog.Accepted:

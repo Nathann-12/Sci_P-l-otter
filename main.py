@@ -348,16 +348,10 @@ class TabManager(QTabWidget):
                     # Default to line plot
                     ax.plot(x, y, label=label, **kwargs)
                     
-                # Set labels if provided
-                if 'xlabel' in kwargs:
-                    ax.set_xlabel(kwargs['xlabel'])
-                if 'ylabel' in kwargs:
-                    ax.set_ylabel(kwargs['ylabel'])
-                if 'title' in kwargs:
-                    ax.set_title(kwargs['title'])
-                    
                 # Draw the canvas
                 tab.draw()
+            else:
+                print(f"Warning: Tab ID {tab_id} not found in tabs dictionary")
 
 
 class MainWindow(QMainWindow):
@@ -974,12 +968,13 @@ class MainWindow(QMainWindow):
         x, y = self._get_xy()
         if x is None: return
         
-        # Get selected tabs
-        open_tabs = self.tabs.get_open_tabs()
-        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
-        
-        if not selected_tab_ids:
-            return  # User cancelled
+        # Get current tab directly
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
+            return
+            
+        selected_tab_ids = [current_tab_id]
             
         try:
             lw = self.spLineWidth.value()
@@ -992,10 +987,16 @@ class MainWindow(QMainWindow):
                 label=label, 
                 style="line",
                 linewidth=lw, 
-                marker=marker,
-                xlabel=self.cbX.currentText(),
-                ylabel=self.cbY.currentText()
+                marker=marker
             )
+            
+            # Set labels after plotting
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    tab = self.tabs.tabs[tab_id]
+                    ax = tab.get_axes()
+                    ax.set_xlabel(self.cbX.currentText())
+                    ax.set_ylabel(self.cbY.currentText())
             
             # Apply beautification to each tab
             for tab_id in selected_tab_ids:
@@ -1018,12 +1019,13 @@ class MainWindow(QMainWindow):
         x, y = self._get_xy()
         if x is None: return
         
-        # Get selected tabs
-        open_tabs = self.tabs.get_open_tabs()
-        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
-        
-        if not selected_tab_ids:
-            return  # User cancelled
+        # Get current tab directly
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
+            return
+            
+        selected_tab_ids = [current_tab_id]
             
         try:
             size = self.spLineWidth.value() * 5
@@ -1034,10 +1036,16 @@ class MainWindow(QMainWindow):
                 selected_tab_ids, x, y, 
                 label=label, 
                 style="scatter",
-                s=size,
-                xlabel=self.cbX.currentText(),
-                ylabel=self.cbY.currentText()
+                s=size
             )
+            
+            # Set labels after plotting
+            for tab_id in selected_tab_ids:
+                if tab_id in self.tabs.tabs:
+                    tab = self.tabs.tabs[tab_id]
+                    ax = tab.get_axes()
+                    ax.set_xlabel(self.cbX.currentText())
+                    ax.set_ylabel(self.cbY.currentText())
             
             # Apply beautification to each tab
             for tab_id in selected_tab_ids:
@@ -1064,12 +1072,13 @@ class MainWindow(QMainWindow):
         if not col or col not in self._df.columns:
             QMessageBox.information(self, "เลือกคอลัมน์", "โปรดเลือกคอลัมน์ข้อมูลสำหรับฮิสโตแกรม"); return
         
-        # Get selected tabs
-        open_tabs = self.tabs.get_open_tabs()
-        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
-        
-        if not selected_tab_ids:
-            return  # User cancelled
+        # Get current tab directly
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
+            return
+            
+        selected_tab_ids = [current_tab_id]
         
         try:
             # Validate data
@@ -1141,21 +1150,31 @@ class MainWindow(QMainWindow):
 
     # UI-REFINE: วาดกราฟแท่งแบบง่าย
     def plot_bar(self, x, y, *, xlabel: str = "", ylabel: str = "", title: str = ""):
-        # Get selected tabs
-        open_tabs = self.tabs.get_open_tabs()
-        selected_tab_ids = SelectTabsDialog.get_selection(self, open_tabs)
-        
-        if not selected_tab_ids:
-            return  # User cancelled
+        # Get current tab directly
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
+            return
+            
+        selected_tab_ids = [current_tab_id]
             
         # Plot to selected tabs
         self.tabs.plot_to_tabs(
             selected_tab_ids, x, y, 
-            style="bar",
-            xlabel=xlabel,
-            ylabel=ylabel,
-            title=title
+            style="bar"
         )
+        
+        # Set labels and title after plotting
+        for tab_id in selected_tab_ids:
+            if tab_id in self.tabs.tabs:
+                tab = self.tabs.tabs[tab_id]
+                ax = tab.get_axes()
+                if xlabel:
+                    ax.set_xlabel(xlabel)
+                if ylabel:
+                    ax.set_ylabel(ylabel)
+                if title:
+                    ax.set_title(title)
         
         # Apply beautification to each tab
         for tab_id in selected_tab_ids:
