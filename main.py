@@ -6,9 +6,13 @@ import logging
 import locale
 import json
 
-# Set up logging
+# Set up logging (will be overridden by setup_logging() in main())
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ปิด matplotlib debug messages
+import matplotlib
+matplotlib.set_loglevel("WARNING")
 
 # บังคับให้ Python ใช้ locale ภาษาอังกฤษเพื่อแสดงเลขอารบิก
 try:
@@ -28,7 +32,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6 import QtGui
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
@@ -98,6 +102,8 @@ from dialogs_settings import SettingsDialog
 from report_generator import export_report
 from dialogs_report import ExportReportDialog
 from dialogs_tabs import SelectTabsDialog
+from core.logging_setup import setup_logging
+from UI.widgets.error_panel import ErrorPanel
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -517,6 +523,10 @@ class MainWindow(QMainWindow):
         # Keep reference to current canvas for backward compatibility
         self.canvas = None  # Will be set by _update_canvas_reference
         self._update_canvas_reference()
+        
+        # Error Panel (hidden by default)
+        self.error_panel = ErrorPanel(self)
+        self.error_panel.hide()  # ซ่อนไว้ก่อน
 
         # ซ้าย = File/Staging
         self._panel_left = QWidget(self)
@@ -546,46 +556,10 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
 
-        # UI-REFINE: ทูลบาร์จัดกลุ่ม File / View / Process / Export (ต้องสร้างก่อนเมนู)
-        self.tb = QToolBar("Toolbar", self); self.addToolBar(self.tb)
-        self.actOpen = QAction("Open", self); self.actResetView = QAction("Reset View", self)
-        self.actClearView = QAction("Clear Plot", self)  # UI-REFINE
-        self.actAddTab = QAction("Add Tab", self)  # UI-REFINE: Add new tab
-        # UI-REFINE: ปุ่มซ่อน/แสดง Inspector
-        self.actToggleInspector = QAction("Inspector", self); self.actToggleInspector.setCheckable(True)
-        self.actFFT = QAction("FFT", self); self.actExportFFT = QAction("Export FFT", self)
-        # Export Report action
-        self.actExportReport = QAction("Export Report", self)
-        # Settings action
-        self.actSettings = QAction("Settings", self)
-        # CHANGE: ตั้งไอคอนด้วยไฟล์หรือ fallback มาตรฐาน
-        try:
-            self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
-            self.actSettings.setIcon(self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
-            self.actResetView.setIcon(self._icon("reset", QStyle.StandardPixmap.SP_BrowserReload))
-            self.actClearView.setIcon(self._icon("clear", QStyle.StandardPixmap.SP_DialogResetButton))
-            self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogDetailedView))
-            self.actFFT.setIcon(self._icon("fft", QStyle.StandardPixmap.SP_ComputerIcon))
-            self.actExportFFT.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
-            self.actExportReport.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
-        except Exception:
-            pass
-        self.actOpen.triggered.connect(self.open_file)
-        self.actResetView.triggered.connect(self._reset_view)
-        self.actClearView.triggered.connect(self.clear_plot)
-        self.actAddTab.triggered.connect(self._add_new_tab)
-        self.actToggleInspector.toggled.connect(self.toggle_inspector)
-        self.actFFT.triggered.connect(self.run_fft_dialog)
-        self.actExportFFT.triggered.connect(self.export_fft_dialog)
-        self.actExportReport.triggered.connect(self.on_export_report)
-        self.actSettings.triggered.connect(self.show_settings)
-        self.tb.addAction(self.actOpen); self.tb.addSeparator()
-        self.tb.addAction(self.actResetView); self.tb.addAction(self.actClearView); self.tb.addAction(self.actAddTab); self.tb.addAction(self.actToggleInspector); self.tb.addSeparator()
-        self.tb.addAction(self.actFFT); self.tb.addSeparator()
-        self.tb.addAction(self.actExportFFT); self.tb.addAction(self.actExportReport); self.tb.addSeparator()
-        self.tb.addAction(self.actSettings)
-
         self._init_menu()
+        
+        # Build toolbar with organized groups
+        self.build_toolbar()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
         
         # UI-REFINE: สถานะถาวรใน StatusBar
@@ -600,8 +574,8 @@ class MainWindow(QMainWindow):
 
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม
         self._panel_right.setVisible(False)
-        try: self.actToggleInspector.setChecked(False)
-        except Exception: pass
+        # try: self.actToggleInspector.setChecked(False)  # Commented out - actToggleInspector doesn't exist
+        # except Exception: pass  # Commented out - no try block
         
         # Connect tab change signal to update canvas reference
         self.tabs.currentChanged.connect(self._update_canvas_reference)
@@ -723,7 +697,7 @@ class MainWindow(QMainWindow):
     def _init_menu(self):
         m = self.menuBar()
         fileMenu = m.addMenu("&ไฟล์")  # UI-REFINE: File
-        actOpen = fileMenu.addAction("เปิดข้อมูล (CSV/TSV/TXT/XLSX/NC/CDF)..."); actOpen.triggered.connect(self.open_file)
+        self.actOpen = fileMenu.addAction("เปิดข้อมูล (CSV/TSV/TXT/XLSX/NC/CDF)..."); self.actOpen.triggered.connect(self.open_file)
         fileMenu.addSeparator()
         actExport = fileMenu.addAction("บันทึกรูปภาพ (PNG)..."); actExport.triggered.connect(self.export_png)
         fileMenu.addSeparator()
@@ -732,7 +706,16 @@ class MainWindow(QMainWindow):
         viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
-        viewMenu.addAction(self.actToggleInspector)
+        # viewMenu.addAction(self.actToggleInspector)  # Commented out - actToggleInspector doesn't exist
+        
+        # Test Error menu
+        test_action = viewMenu.addAction("Raise Test Error")
+        def _raise_test_error():
+            try:
+                raise RuntimeError("นี่คือเออเรอร์ทดสอบจากเมนู")
+            except Exception:
+                logging.getLogger("Demo").exception("เกิดข้อผิดพลาดทดสอบ")
+        test_action.triggered.connect(_raise_test_error)
         
         # Plot Style submenu
         plotStyleMenu = viewMenu.addMenu("Plot Style")
@@ -759,7 +742,8 @@ class MainWindow(QMainWindow):
         exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
 
         toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
-        toolsMenu.addAction(self.actSettings)
+        self.actSettings = toolsMenu.addAction("Settings")
+        self.actSettings.triggered.connect(self.show_settings)
 
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
@@ -781,6 +765,144 @@ class MainWindow(QMainWindow):
         
         # Load and apply settings from config
         self._load_and_apply_settings()
+
+    def build_toolbar(self):
+        """Build the main toolbar with organized groups"""
+        self.tb = QToolBar("Main Toolbar", self)
+        self.tb.setIconSize(QSize(22, 22))
+        self.addToolBar(self.tb)
+        
+        # Create toolbar actions
+        self._create_toolbar_actions()
+        
+        # Apply styling
+        self._apply_toolbar_styling()
+    
+    def _create_toolbar_actions(self):
+        """Create all toolbar actions with proper grouping"""
+        # File group
+        self.tb.addAction(self.actOpen)
+        self.tb.addAction("Reload", self.on_action_reload)
+        self.tb.addSeparator()
+        
+        # Plot group
+        self.tb.addAction("Plot", self.on_action_plot)
+        self.tb.addAction("Spectrogram", self.on_action_spectrogram)
+        self.tb.addSeparator()
+        
+        # Tabs/Process group
+        self.tb.addAction("Add Tab", self.on_action_add_tab)
+        self.tb.addAction("Processors", self.on_action_open_processors)
+        self.tb.addSeparator()
+        
+        # Error Panel group
+        self.actErrorPanel = self.tb.addAction("Error Panel")
+        self.actErrorPanel.setCheckable(True)
+        self.actErrorPanel.triggered.connect(self.toggle_error_panel)
+        self.tb.addSeparator()
+        
+        # Spacer
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.tb.addWidget(spacer)
+        
+        # Output group
+        self.tb.addAction("Export Figure", self.on_action_export_figure)
+        self.tb.addAction("Export Data", self.on_action_export_data)
+        self.tb.addSeparator()
+        
+        # Settings group
+        self.tb.addAction(self.actSettings)
+    
+    def _apply_toolbar_styling(self):
+        """Apply QSS styling to toolbar"""
+        try:
+            # Try to load from styles/toolbar.qss
+            qss_path = os.path.join("styles", "toolbar.qss")
+            if os.path.exists(qss_path):
+                with open(qss_path, 'r', encoding='utf-8') as f:
+                    self.tb.setStyleSheet(f.read())
+            else:
+                # Fallback styling
+                self.tb.setStyleSheet("""
+                    QToolBar {
+                        background-color: #2b2b2b;
+                        border: none;
+                        spacing: 4px;
+                        padding: 2px;
+                    }
+                    QToolBar::separator {
+                        background-color: #404040;
+                        width: 1px;
+                        margin: 4px 2px;
+                    }
+                    QToolButton {
+                        background-color: transparent;
+                        border: 1px solid transparent;
+                        border-radius: 4px;
+                        padding: 4px;
+                        margin: 1px;
+                        min-width: 22px;
+                        min-height: 22px;
+                    }
+                    QToolButton:hover {
+                        background-color: #404040;
+                        border: 1px solid #505050;
+                    }
+                    QToolButton:pressed {
+                        background-color: #505050;
+                        border: 1px solid #606060;
+                    }
+                    QToolButton:checked {
+                        background-color: #0078d4;
+                        border: 1px solid #106ebe;
+                    }
+                """)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to apply toolbar styling: {e}")
+    
+    def toggle_error_panel(self, checked: bool):
+        """Toggle error panel visibility"""
+        if checked:
+            self.error_panel.setFloating(True)
+            self.error_panel.show()
+            self.error_panel.raise_()
+            self.error_panel.activateWindow()
+        else:
+            self.error_panel.hide()
+    
+    # Action handlers
+    def on_action_reload(self):
+        """Reload current file"""
+        if hasattr(self, 'current_file_path') and self.current_file_path:
+            self.open_file(self.current_file_path)
+        else:
+            QMessageBox.information(self, "Reload", "No file loaded to reload.")
+    
+    def on_action_plot(self):
+        """Plot action handler - opens plot dialog"""
+        self.plot_line()
+    
+    def on_action_spectrogram(self):
+        """Spectrogram action handler"""
+        self.open_spectrogram_dialog()
+    
+    def on_action_add_tab(self):
+        """Add new tab action handler"""
+        self.tabs.add_tab()
+    
+    def on_action_open_processors(self):
+        """Open processors action handler"""
+        # Simple FFT dialog for now
+        self.run_fft_dialog()
+    
+    def on_action_export_figure(self):
+        """Export figure action handler"""
+        self.export_png()
+    
+    def on_action_export_data(self):
+        """Export data action handler"""
+        self.export_visible_range_csv()
 
     # ---------- Plot Style Configuration ----------
     def _get_config_path(self):
@@ -2357,6 +2479,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def toggle_error_panel(self, checked: bool):
+        """เปิด/ปิด Error Panel"""
+        try:
+            if checked:
+                # แสดง Error Panel เป็น floating window
+                self.error_panel.setFloating(True)
+                self.error_panel.show()
+                self.error_panel.raise_()
+                self.error_panel.activateWindow()
+            else:
+                self.error_panel.hide()
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Error toggling error panel: {e}")
+
     def start_box_zoom(self):
         if self._rs is not None:
             try: self._rs.set_active(False)
@@ -2735,6 +2871,9 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # Setup logging system
+    setup_logging()
     
     # บังคับทั้งแอปให้ใช้เลขอารบิก, จุดทศนิยมเป็น "." ฯลฯ
     from PySide6.QtCore import QLocale
