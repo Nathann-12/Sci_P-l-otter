@@ -9,24 +9,85 @@ import pandas as pd
 # ---------------- Text/Excel ----------------
 def load_tabular(path: str | Path, ext: str | None = None) -> tuple[pd.DataFrame, str]:
     path = str(path); ext = ext or os.path.splitext(path)[1].lower()
+    
+    # ตรวจสอบขนาดไฟล์
+    file_size = os.path.getsize(path)
+    large_file_threshold = 100 * 1024 * 1024  # 100 MB
+    
     if ext in (".xlsx", ".xls"):
         try:
+            if file_size > large_file_threshold:
+                print(f"ไฟล์ Excel ขนาดใหญ่ ({file_size / (1024*1024):.1f} MB) - กำลังอ่าน...")
             df = pd.read_excel(path, engine="openpyxl")
         except TypeError:
             df = pd.read_excel(path)
-        return df, "excel"
+        return df, f"excel ({file_size / (1024*1024):.1f} MB)"
 
     seps = [None] if ext != ".tsv" else ["\t", None]
     encs = ("utf-8-sig","utf-8","cp874","latin-1")
+    
     for enc in encs:
         for sep in seps:
             try:
-                df = pd.read_csv(path, engine="python", sep=sep, on_bad_lines="skip", encoding=enc)
-                return df, f"csv ({enc}, {'auto' if sep is None else sep})"
+                if file_size > large_file_threshold:
+                    # สำหรับไฟล์ใหญ่ ใช้ chunking
+                    print(f"ไฟล์ CSV ขนาดใหญ่ ({file_size / (1024*1024):.1f} MB) - กำลังอ่านแบบ chunking...")
+                    df = _read_csv_chunked_simple(path, sep, enc)
+                else:
+                    # สำหรับไฟล์เล็ก อ่านปกติ
+                    df = pd.read_csv(path, engine="python", sep=sep, on_bad_lines="skip", encoding=enc)
+                return df, f"csv ({enc}, {'auto' if sep is None else sep}, {file_size / (1024*1024):.1f} MB)"
             except Exception:
                 continue
-    df = pd.read_csv(path, engine="python", on_bad_lines="skip")
-    return df, "csv (fallback)"
+    
+    # Fallback
+    try:
+        if file_size > large_file_threshold:
+            df = _read_csv_chunked_simple(path, None, "utf-8")
+        else:
+            df = pd.read_csv(path, engine="python", on_bad_lines="skip")
+        return df, f"csv (fallback, {file_size / (1024*1024):.1f} MB)"
+    except Exception as e:
+        raise RuntimeError(f"ไม่สามารถอ่านไฟล์ตารางได้: {e}")
+
+def _read_csv_chunked_simple(path: str, sep: str = None, encoding: str = "utf-8", chunk_size: int = 10000) -> pd.DataFrame:
+    """อ่านไฟล์ CSV แบบ chunking สำหรับไฟล์ขนาดใหญ่ (เวอร์ชันง่าย)"""
+    chunks = []
+    total_rows = 0
+    
+    try:
+        # อ่าน chunk แรกเพื่อดูโครงสร้าง
+        first_chunk = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
+                                nrows=chunk_size, on_bad_lines="skip")
+        chunks.append(first_chunk)
+        total_rows += len(first_chunk)
+        
+        # อ่าน chunks ที่เหลือ
+        chunk_iter = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
+                               chunksize=chunk_size, on_bad_lines="skip")
+        
+        for chunk in chunk_iter:
+            chunks.append(chunk)
+            total_rows += len(chunk)
+            print(f"อ่านแล้ว {total_rows:,} แถว...")
+            
+            # จำกัดจำนวนแถวสูงสุดเพื่อป้องกัน memory overflow
+            max_rows = 1_000_000  # 1 ล้านแถว
+            if total_rows >= max_rows:
+                print(f"จำกัดข้อมูลที่ {max_rows:,} แถว เพื่อป้องกันหน่วยความจำเต็ม")
+                break
+        
+        # รวม chunks
+        if len(chunks) == 1:
+            df = chunks[0]
+        else:
+            df = pd.concat(chunks, ignore_index=True)
+            
+        print(f"อ่านไฟล์เสร็จสิ้น: {len(df):,} แถว, {len(df.columns)} คอลัมน์")
+        return df
+        
+    except Exception as e:
+        raise RuntimeError(f"เกิดข้อผิดพลาดในการอ่านไฟล์แบบ chunking: {e}")
 
 # ---------------- Utils ----------------
 def _b2s(x: Any) -> str:

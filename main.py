@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import logging
 import locale
+import json
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,11 @@ except Exception as e:
     except Exception as e2:
         logger.warning(f"Could not set English locale: {e2}")
 
+# IMPORTANT: Set matplotlib backend BEFORE importing PySide6
+import matplotlib
+matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
+print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
+
 from PySide6 import QtGui
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -36,7 +42,6 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 import matplotlib.dates as mdates  # CHANGE: handle datetime axes formatting
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor, RectangleSelector
-import matplotlib
 import matplotlib.pyplot as plt
 
 # บังคับให้ Matplotlib ไม่ใช้ locale และแสดงเลขอารบิก
@@ -80,6 +85,7 @@ from loaders import load_tabular, load_cdf_nc_on_demand
 from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
+from dialogs import DerivedColumnDialog  # UI-DERIVED: Derived Column dialog
 from dialogs_spectrogram import SpectrogramDialog  # UI-SPECTROGRAM: Spectrogram dialog
 from dialogs_units import UnitsDialog  # UI-UNITS: Units and calibration dialog
 from core.units import UNIT_REGISTRY  # UI-UNITS: Unit registry for conversions
@@ -101,6 +107,27 @@ class PlotCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig); self.setParent(parent)
         self.fig.tight_layout()
+    
+    def draw(self):
+        """Draw the canvas with error handling"""
+        try:
+            print(f"Debug: PlotCanvas.draw() called")
+            super().draw()
+            print(f"Debug: PlotCanvas.draw() completed successfully")
+        except Exception as e:
+            print(f"Debug: PlotCanvas.draw() failed: {e}")
+            try:
+                self.fig.canvas.draw()
+                print(f"Debug: Fallback fig.canvas.draw() completed successfully")
+            except Exception as e2:
+                print(f"Debug: Fallback fig.canvas.draw() failed: {e2}")
+                try:
+                    self.fig.canvas.draw_idle()
+                    print(f"Debug: Fallback fig.canvas.draw_idle() completed successfully")
+                except Exception as e3:
+                    print(f"Debug: All draw methods failed: {e3}")
+                    import traceback
+                    traceback.print_exc()
     
     def clear(self):
         """Clear the canvas and recreate axes with error handling"""
@@ -188,8 +215,20 @@ class GraphTab(QWidget):
         return self.canvas.fig
         
     def draw(self):
-        """Draw the canvas"""
-        self.canvas.draw()
+        """Draw the canvas with error handling"""
+        try:
+            print(f"Debug: GraphTab.draw() called for tab {self.tab_id}")
+            self.canvas.draw()
+            print(f"Debug: GraphTab.draw() completed successfully")
+        except Exception as e:
+            print(f"Debug: GraphTab.draw() failed: {e}")
+            try:
+                self.canvas.fig.canvas.draw()
+                print(f"Debug: Fallback canvas.draw() completed successfully")
+            except Exception as e2:
+                print(f"Debug: Fallback canvas.draw() failed: {e2}")
+                import traceback
+                traceback.print_exc()
 
 
 class TabManager(QTabWidget):
@@ -325,31 +364,111 @@ class TabManager(QTabWidget):
             style: Plot style ('line', 'scatter', etc.)
             **kwargs: Additional plot parameters
         """
+        print(f"Debug: plot_to_tabs called with {len(tab_ids)} tabs, style={style}, data length: x={len(x)}, y={len(y)}")
+        
         for tab_id in tab_ids:
             if tab_id in self.tabs:
                 tab = self.tabs[tab_id]
                 ax = tab.get_axes()
                 
-                if style == "line":
-                    ax.plot(x, y, label=label, **kwargs)
-                elif style == "scatter":
-                    ax.scatter(x, y, label=label, **kwargs)
-                elif style == "bar":
-                    ax.bar(range(len(x)), y, label=label, **kwargs)
-                    # Set x-axis labels for bar plots
-                    ax.set_xticks(range(len(x)))
+                print(f"Debug: Plotting to tab {tab_id}, axes: {ax}")
+                
+                try:
+                    # Clear existing plots first
+                    ax.clear()
+                    print(f"Debug: Cleared existing plots for tab {tab_id}")
+                    
+                    if style == "line":
+                        line = ax.plot(x, y, label=label, **kwargs)
+                        print(f"Debug: Line plot created: {line}")
+                    elif style == "scatter":
+                        scatter = ax.scatter(x, y, label=label, **kwargs)
+                        print(f"Debug: Scatter plot created: {scatter}")
+                    elif style == "bar":
+                        bars = ax.bar(range(len(x)), y, label=label, **kwargs)
+                        print(f"Debug: Bar plot created: {bars}")
+                        # Set x-axis labels for bar plots
+                        ax.set_xticks(range(len(x)))
+                        try:
+                            ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                        except Exception:
+                            pass
+                    elif style == "histogram":
+                        hist = ax.hist(y, label=label, **kwargs)
+                        print(f"Debug: Histogram created: {hist}")
+                    else:
+                        # Default to line plot
+                        line = ax.plot(x, y, label=label, **kwargs)
+                        print(f"Debug: Default line plot created: {line}")
+                    
+                    # Force update the plot
+                    ax.relim()
+                    ax.autoscale_view()
+                    print(f"Debug: Applied relim() and autoscale_view() for tab {tab_id}")
+                    
+                    # Set basic formatting
+                    ax.grid(True, alpha=0.3)
+                    if label:
+                        ax.legend()
+                    print(f"Debug: Applied grid and legend for tab {tab_id}")
+                    
+                    # Force figure update
+                    tab.canvas.fig.tight_layout()
+                    print(f"Debug: Applied tight_layout for tab {tab_id}")
+                    
+                    # Draw the canvas with multiple methods
                     try:
-                        ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                        tab.draw()
+                        print(f"Debug: Tab draw() called successfully")
+                    except Exception as e:
+                        print(f"Debug: Tab draw() failed: {e}")
+                        try:
+                            tab.canvas.draw()
+                            print(f"Debug: Canvas draw() called successfully")
+                        except Exception as e2:
+                            print(f"Debug: Canvas draw() failed: {e2}")
+                            try:
+                                tab.canvas.fig.canvas.draw()
+                                print(f"Debug: Figure canvas draw() called successfully")
+                            except Exception as e3:
+                                print(f"Debug: Figure canvas draw() failed: {e3}")
+                                try:
+                                    tab.canvas.fig.canvas.draw_idle()
+                                    print(f"Debug: Figure canvas draw_idle() called successfully")
+                                except Exception as e4:
+                                    print(f"Debug: All draw methods failed: {e4}")
+                    
+                    # Force refresh with multiple methods
+                    try:
+                        tab.canvas.flush_events()
+                        print(f"Debug: Canvas flush_events() called")
                     except Exception:
                         pass
-                elif style == "histogram":
-                    ax.hist(y, label=label, **kwargs)
-                else:
-                    # Default to line plot
-                    ax.plot(x, y, label=label, **kwargs)
                     
-                # Draw the canvas
-                tab.draw()
+                    try:
+                        tab.canvas.fig.canvas.flush_events()
+                        print(f"Debug: Figure canvas flush_events() called")
+                    except Exception:
+                        pass
+                    
+                    # Force Qt update
+                    try:
+                        tab.canvas.update()
+                        print(f"Debug: Canvas update() called")
+                    except Exception:
+                        pass
+                    
+                    # Force repaint
+                    try:
+                        tab.canvas.repaint()
+                        print(f"Debug: Canvas repaint() called")
+                    except Exception:
+                        pass
+                        
+                except Exception as e:
+                    print(f"Debug: Error plotting to tab {tab_id}: {e}")
+                    import traceback
+                    traceback.print_exc()
             else:
                 print(f"Warning: Tab ID {tab_id} not found in tabs dictionary")
 
@@ -645,12 +764,17 @@ class MainWindow(QMainWindow):
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
-            "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nF: FFT\nI: Toggle Inspector"
+            "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nCTRL+D: Create Derived Column\nF: FFT\nI: Toggle Inspector"
         ))
         
         # Add keyboard shortcuts
         self.actOpen.setShortcut("Ctrl+O")
         self.actSettings.setShortcut("Ctrl+,")
+        
+        # UI-DERIVED: เพิ่มคีย์ลัดสำหรับ Create Derived Column
+        derived_action = dataMenu.addAction("สร้างคอลัมน์ใหม่…")
+        derived_action.setShortcut("Ctrl+D")
+        derived_action.triggered.connect(self.open_derived_column_dialog)
         
         # Load saved plot style preference
         self._load_plot_style_config()
@@ -661,7 +785,6 @@ class MainWindow(QMainWindow):
     # ---------- Plot Style Configuration ----------
     def _get_config_path(self):
         """Get path to configuration file"""
-        import json
         import os
         # Try project root first, then user home
         project_root = os.path.dirname(os.path.abspath(__file__))
@@ -689,7 +812,6 @@ class MainWindow(QMainWindow):
     def _save_plot_style_config(self, style):
         """Save plot style preference to config file"""
         try:
-            import json
             config_path = self._get_config_path()
             config = {'plot_style': style}
             with open(config_path, 'w') as f:
@@ -855,8 +977,12 @@ class MainWindow(QMainWindow):
                 df, enc_note = load_tabular(path, ext)
                 if df is None or df.empty: raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
                 self._df, self._current_path = df, path
-                self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (ตาราง) • {enc_note}")
-                self.statusBar().showMessage("โหลดข้อมูลสำเร็จ (ตาราง) • กด 'โหลดคอลัมน์'")
+                
+                # แสดงข้อมูลขนาดไฟล์และจำนวนแถว
+                file_size_mb = os.path.getsize(path) / (1024*1024)
+                rows_count = len(df)
+                self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (ตาราง) • {enc_note} • {rows_count:,} แถว")
+                self.statusBar().showMessage(f"โหลดข้อมูลสำเร็จ (ตาราง) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'")
                 return
             if ext in [".nc", ".cdf"]:
                 try:
@@ -864,8 +990,11 @@ class MainWindow(QMainWindow):
                     if df is None or df.empty: 
                         raise ValueError("อ่านไฟล์ CDF/NetCDF ไม่สำเร็จ หรือไม่มีข้อมูล")
                     self._df, self._current_path = df, path
-                    self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF)")
-                    self.statusBar().showMessage("โหลดข้อมูลสำเร็จ (On‑Demand) • กด 'โหลดคอลัมน์'")
+                    
+                    # แสดงข้อมูลจำนวนแถว
+                    rows_count = len(df)
+                    self.lblFile.setText(f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF) • {rows_count:,} แถว")
+                    self.statusBar().showMessage(f"โหลดข้อมูลสำเร็จ (On‑Demand) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'")
                     return
                 except Exception as e:
                     error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
@@ -880,20 +1009,98 @@ class MainWindow(QMainWindow):
     def load_columns_from_df(self):
         if self._df is None:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+        
+        # แสดงข้อมูลขนาดข้อมูล
+        rows_count = len(self._df)
+        cols_count = len(self._df.columns)
+        
         cols = [str(c) for c in self._df.columns]
         self.cbX.clear(); self.cbY.clear()
         self.cbX.addItems(cols); self.cbY.addItems(cols)
+        
         # UI-REFINE: sync คอลัมน์ของ Histogram ด้วย
         try:
             self.cbHist.clear(); self.cbHist.addItems(cols)
         except Exception:
             pass
-        self.statusBar().showMessage("โหลดคอลัมน์เรียบร้อย • เลือก X/Y แล้วพล็อตได้")
+        
+        self.statusBar().showMessage(f"โหลดคอลัมน์เรียบร้อย • {rows_count:,} แถว, {cols_count} คอลัมน์ • เลือก X/Y แล้วพล็อตได้")
+        
         # UI-REFINE: อัปเดตจำนวนแถว
-        try: self._sb_rows.setText(f"rows: {len(self._df)}")
-        except Exception: pass
+        try: 
+            self._sb_rows.setText(f"rows: {rows_count:,}")
+        except Exception: 
+            pass
 
     # ---------- Plot ----------
+    def _convert_to_datetime_if_possible(self, col_name):
+        """ลองแปลงคอลัมน์เป็น datetime ถ้าเป็นไปได้"""
+        if col_name not in self._df.columns:
+            return False, None
+        
+        col_data = self._df[col_name]
+        
+        # ถ้าเป็น datetime อยู่แล้ว
+        if pd.api.types.is_datetime64_any_dtype(col_data):
+            return True, col_data
+        
+        # ลองแปลงเป็น datetime
+        try:
+            datetime_data = pd.to_datetime(col_data, errors="coerce")
+            valid_count = datetime_data.notna().sum()
+            total_count = len(col_data)
+            
+            if valid_count > total_count * 0.5:  # ถ้าข้อมูลที่ใช้ได้มากกว่า 50%
+                return True, datetime_data
+            else:
+                return False, None
+        except Exception:
+            return False, None
+
+    def _check_column_numeric(self, col_name):
+        """ตรวจสอบว่าคอลัมน์มีข้อมูลตัวเลขที่ใช้ได้หรือไม่"""
+        if col_name not in self._df.columns:
+            return False, f"คอลัมน์ '{col_name}' ไม่มีในข้อมูล"
+        
+        col_data = self._df[col_name]
+        
+        # ตรวจสอบว่าคอลัมน์ว่างหรือไม่
+        if col_data.empty:
+            return False, f"คอลัมน์ '{col_name}' ว่าง"
+        
+        # ตรวจสอบว่าทุกค่าเป็น NaN หรือไม่
+        if col_data.isna().all():
+            return False, f"คอลัมน์ '{col_name}' มีแต่ค่า NaN"
+        
+        # ตรวจสอบว่าเป็น datetime หรือไม่
+        if pd.api.types.is_datetime64_any_dtype(col_data):
+            return True, f"คอลัมน์ '{col_name}' เป็นข้อมูลเวลา (datetime) - ใช้ได้สำหรับแกน X"
+        
+        # ลองแปลงเป็นตัวเลข
+        try:
+            numeric_data = pd.to_numeric(col_data, errors="coerce")
+            valid_count = numeric_data.notna().sum()
+            total_count = len(col_data)
+            
+            if valid_count == 0:
+                # ลองแปลงเป็น datetime
+                try:
+                    datetime_data = pd.to_datetime(col_data, errors="coerce")
+                    datetime_valid_count = datetime_data.notna().sum()
+                    if datetime_valid_count > 0:
+                        return True, f"คอลัมน์ '{col_name}' เป็นข้อมูลเวลา (datetime) - ใช้ได้สำหรับแกน X"
+                except Exception:
+                    pass
+                
+                return False, f"คอลัมน์ '{col_name}' ไม่สามารถแปลงเป็นตัวเลขหรือเวลาได้"
+            elif valid_count < total_count * 0.5:  # ถ้าข้อมูลที่ใช้ได้น้อยกว่า 50%
+                return False, f"คอลัมน์ '{col_name}' มีข้อมูลตัวเลขเพียง {valid_count}/{total_count} ({valid_count/total_count*100:.1f}%)"
+            else:
+                return True, f"คอลัมน์ '{col_name}' มีข้อมูลตัวเลข {valid_count}/{total_count} ({valid_count/total_count*100:.1f}%)"
+                
+        except Exception as e:
+            return False, f"เกิดข้อผิดพลาดในการตรวจสอบคอลัมน์ '{col_name}': {e}"
+
     def _get_xy(self):
         if self._df is None:
             QMessageBox.warning(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์/เลือกตัวแปร แล้วกด 'โหลดคอลัมน์'"); return None, None
@@ -904,41 +1111,97 @@ class MainWindow(QMainWindow):
         if x_col not in self._df.columns or y_col not in self._df.columns:
             QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่"); return None, None
 
+        # ตรวจสอบข้อมูลก่อนประมวลผล
+        x_valid, x_msg = self._check_column_numeric(x_col)
+        y_valid, y_msg = self._check_column_numeric(y_col)
+        
+        if not x_valid and not y_valid:
+            QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", f"ทั้งสองคอลัมน์มีปัญหา:\n• {x_msg}\n• {y_msg}")
+            return None, None
+        elif not x_valid:
+            QMessageBox.warning(self, "คอลัมน์ X มีปัญหา", x_msg)
+            return None, None
+        elif not y_valid:
+            QMessageBox.warning(self, "คอลัมน์ Y มีปัญหา", y_msg)
+            return None, None
+
         try:
             x = self._df[x_col].values; y = self._df[y_col].values
             
+            # แสดงข้อมูลเริ่มต้นสำหรับ debug
+            print(f"Debug: X column '{x_col}' - dtype: {self._df[x_col].dtype}, sample: {x[:3] if len(x) > 0 else 'empty'}")
+            print(f"Debug: Y column '{y_col}' - dtype: {self._df[y_col].dtype}, sample: {y[:3] if len(y) > 0 else 'empty'}")
+            
             # Convert Y to numeric with error handling
             try: 
+                y_original_count = len(y)
                 y = pd.to_numeric(y, errors="coerce")
+                y_nan_count = pd.isna(y).sum()
+                print(f"Debug: Y conversion - original: {y_original_count}, NaN after conversion: {y_nan_count}, valid: {y_original_count - y_nan_count}")
             except Exception as e:
                 print(f"Y column conversion error: {e}")
                 y = pd.to_numeric(y, errors="coerce")  # Try again
             
             # Handle datetime X axis
-            if np.issubdtype(type(x[0]), np.datetime64):
+            if len(x) > 0 and (np.issubdtype(type(x[0]), np.datetime64) or pd.api.types.is_datetime64_any_dtype(self._df[x_col])):
+                print("Debug: X is datetime, filtering by Y NaN only")
                 mask = ~(pd.isna(y))
                 x = x[mask]; y = y[mask]
+                print(f"Debug: After datetime filtering - X: {len(x)}, Y: {len(y)}")
             else:
                 # Convert X to numeric with error handling
                 try: 
+                    x_original_count = len(x)
                     x = pd.to_numeric(x, errors="coerce")
+                    x_nan_count = pd.isna(x).sum()
+                    print(f"Debug: X conversion - original: {x_original_count}, NaN after conversion: {x_nan_count}, valid: {x_original_count - x_nan_count}")
                 except Exception as e:
                     print(f"X column conversion error: {e}")
-                    x = pd.to_numeric(x, errors="coerce")  # Try again
+                    x = pd.to_numeric(x, errors="coerce")
                 
                 # Remove NaN values from both X and Y
                 mask = ~(pd.isna(x) | pd.isna(y))
                 x = x[mask]; y = y[mask]
+                print(f"Debug: After NaN filtering - X: {len(x)}, Y: {len(y)}")
             
-            # Validate final data
+            # Validate final data with more detailed error messages
             if len(x) == 0 or len(y) == 0:
-                QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", "คอลัมน์ที่เลือกไม่มีข้อมูลตัวเลขที่ใช้พล็อตได้")
+                # ให้ข้อมูลที่ละเอียดขึ้น
+                x_col_info = f"X column '{x_col}' (dtype: {self._df[x_col].dtype})"
+                y_col_info = f"Y column '{y_col}' (dtype: {self._df[y_col].dtype})"
+                
+                # ตรวจสอบว่าคอลัมน์มีข้อมูลหรือไม่
+                x_empty = self._df[x_col].isna().all() if len(self._df[x_col]) > 0 else True
+                y_empty = self._df[y_col].isna().all() if len(self._df[y_col]) > 0 else True
+                
+                if x_empty and y_empty:
+                    error_msg = f"ทั้งสองคอลัมน์ไม่มีข้อมูล:\n• {x_col_info}\n• {y_col_info}"
+                elif x_empty:
+                    error_msg = f"คอลัมน์ X ไม่มีข้อมูล: {x_col_info}"
+                elif y_empty:
+                    error_msg = f"คอลัมน์ Y ไม่มีข้อมูล: {y_col_info}"
+                else:
+                    # ตรวจสอบว่าคอลัมน์ไหนเป็นข้อมูลเวลาที่ไม่สามารถแปลงเป็นตัวเลขได้
+                    x_is_datetime = pd.api.types.is_datetime64_any_dtype(self._df[x_col])
+                    y_is_datetime = pd.api.types.is_datetime64_any_dtype(self._df[y_col])
+                    
+                    if x_is_datetime and not y_is_datetime:
+                        error_msg = f"คอลัมน์ X เป็นข้อมูลเวลา (datetime) ซึ่งใช้ได้สำหรับแกน X:\n• {x_col_info}\n\nคอลัมน์ Y ไม่สามารถแปลงเป็นตัวเลขได้:\n• {y_col_info}\n\nลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์ Y เป็น Float"
+                    elif not x_is_datetime and y_is_datetime:
+                        error_msg = f"คอลัมน์ X ไม่สามารถแปลงเป็นตัวเลขได้:\n• {x_col_info}\n\nคอลัมน์ Y เป็นข้อมูลเวลา (datetime):\n• {y_col_info}\n\nลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์ X เป็น Float หรือใช้คอลัมน์ Y เป็นแกน X"
+                    elif x_is_datetime and y_is_datetime:
+                        error_msg = f"ทั้งสองคอลัมน์เป็นข้อมูลเวลา (datetime):\n• {x_col_info}\n• {y_col_info}\n\nลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์หนึ่งเป็น Float"
+                    else:
+                        error_msg = f"ไม่สามารถแปลงข้อมูลเป็นตัวเลขได้:\n• {x_col_info}\n• {y_col_info}\n\nลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงข้อมูลก่อน"
+                
+                QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", error_msg)
                 return None, None
             
             if len(x) != len(y):
                 QMessageBox.warning(self, "ข้อมูลไม่ตรงกัน", f"จำนวนข้อมูล X ({len(x)}) และ Y ({len(y)}) ไม่เท่ากัน")
                 return None, None
             
+            print(f"Debug: Final data ready for plotting - X: {len(x)}, Y: {len(y)}")
             return x, y
             
         except Exception as e:
@@ -965,8 +1228,15 @@ class MainWindow(QMainWindow):
         return False
 
     def plot_line(self):
+        print("Debug: plot_line() called")
         x, y = self._get_xy()
-        if x is None: return
+        if x is None: 
+            print("Debug: plot_line() - no data to plot")
+            return
+        
+        print(f"Debug: plot_line() - got data: x={len(x)}, y={len(y)}")
+        print(f"Debug: plot_line() - x sample: {x[:5] if len(x) > 0 else 'empty'}")
+        print(f"Debug: plot_line() - y sample: {y[:5] if len(y) > 0 else 'empty'}")
         
         # Get current tab directly
         current_tab_id = self.tabs.get_current_tab_id()
@@ -974,12 +1244,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
             return
             
+        print(f"Debug: plot_line() - current tab: {current_tab_id}")
         selected_tab_ids = [current_tab_id]
             
         try:
             lw = self.spLineWidth.value()
             marker = "o" if self.chkMarker.isChecked() else None
             label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+            
+            print(f"Debug: plot_line() - parameters: lw={lw}, marker={marker}, label={label}")
             
             # Plot to selected tabs
             self.tabs.plot_to_tabs(
@@ -997,6 +1270,7 @@ class MainWindow(QMainWindow):
                     ax = tab.get_axes()
                     ax.set_xlabel(self.cbX.currentText())
                     ax.set_ylabel(self.cbY.currentText())
+                    print(f"Debug: plot_line() - labels set for tab {tab_id}")
             
             # Apply beautification to each tab
             for tab_id in selected_tab_ids:
@@ -1004,20 +1278,43 @@ class MainWindow(QMainWindow):
                     tab = self.tabs.tabs[tab_id]
                     try:
                         beautify_axes(tab.get_axes(), x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                        print(f"Debug: plot_line() - beautification applied to tab {tab_id}")
                     except Exception as beautify_error:
                         print(f"Line plot beautify error: {beautify_error}")
-                    tab.draw()
+                    
+                    # Force multiple draw attempts
+                    for attempt in range(3):
+                        try:
+                            tab.draw()
+                            print(f"Debug: plot_line() - draw attempt {attempt+1} successful")
+                            break
+                        except Exception as e:
+                            print(f"Debug: plot_line() - draw attempt {attempt+1} failed: {e}")
+                            if attempt == 2:  # Last attempt
+                                # Try emergency redraw
+                                try:
+                                    tab.canvas.fig.canvas.draw_idle()
+                                    print(f"Debug: plot_line() - emergency draw_idle successful")
+                                except Exception as e2:
+                                    print(f"Debug: plot_line() - emergency draw_idle failed: {e2}")
             
             self.statusBar().showMessage("พล็อตกราฟเส้นสำเร็จ")
+            print("Debug: plot_line() completed successfully")
                 
         except Exception as e:
+            print(f"Debug: plot_line() failed: {e}")
             QMessageBox.critical(self, "พล็อตกราฟเส้นไม่สำเร็จ", f"สาเหตุ: {e}")
             import traceback
             traceback.print_exc()
 
     def plot_scatter(self):
+        print("Debug: plot_scatter() called")
         x, y = self._get_xy()
-        if x is None: return
+        if x is None: 
+            print("Debug: plot_scatter() - no data to plot")
+            return
+        
+        print(f"Debug: plot_scatter() - got data: x={len(x)}, y={len(y)}")
         
         # Get current tab directly
         current_tab_id = self.tabs.get_current_tab_id()
@@ -1025,11 +1322,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "ไม่มีแท็บ", "ไม่มีแท็บที่เปิดอยู่")
             return
             
+        print(f"Debug: plot_scatter() - current tab: {current_tab_id}")
         selected_tab_ids = [current_tab_id]
             
         try:
             size = self.spLineWidth.value() * 5
             label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+            
+            print(f"Debug: plot_scatter() - parameters: size={size}, label={label}")
             
             # Plot to selected tabs
             self.tabs.plot_to_tabs(
@@ -1046,6 +1346,7 @@ class MainWindow(QMainWindow):
                     ax = tab.get_axes()
                     ax.set_xlabel(self.cbX.currentText())
                     ax.set_ylabel(self.cbY.currentText())
+                    print(f"Debug: plot_scatter() - labels set for tab {tab_id}")
             
             # Apply beautification to each tab
             for tab_id in selected_tab_ids:
@@ -1053,13 +1354,16 @@ class MainWindow(QMainWindow):
                     tab = self.tabs.tabs[tab_id]
                     try:
                         beautify_axes(tab.get_axes(), x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                        print(f"Debug: plot_scatter() - beautification applied to tab {tab_id}")
                     except Exception as beautify_error:
                         print(f"Scatter plot beautify error: {beautify_error}")
                     tab.draw()
             
             self.statusBar().showMessage("พล็อตกราฟจุดสำเร็จ")
+            print("Debug: plot_scatter() completed successfully")
                 
         except Exception as e:
+            print(f"Debug: plot_scatter() failed: {e}")
             QMessageBox.critical(self, "พล็อตกราฟจุดไม่สำเร็จ", f"สาเหตุ: {e}")
             import traceback
             traceback.print_exc()
@@ -2348,6 +2652,42 @@ class MainWindow(QMainWindow):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"เกิดข้อผิดพลาด: {str(e)}")
+    
+    def open_derived_column_dialog(self):
+        """เปิด dialog สำหรับสร้างคอลัมน์ใหม่จากนิพจน์ทางคณิตศาสตร์"""
+        # ตรวจสอบว่ามีข้อมูลหรือไม่
+        if self._df is None or self._df.empty:
+            QMessageBox.warning(self, "ไม่มีข้อมูล", "กรุณาโหลดข้อมูลก่อนสร้างคอลัมน์ใหม่")
+            return
+        
+        try:
+            # เปิด DerivedColumnDialog
+            dlg = DerivedColumnDialog(self, self._df)
+            
+            # รอให้ผู้ใช้ป้อนข้อมูลและกด Apply
+            if dlg.exec() == QDialog.Accepted:
+                # Dialog จะสร้างคอลัมน์ใหม่ใน self._df โดยตรง
+                # ดังนั้นเราต้องรีเฟรชการแสดงผลเท่านั้น
+                
+                # รีเฟรชกราฟ
+                self.refresh_plot()
+                
+                # รีเฟรชสถิติถ้ามี
+                if hasattr(self, "refresh_stats"):
+                    self.refresh_stats()
+                
+                # แสดงข้อความสำเร็จ
+                QMessageBox.information(
+                    self, "สำเร็จ", 
+                    "สร้างคอลัมน์ใหม่เรียบร้อยแล้ว\nกราฟจะอัปเดตอัตโนมัติ"
+                )
+                
+        except Exception as e:
+            # แสดงข้อผิดพลาดถ้าเกิดปัญหา
+            QMessageBox.critical(
+                self, "ข้อผิดพลาด", 
+                f"ไม่สามารถเปิด dialog สร้างคอลัมน์ใหม่ได้:\n{str(e)}"
+            )
 
     def export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกรูปภาพเป็น", "plot.png", "PNG Image (*.png)")

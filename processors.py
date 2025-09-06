@@ -1,6 +1,8 @@
 # processors.py
 import numpy as np
 import pandas as pd
+import re
+import warnings
 
 def add_time_bangkok(df: pd.DataFrame, time_col: str, new_col: str = None):
     """เพิ่มคอลัมน์เวลา +7 ชั่วโมง (Asia/Bangkok)"""
@@ -221,3 +223,170 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
             ax.figure.draw()
     except Exception:
         pass  # Continue without redraw
+
+# ---- Derived Column Expression Evaluation ----
+def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto") -> pd.Series:
+    """
+    ประเมินนิพจน์ทางคณิตศาสตร์จากคอลัมน์ที่มีอยู่ใน DataFrame
+    
+    Args:
+        df: DataFrame ที่มีข้อมูล
+        expression: นิพจน์ที่ต้องการประเมิน (เช่น `Bx * By`, `sqrt(Bx**2 + By**2)`)
+        engine: เครื่องมือประเมิน ("auto", "numexpr", "python")
+    
+    Returns:
+        pd.Series: ผลลัพธ์การประเมินนิพจน์
+        
+    Raises:
+        ValueError: หากนิพจน์ไม่ถูกต้องหรือมีข้อผิดพลาด
+        KeyError: หากคอลัมน์ที่อ้างอิงไม่มีอยู่ใน DataFrame
+    """
+    if not expression or not expression.strip():
+        raise ValueError("นิพจน์ไม่สามารถเป็นค่าว่างได้")
+    
+    # ทำความสะอาดนิพจน์ - ลบช่องว่างส่วนเกิน
+    expression = expression.strip()
+    
+    # แปลงชื่อคอลัมน์ที่ครอบด้วย backtick ให้เป็นชื่อตัวแปรที่ถูกต้องสำหรับการประเมิน
+    # รองรับทั้ง `Bx` และ `Mag Field` (ชื่อที่มีช่องว่าง)
+    def replace_backtick_columns(match):
+        """แทนที่ `column_name` ด้วยชื่อตัวแปรที่ถูกต้องสำหรับการประเมิน"""
+        col_name = match.group(1)  # เอาเฉพาะส่วนใน backtick
+        if col_name not in df.columns:
+            raise KeyError(f"ไม่พบคอลัมน์ '{col_name}' ในข้อมูล")
+        # ถ้าชื่อคอลัมน์มีช่องว่าง ให้แทนที่ด้วยชื่อตัวแปรที่ถูกต้อง
+        # ใช้ underscore แทนช่องว่าง
+        var_name = col_name.replace(' ', '_')
+        return var_name
+    
+    # ใช้ regex หาชื่อคอลัมน์ที่ครอบด้วย backtick
+    expression_clean = re.sub(r'`([^`]+)`', replace_backtick_columns, expression)
+    
+    # ตรวจสอบว่าคอลัมน์ที่อ้างอิงมีอยู่ใน DataFrame หรือไม่
+    # หาชื่อตัวแปรในนิพจน์ (ตัวอักษร, ตัวเลข, underscore, ช่องว่าง)
+    # แยกการตรวจสอบออกเป็น 2 ส่วน: ชื่อคอลัมน์ที่ครอบด้วย backtick และตัวแปรอื่นๆ
+    backtick_vars = re.findall(r'`([^`]+)`', expression)  # หาชื่อคอลัมน์ใน backtick
+    
+    # หาตัวแปรอื่นๆ ในนิพจน์ที่ทำความสะอาดแล้ว (หลังจากการแทนที่ backtick)
+    # แต่ต้องไม่รวมฟังก์ชันที่อนุญาต
+    other_vars = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', expression_clean)
+    
+    # รวมตัวแปรทั้งหมดและกรองฟังก์ชันที่อนุญาต
+    all_vars = set(backtick_vars + other_vars)
+    allowed_functions = {'sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp', 'mean', 'std', 'min', 'max', 'minimum', 'maximum'}
+    
+    # ตรวจสอบเฉพาะตัวแปรที่ไม่ได้อยู่ในคอลัมน์และไม่ใช่ฟังก์ชันที่อนุญาต
+    # แต่ต้องไม่ตรวจสอบตัวแปรที่มาจาก backtick เพราะมันถูกแทนที่แล้ว
+    missing_cols = []
+    for var in other_vars:  # ตรวจสอบเฉพาะตัวแปรที่ไม่ใช่จาก backtick
+        if var not in df.columns and var not in allowed_functions:
+            # ตรวจสอบเพิ่มเติม: ถ้าตัวแปรนี้เป็นชื่อที่แปลงจากคอลัมน์ที่มีช่องว่าง
+            # ให้ข้ามการตรวจสอบ
+            is_converted_column = any(var == col.replace(' ', '_') for col in df.columns if ' ' in col)
+            if not is_converted_column:
+                missing_cols.append(var)
+    
+    if missing_cols:
+        raise KeyError(f"ไม่พบคอลัมน์: {', '.join(missing_cols)}")
+    
+    # เตรียมตัวแปรสำหรับการประเมิน
+    # สร้าง dictionary ของคอลัมน์ที่ใช้ในนิพจน์
+    local_vars = {}
+    
+    # หาคอลัมน์ที่ใช้ในนิพจน์ (ทั้งจาก backtick และตัวแปรอื่นๆ)
+    used_columns = set()
+    
+    # เพิ่มคอลัมน์จาก backtick
+    for col_name in backtick_vars:
+        used_columns.add(col_name)
+    
+    # เพิ่มคอลัมน์จากตัวแปรอื่นๆ ที่มีอยู่ใน DataFrame
+    for var in other_vars:
+        if var in df.columns:
+            used_columns.add(var)
+    
+    # สร้างตัวแปรสำหรับการประเมิน
+    for col in used_columns:
+        # แปลงคอลัมน์เป็น numeric และจัดการ NaN/inf
+        series = pd.to_numeric(df[col], errors='coerce')
+        # แทนที่ inf/-inf ด้วย NaN
+        series = series.replace([np.inf, -np.inf], np.nan)
+        
+        # ใช้ชื่อตัวแปรที่ถูกต้องสำหรับการประเมิน
+        var_name = col.replace(' ', '_')
+        local_vars[var_name] = series
+    
+    # เพิ่มฟังก์ชัน numpy ที่ปลอดภัย
+    safe_functions = {
+        'sqrt': np.sqrt,
+        'abs': np.abs,
+        'sin': np.sin,
+        'cos': np.cos,
+        'tan': np.tan,
+        'log': np.log,
+        'exp': np.exp,
+        'minimum': np.minimum,
+        'maximum': np.maximum,
+        'mean': lambda x: x.mean() if hasattr(x, 'mean') else np.mean(x),
+        'std': lambda x: x.std() if hasattr(x, 'std') else np.std(x),
+        'min': lambda x: x.min() if hasattr(x, 'min') else np.min(x),
+        'max': lambda x: x.max() if hasattr(x, 'max') else np.max(x),
+    }
+    
+    # รวมตัวแปรและฟังก์ชันเข้าด้วยกัน
+    eval_vars = {**local_vars, **safe_functions}
+    
+    try:
+        # ลองใช้ numexpr ก่อน (เร็วกว่า) ถ้าไม่มีให้ใช้ python
+        if engine == "auto":
+            try:
+                import numexpr
+                engine = "numexpr"
+            except ImportError:
+                engine = "python"
+        
+        if engine == "numexpr":
+            # numexpr รองรับเฉพาะการดำเนินการพื้นฐาน
+            # ถ้านิพจน์ซับซ้อนเกินไป ให้ใช้ python แทน
+            if any(func in expression_clean for func in ['sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp']):
+                engine = "python"
+        
+        if engine == "numexpr":
+            # ใช้ pandas.eval กับ numexpr engine
+            result = df.eval(expression_clean, engine='numexpr')
+        else:
+            # ใช้ eval() กับตัวแปรที่เตรียมไว้
+            result = eval(expression_clean, {"__builtins__": {}}, eval_vars)
+        
+        # แปลงผลลัพธ์เป็น Series ถ้ายังไม่ใช่
+        if not isinstance(result, pd.Series):
+            if isinstance(result, (int, float)):
+                # ถ้าเป็นค่าคงที่ ให้สร้าง Series ที่มีค่าเดียวกันทุกแถว
+                result = pd.Series([result] * len(df), index=df.index)
+            else:
+                result = pd.Series(result, index=df.index)
+        
+        # จัดการ NaN และ inf ในผลลัพธ์
+        result = pd.to_numeric(result, errors='coerce')
+        result = result.replace([np.inf, -np.inf], np.nan)
+        
+        # ตรวจสอบการหารศูนย์ (NaN ที่เกิดจากการหารศูนย์)
+        if result.isna().any():
+            nan_count = result.isna().sum()
+            total_count = len(result)
+            if nan_count > 0:
+                warnings.warn(f"พบค่า NaN {nan_count}/{total_count} แถว (อาจเกิดจากการหารศูนย์หรือค่าที่ไม่ถูกต้อง)")
+        
+        return result
+        
+    except Exception as e:
+        # แปลงข้อผิดพลาดให้เป็นข้อความที่เข้าใจง่าย
+        error_msg = str(e)
+        if "unsupported operand type" in error_msg:
+            raise ValueError("นิพจน์มีประเภทข้อมูลที่ไม่เข้ากัน")
+        elif "name" in error_msg and "is not defined" in error_msg:
+            raise ValueError("พบตัวแปรหรือฟังก์ชันที่ไม่รู้จักในนิพจน์")
+        elif "syntax" in error_msg.lower():
+            raise ValueError("นิพจน์มีไวยากรณ์ไม่ถูกต้อง")
+        else:
+            raise ValueError(f"ไม่สามารถประเมินนิพจน์ได้: {error_msg}")

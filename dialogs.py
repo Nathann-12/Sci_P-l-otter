@@ -7,7 +7,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpinBox,
     QPushButton, QFormLayout, QWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QListWidget, QListWidgetItem, QTableView, QCheckBox
+    QHeaderView, QListWidget, QListWidgetItem, QTableView, QCheckBox,
+    QLineEdit, QTextEdit, QMessageBox, QSplitter
 )
 from PySide6 import QtCore  # UI-REFINE: สำหรับ PandasModel
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas  # UI-FIT: preview canvas
@@ -513,3 +514,508 @@ class FitDialog(QDialog):
             self.ax.legend(loc="best"); self.fig.tight_layout(); self.canvas.draw()
         except Exception:
             self.ax.clear(); self.canvas.draw()
+
+
+# ---------- Create Derived Column Dialog ----------
+class DerivedColumnDialog(QDialog):
+    """
+    Dialog สำหรับสร้างคอลัมน์ใหม่จากนิพจน์ทางคณิตศาสตร์
+    รองรับการอ้างอิงคอลัมน์ด้วย backtick และฟังก์ชัน numpy ที่ปลอดภัย
+    """
+    
+    def __init__(self, parent, dataframe: pd.DataFrame):
+        super().__init__(parent)
+        self.dataframe = dataframe
+        self.result_series = None  # เก็บผลลัพธ์สำหรับ Apply
+        
+        self.setWindowTitle("สร้างคอลัมน์ใหม่ (Create Derived Column)")
+        self.setModal(True)
+        self.resize(800, 600)
+        
+        self.setup_ui()
+        self.setup_connections()
+        
+        # โหลดรายชื่อคอลัมน์
+        self.populate_columns()
+    
+    def setup_ui(self):
+        """สร้าง UI สำหรับ dialog"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+        
+        # ชื่อคอลัมน์ใหม่
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("ชื่อคอลัมน์ใหม่:"))
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("เช่น B_magnitude, Speed_kmh")
+        self.name_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                font-size: 12px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QLineEdit:focus {
+                border-color: #007bff;
+            }
+        """)
+        name_layout.addWidget(self.name_edit)
+        layout.addLayout(name_layout)
+        
+        # แบ่งหน้าจอเป็น 2 ส่วน: ซ้าย (นิพจน์) และขวา (คอลัมน์)
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # ซ้าย: นิพจน์และปุ่มฟังก์ชัน
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # คำอธิบาย
+        help_label = QLabel("""
+        <b>วิธีใช้:</b><br>
+        • อ้างอิงคอลัมน์ด้วย backtick: <code>`Bx`</code>, <code>`Mag Field`</code><br>
+        • ใช้ฟังก์ชัน: sqrt(), abs(), sin(), cos(), log(), exp()<br>
+        • คลิกสองครั้งที่คอลัมน์เพื่อแทรกชื่อลงในนิพจน์<br>
+        • ตัวอย่าง: <code>sqrt(`Bx`**2 + `By`**2 + `Bz`**2)</code>
+        """)
+        help_label.setWordWrap(True)
+        help_label.setStyleSheet("""
+            QLabel {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 11px;
+                color: #495057;
+            }
+        """)
+        left_layout.addWidget(help_label)
+        
+        # ช่องนิพจน์
+        expr_label = QLabel("นิพจน์:")
+        expr_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        left_layout.addWidget(expr_label)
+        
+        self.expression_edit = QTextEdit()
+        self.expression_edit.setMaximumHeight(120)
+        self.expression_edit.setPlaceholderText("พิมพ์นิพจน์ที่นี่... เช่น `Bx * By` หรือ `sqrt(`Bx`**2 + `By`**2)`")
+        self.expression_edit.setStyleSheet("""
+            QTextEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                background-color: #f8f9fa;
+            }
+            QTextEdit:focus {
+                border-color: #007bff;
+                background-color: white;
+            }
+        """)
+        left_layout.addWidget(self.expression_edit)
+        
+        # ปุ่มฟังก์ชันลัด
+        functions_label = QLabel("ฟังก์ชันลัด:")
+        functions_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        left_layout.addWidget(functions_label)
+        
+        # สร้างปุ่มฟังก์ชันในแถว
+        functions_layout = QVBoxLayout()
+        
+        # แถวที่ 1: ฟังก์ชันพื้นฐาน
+        row1 = QHBoxLayout()
+        basic_functions = [
+            ("sqrt()", "sqrt()"), ("abs()", "abs()"), 
+            ("sin()", "sin()"), ("cos()", "cos()"), ("tan()", "tan()")
+        ]
+        for text, func in basic_functions:
+            btn = QPushButton(text)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #e9ecef;
+                    border: 1px solid #ced4da;
+                    border-radius: 3px;
+                    padding: 4px 8px;
+                    font-size: 10px;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                }
+                QPushButton:hover {
+                    background-color: #dee2e6;
+                }
+                QPushButton:pressed {
+                    background-color: #ced4da;
+                }
+            """)
+            btn.clicked.connect(lambda checked, f=func: self.insert_function(f))
+            row1.addWidget(btn)
+        functions_layout.addLayout(row1)
+        
+        # แถวที่ 2: ฟังก์ชันเพิ่มเติม
+        row2 = QHBoxLayout()
+        advanced_functions = [
+            ("log()", "log()"), ("exp()", "exp()"), 
+            ("min()", "min()"), ("max()", "max()"), ("mean()", "mean()")
+        ]
+        for text, func in advanced_functions:
+            btn = QPushButton(text)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #e9ecef;
+                    border: 1px solid #ced4da;
+                    border-radius: 3px;
+                    padding: 4px 8px;
+                    font-size: 10px;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                }
+                QPushButton:hover {
+                    background-color: #dee2e6;
+                }
+                QPushButton:pressed {
+                    background-color: #ced4da;
+                }
+            """)
+            btn.clicked.connect(lambda checked, f=func: self.insert_function(f))
+            row2.addWidget(btn)
+        functions_layout.addLayout(row2)
+        
+        left_layout.addLayout(functions_layout)
+        left_layout.addStretch()
+        
+        splitter.addWidget(left_widget)
+        
+        # ขวา: รายชื่อคอลัมน์
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        columns_label = QLabel("คอลัมน์ที่มีอยู่ (คลิกสองครั้งเพื่อแทรก):")
+        columns_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        right_layout.addWidget(columns_label)
+        
+        self.columns_list = QListWidget()
+        self.columns_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 11px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QListWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+            QListWidget::item:selected {
+                background-color: #2196f3;
+                color: white;
+            }
+        """)
+        right_layout.addWidget(self.columns_list)
+        
+        splitter.addWidget(right_widget)
+        splitter.setSizes([400, 300])  # แบ่งสัดส่วน 4:3
+        
+        layout.addWidget(splitter)
+        
+        # พรีวิวผลลัพธ์
+        preview_label = QLabel("พรีวิวผลลัพธ์ (10 แถวแรก):")
+        preview_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        layout.addWidget(preview_label)
+        
+        self.preview_table = QTableWidget(10, 2)
+        self.preview_table.setHorizontalHeaderLabels(["Index", "Value"])
+        self.preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.preview_table.setMaximumHeight(200)
+        self.preview_table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: white;
+                gridline-color: #e0e0e0;
+                font-size: 11px;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+            QTableWidget::item {
+                padding: 4px 8px;
+                border: none;
+            }
+            QHeaderView::section {
+                background-color: #f8f9fa;
+                padding: 6px 8px;
+                border: none;
+                border-bottom: 1px solid #dee2e6;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.preview_table)
+        
+        # ปุ่มควบคุม
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.preview_btn = QPushButton("🔍 Preview")
+        self.preview_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+            QPushButton:pressed {
+                background-color: #117a8b;
+            }
+        """)
+        
+        self.apply_btn = QPushButton("✅ Apply")
+        self.apply_btn.setEnabled(False)  # เปิดใช้งานเมื่อ Preview สำเร็จ
+        self.apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+                color: #adb5bd;
+            }
+        """)
+        
+        self.cancel_btn = QPushButton("❌ Cancel")
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #545b62;
+            }
+            QPushButton:pressed {
+                background-color: #3d4449;
+            }
+        """)
+        
+        button_layout.addWidget(self.preview_btn)
+        button_layout.addWidget(self.apply_btn)
+        button_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def setup_connections(self):
+        """เชื่อมต่อ signals และ slots"""
+        self.preview_btn.clicked.connect(self.preview_expression)
+        self.apply_btn.clicked.connect(self.apply_expression)
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        # คลิกสองครั้งที่คอลัมน์เพื่อแทรกชื่อลงในนิพจน์
+        self.columns_list.itemDoubleClicked.connect(self.insert_column_name)
+        
+        # เปลี่ยนชื่อคอลัมน์เมื่อพิมพ์
+        self.name_edit.textChanged.connect(self.validate_inputs)
+        self.expression_edit.textChanged.connect(self.validate_inputs)
+    
+    def populate_columns(self):
+        """โหลดรายชื่อคอลัมน์ทั้งหมดลงใน ListWidget"""
+        self.columns_list.clear()
+        
+        for col in self.dataframe.columns:
+            item = QListWidgetItem(str(col))
+            # แสดงข้อมูลเพิ่มเติมสำหรับคอลัมน์
+            dtype = str(self.dataframe[col].dtype)
+            non_null = self.dataframe[col].notna().sum()
+            total = len(self.dataframe[col])
+            item.setToolTip(f"Type: {dtype}\nNon-null: {non_null}/{total}")
+            self.columns_list.addItem(item)
+    
+    def insert_column_name(self, item: QListWidgetItem):
+        """แทรกชื่อคอลัมน์ลงในนิพจน์โดยครอบด้วย backtick"""
+        col_name = item.text()
+        # ตรวจสอบว่าชื่อคอลัมน์มีช่องว่างหรือไม่
+        if ' ' in col_name or '-' in col_name or '+' in col_name:
+            # ถ้ามีอักขระพิเศษ ให้ครอบด้วย backtick
+            text_to_insert = f"`{col_name}`"
+        else:
+            # ถ้าไม่มี ให้ครอบด้วย backtick เพื่อความชัดเจน
+            text_to_insert = f"`{col_name}`"
+        
+        # แทรกข้อความลงในตำแหน่งเคอร์เซอร์ปัจจุบัน
+        cursor = self.expression_edit.textCursor()
+        cursor.insertText(text_to_insert)
+        self.expression_edit.setTextCursor(cursor)
+        self.expression_edit.setFocus()
+    
+    def insert_function(self, func_name: str):
+        """แทรกฟังก์ชันลงในนิพจน์"""
+        cursor = self.expression_edit.textCursor()
+        cursor.insertText(func_name)
+        self.expression_edit.setTextCursor(cursor)
+        self.expression_edit.setFocus()
+    
+    def validate_inputs(self):
+        """ตรวจสอบความถูกต้องของข้อมูลที่ป้อน"""
+        name = self.name_edit.text().strip()
+        expression = self.expression_edit.toPlainText().strip()
+        
+        # ตรวจสอบว่ามีข้อมูลครบถ้วน
+        has_name = bool(name)
+        has_expression = bool(expression)
+        
+        # ตรวจสอบชื่อคอลัมน์ซ้ำ
+        name_exists = name in self.dataframe.columns if has_name else False
+        
+        # อัปเดตสถานะปุ่ม
+        self.preview_btn.setEnabled(has_name and has_expression and not name_exists)
+        
+        # แสดงข้อความเตือน
+        if has_name and name_exists:
+            self.name_edit.setStyleSheet("""
+                QLineEdit {
+                    padding: 8px;
+                    border: 2px solid #dc3545;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    background-color: #f8d7da;
+                }
+            """)
+        else:
+            self.name_edit.setStyleSheet("""
+                QLineEdit {
+                    padding: 8px;
+                    border: 2px solid #ddd;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }
+                QLineEdit:focus {
+                    border-color: #007bff;
+                }
+            """)
+    
+    def preview_expression(self):
+        """พรีวิวผลลัพธ์ของนิพจน์"""
+        try:
+            # ดึงข้อมูลจาก UI
+            expression = self.expression_edit.toPlainText().strip()
+            if not expression:
+                QMessageBox.warning(self, "คำเตือน", "กรุณาใส่นิพจน์")
+                return
+            
+            # ประเมินนิพจน์
+            from processors import evaluate_expression
+            result_series = evaluate_expression(self.dataframe, expression)
+            
+            # เก็บผลลัพธ์สำหรับ Apply
+            self.result_series = result_series
+            
+            # แสดงพรีวิวในตาราง
+            self.preview_table.setRowCount(min(10, len(result_series)))
+            
+            for i in range(min(10, len(result_series))):
+                # Index
+                index_item = QTableWidgetItem(str(result_series.index[i]))
+                index_item.setFlags(index_item.flags() & ~Qt.ItemIsEditable)
+                self.preview_table.setItem(i, 0, index_item)
+                
+                # Value
+                value = result_series.iloc[i]
+                if pd.isna(value):
+                    value_str = "NaN"
+                elif np.isinf(value):
+                    value_str = "Inf" if value > 0 else "-Inf"
+                else:
+                    value_str = f"{value:.6g}"
+                
+                value_item = QTableWidgetItem(value_str)
+                value_item.setFlags(value_item.flags() & ~Qt.ItemIsEditable)
+                self.preview_table.setItem(i, 1, value_item)
+            
+            # เปิดใช้งานปุ่ม Apply
+            self.apply_btn.setEnabled(True)
+            
+            # แสดงสถิติพื้นฐาน
+            stats_text = f"""
+            <b>สถิติผลลัพธ์:</b><br>
+            • จำนวนแถว: {len(result_series):,}<br>
+            • ค่าเฉลี่ย: {result_series.mean():.6g}<br>
+            • ค่าต่ำสุด: {result_series.min():.6g}<br>
+            • ค่าสูงสุด: {result_series.max():.6g}<br>
+            • ค่า NaN: {result_series.isna().sum():,}
+            """
+            
+            # แสดงข้อความสถิติใน tooltip ของตาราง
+            self.preview_table.setToolTip(stats_text)
+            
+        except Exception as e:
+            # แสดงข้อผิดพลาด
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถประเมินนิพจน์ได้:\n{str(e)}")
+            
+            # ล้างตารางพรีวิว
+            self.preview_table.setRowCount(0)
+            self.apply_btn.setEnabled(False)
+            self.result_series = None
+    
+    def apply_expression(self):
+        """ใช้ผลลัพธ์สร้างคอลัมน์ใหม่ใน DataFrame"""
+        if self.result_series is None:
+            QMessageBox.warning(self, "คำเตือน", "กรุณา Preview ก่อน")
+            return
+        
+        try:
+            # ดึงชื่อคอลัมน์ใหม่
+            new_name = self.name_edit.text().strip()
+            if not new_name:
+                QMessageBox.warning(self, "คำเตือน", "กรุณาใส่ชื่อคอลัมน์ใหม่")
+                return
+            
+            # ตรวจสอบชื่อซ้ำ
+            if new_name in self.dataframe.columns:
+                reply = QMessageBox.question(
+                    self, "ยืนยัน", 
+                    f"คอลัมน์ '{new_name}' มีอยู่แล้ว ต้องการแทนที่หรือไม่?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    return
+            
+            # สร้างคอลัมน์ใหม่
+            self.dataframe[new_name] = self.result_series
+            
+            # แสดงข้อความสำเร็จ
+            QMessageBox.information(
+                self, "สำเร็จ", 
+                f"สร้างคอลัมน์ '{new_name}' เรียบร้อยแล้ว\nจำนวนแถว: {len(self.result_series):,}"
+            )
+            
+            # ปิด dialog
+            self.accept()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถสร้างคอลัมน์ได้:\n{str(e)}")

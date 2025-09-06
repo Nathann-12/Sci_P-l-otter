@@ -32,29 +32,85 @@ def _uniq(seq):
 # CSV / TSV / TXT
 # ===========================
 def read_csv(path: Path) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """อ่าน .csv/.tsv/.txt แบบพยายามเดา encoding และ delimiter"""
+    """อ่าน .csv/.tsv/.txt แบบพยายามเดา encoding และ delimiter พร้อมจัดการไฟล์ขนาดใหญ่"""
     sep_candidates = [None]  # None = ให้ pandas sniff
     if path.suffix.lower() == ".tsv":
         sep_candidates = ["\t", None]
 
     encodings = ("utf-8-sig", "utf-8", "cp874", "latin-1")
 
+    # ตรวจสอบขนาดไฟล์ก่อนอ่าน
+    file_size = path.stat().st_size
+    large_file_threshold = 100 * 1024 * 1024  # 100 MB
+    
     last_err = None
     for enc in encodings:
         for sep in sep_candidates:
             try:
-                if sep is None:
-                    df = pd.read_csv(path, engine="python", sep=None, on_bad_lines="skip", encoding=enc)
+                if file_size > large_file_threshold:
+                    # สำหรับไฟล์ใหญ่ ใช้ chunking
+                    print(f"ไฟล์ขนาดใหญ่ ({file_size / (1024*1024):.1f} MB) - กำลังอ่านแบบ chunking...")
+                    df = _read_csv_chunked(path, sep, enc)
                 else:
-                    df = pd.read_csv(path, engine="python", sep=sep, on_bad_lines="skip", encoding=enc)
-                return df, {"source": "csv", "path": str(path), "encoding": enc, "sep": sep or "auto"}
+                    # สำหรับไฟล์เล็ก อ่านปกติ
+                    if sep is None:
+                        df = pd.read_csv(path, engine="python", sep=None, on_bad_lines="skip", encoding=enc)
+                    else:
+                        df = pd.read_csv(path, engine="python", sep=sep, on_bad_lines="skip", encoding=enc)
+                
+                return df, {"source": "csv", "path": str(path), "encoding": enc, "sep": sep or "auto", "file_size_mb": file_size / (1024*1024)}
             except Exception as e:
                 last_err = e
                 continue
 
     # ไม้ตาย
-    df = pd.read_csv(path, engine="python", on_bad_lines="skip")
-    return df, {"source": "csv", "path": str(path), "encoding": "unknown", "sep": "auto"}
+    try:
+        if file_size > large_file_threshold:
+            df = _read_csv_chunked(path, None, "utf-8")
+        else:
+            df = pd.read_csv(path, engine="python", on_bad_lines="skip")
+        return df, {"source": "csv", "path": str(path), "encoding": "unknown", "sep": "auto", "file_size_mb": file_size / (1024*1024)}
+    except Exception as e:
+        raise RuntimeError(f"ไม่สามารถอ่านไฟล์ CSV ได้: {e}")
+
+def _read_csv_chunked(path: Path, sep: str = None, encoding: str = "utf-8", chunk_size: int = 10000) -> pd.DataFrame:
+    """อ่านไฟล์ CSV แบบ chunking สำหรับไฟล์ขนาดใหญ่"""
+    chunks = []
+    total_rows = 0
+    
+    try:
+        # อ่าน chunk แรกเพื่อดูโครงสร้าง
+        first_chunk = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
+                                nrows=chunk_size, on_bad_lines="skip")
+        chunks.append(first_chunk)
+        total_rows += len(first_chunk)
+        
+        # อ่าน chunks ที่เหลือ
+        chunk_iter = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
+                               chunksize=chunk_size, on_bad_lines="skip")
+        
+        for chunk in chunk_iter:
+            chunks.append(chunk)
+            total_rows += len(chunk)
+            print(f"อ่านแล้ว {total_rows:,} แถว...")
+            
+            # จำกัดจำนวนแถวสูงสุดเพื่อป้องกัน memory overflow
+            max_rows = 1_000_000  # 1 ล้านแถว
+            if total_rows >= max_rows:
+                print(f"จำกัดข้อมูลที่ {max_rows:,} แถว เพื่อป้องกันหน่วยความจำเต็ม")
+                break
+        
+        # รวม chunks
+        if len(chunks) == 1:
+            df = chunks[0]
+        else:
+            df = pd.concat(chunks, ignore_index=True)
+            
+        print(f"อ่านไฟล์เสร็จสิ้น: {len(df):,} แถว, {len(df.columns)} คอลัมน์")
+        return df
+        
+    except Exception as e:
+        raise RuntimeError(f"เกิดข้อผิดพลาดในการอ่านไฟล์แบบ chunking: {e}")
 
 # ===========================
 # Excel
