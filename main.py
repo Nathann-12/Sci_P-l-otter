@@ -556,10 +556,10 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
 
-        self._init_menu()
-        
-        # Build toolbar with organized groups
+        # Build toolbar with organized groups first (to create actions)
         self.build_toolbar()
+        
+        self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
         
         # UI-REFINE: สถานะถาวรใน StatusBar
@@ -574,8 +574,8 @@ class MainWindow(QMainWindow):
 
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม
         self._panel_right.setVisible(False)
-        # try: self.actToggleInspector.setChecked(False)  # Commented out - actToggleInspector doesn't exist
-        # except Exception: pass  # Commented out - no try block
+        try: self.actToggleInspector.setChecked(False)
+        except Exception: pass
         
         # Connect tab change signal to update canvas reference
         self.tabs.currentChanged.connect(self._update_canvas_reference)
@@ -657,6 +657,16 @@ class MainWindow(QMainWindow):
         # UI-REFINE: ปุ่ม Export ผล Aggregate เป็น CSV
         self.btnExportAgg = QPushButton("Export Aggregated CSV")
         ex.addWidget(self.btnExportAgg)
+        
+        # เพิ่มเส้นแบ่ง
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        ex.addWidget(separator)
+        
+        # ปุ่ม Export Report เป็น PDF
+        self.btnExportReport = QPushButton("Export Report (PDF)")
+        ex.addWidget(self.btnExportReport)
         tabs.addTab(tab_exp, "Export")
         # CHANGE: ตั้งไอคอนแท็บ
         try:
@@ -684,6 +694,7 @@ class MainWindow(QMainWindow):
             self.btnTypes.clicked.connect(self.feature_set_column_types)
             self.btnAgg.clicked.connect(self.run_aggregate_dialog)  # UI-REFINE
             self.btnExportAgg.clicked.connect(self.export_aggregated_csv)  # UI-REFINE
+            self.btnExportReport.clicked.connect(self.on_export_report)  # Export Report PDF
         except Exception:
             pass
         # Staging/View (ฝั่งซ้าย)
@@ -706,7 +717,8 @@ class MainWindow(QMainWindow):
         viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
-        # viewMenu.addAction(self.actToggleInspector)  # Commented out - actToggleInspector doesn't exist
+        
+        viewMenu.addAction(self.actToggleInspector)
         
         # Test Error menu
         test_action = viewMenu.addAction("Raise Test Error")
@@ -740,10 +752,11 @@ class MainWindow(QMainWindow):
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
         exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
+        exportMenu.addSeparator()
+        exportMenu.addAction("Export Report (PDF)...").triggered.connect(self.on_export_report)
 
         toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
-        self.actSettings = toolsMenu.addAction("Settings")
-        self.actSettings.triggered.connect(self.show_settings)
+        toolsMenu.addAction(self.actSettings)
 
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
@@ -780,6 +793,20 @@ class MainWindow(QMainWindow):
     
     def _create_toolbar_actions(self):
         """Create all toolbar actions with proper grouping"""
+        # สร้าง actions ที่จำเป็นถ้ายังไม่มี
+        if not hasattr(self, 'actToggleInspector'):
+            self.actToggleInspector = QAction("Inspector", self)
+            self.actToggleInspector.setCheckable(True)
+            self.actToggleInspector.triggered.connect(self.toggle_inspector)
+        
+        if not hasattr(self, 'actOpen'):
+            self.actOpen = QAction("Open", self)
+            self.actOpen.triggered.connect(self.open_file)
+        
+        if not hasattr(self, 'actSettings'):
+            self.actSettings = QAction("Settings", self)
+            self.actSettings.triggered.connect(self.show_settings)
+        
         # File group
         self.tb.addAction(self.actOpen)
         self.tb.addAction("Reload", self.on_action_reload)
@@ -793,6 +820,10 @@ class MainWindow(QMainWindow):
         # Tabs/Process group
         self.tb.addAction("Add Tab", self.on_action_add_tab)
         self.tb.addAction("Processors", self.on_action_open_processors)
+        self.tb.addSeparator()
+        
+        # Inspector toggle
+        self.tb.addAction(self.actToggleInspector)
         self.tb.addSeparator()
         
         # Error Panel group

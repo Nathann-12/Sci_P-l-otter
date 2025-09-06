@@ -515,7 +515,6 @@ class FitDialog(QDialog):
         except Exception:
             self.ax.clear(); self.canvas.draw()
 
-
 # ---------- Create Derived Column Dialog ----------
 class DerivedColumnDialog(QDialog):
     """
@@ -549,18 +548,7 @@ class DerivedColumnDialog(QDialog):
         name_layout.addWidget(QLabel("ชื่อคอลัมน์ใหม่:"))
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("เช่น B_magnitude, Speed_kmh")
-        self.name_edit.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                border: 2px solid #ddd;
-                border-radius: 4px;
-                font-size: 12px;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QLineEdit:focus {
-                border-color: #007bff;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         name_layout.addWidget(self.name_edit)
         layout.addLayout(name_layout)
         
@@ -601,20 +589,7 @@ class DerivedColumnDialog(QDialog):
         self.expression_edit = QTextEdit()
         self.expression_edit.setMaximumHeight(120)
         self.expression_edit.setPlaceholderText("พิมพ์นิพจน์ที่นี่... เช่น `Bx * By` หรือ `sqrt(`Bx`**2 + `By`**2)`")
-        self.expression_edit.setStyleSheet("""
-            QTextEdit {
-                padding: 8px;
-                border: 2px solid #ddd;
-                border-radius: 4px;
-                font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 12px;
-                background-color: #f8f9fa;
-            }
-            QTextEdit:focus {
-                border-color: #007bff;
-                background-color: white;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         left_layout.addWidget(self.expression_edit)
         
         # ปุ่มฟังก์ชันลัด
@@ -633,22 +608,7 @@ class DerivedColumnDialog(QDialog):
         ]
         for text, func in basic_functions:
             btn = QPushButton(text)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e9ecef;
-                    border: 1px solid #ced4da;
-                    border-radius: 3px;
-                    padding: 4px 8px;
-                    font-size: 10px;
-                    font-family: 'Consolas', 'Monaco', monospace;
-                }
-                QPushButton:hover {
-                    background-color: #dee2e6;
-                }
-                QPushButton:pressed {
-                    background-color: #ced4da;
-                }
-            """)
+            # Styling will be applied by Dark Theme
             btn.clicked.connect(lambda checked, f=func: self.insert_function(f))
             row1.addWidget(btn)
         functions_layout.addLayout(row1)
@@ -661,22 +621,7 @@ class DerivedColumnDialog(QDialog):
         ]
         for text, func in advanced_functions:
             btn = QPushButton(text)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e9ecef;
-                    border: 1px solid #ced4da;
-                    border-radius: 3px;
-                    padding: 4px 8px;
-                    font-size: 10px;
-                    font-family: 'Consolas', 'Monaco', monospace;
-                }
-                QPushButton:hover {
-                    background-color: #dee2e6;
-                }
-                QPushButton:pressed {
-                    background-color: #ced4da;
-                }
-            """)
+            # Styling will be applied by Dark Theme
             btn.clicked.connect(lambda checked, f=func: self.insert_function(f))
             row2.addWidget(btn)
         functions_layout.addLayout(row2)
@@ -696,26 +641,7 @@ class DerivedColumnDialog(QDialog):
         right_layout.addWidget(columns_label)
         
         self.columns_list = QListWidget()
-        self.columns_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 11px;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QListWidget::item {
-                padding: 6px 8px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            QListWidget::item:hover {
-                background-color: #e3f2fd;
-            }
-            QListWidget::item:selected {
-                background-color: #2196f3;
-                color: white;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         right_layout.addWidget(self.columns_list)
         
         splitter.addWidget(right_widget)
@@ -733,27 +659,7 @@ class DerivedColumnDialog(QDialog):
         self.preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.preview_table.setMaximumHeight(200)
-        self.preview_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                background-color: white;
-                gridline-color: #e0e0e0;
-                font-size: 11px;
-                font-family: 'Consolas', 'Monaco', monospace;
-            }
-            QTableWidget::item {
-                padding: 4px 8px;
-                border: none;
-            }
-            QHeaderView::section {
-                background-color: #f8f9fa;
-                padding: 6px 8px;
-                border: none;
-                border-bottom: 1px solid #dee2e6;
-                font-weight: bold;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         layout.addWidget(self.preview_table)
         
         # ปุ่มควบคุม
@@ -761,72 +667,23 @@ class DerivedColumnDialog(QDialog):
         button_layout.addStretch()
         
         self.preview_btn = QPushButton("🔍 Preview")
-        self.preview_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #17a2b8;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #138496;
-            }
-            QPushButton:pressed {
-                background-color: #117a8b;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         
         self.apply_btn = QPushButton("✅ Apply")
         self.apply_btn.setEnabled(False)  # เปิดใช้งานเมื่อ Preview สำเร็จ
-        self.apply_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
-            QPushButton:disabled {
-                background-color: #6c757d;
-                color: #adb5bd;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         
         self.cancel_btn = QPushButton("❌ Cancel")
-        self.cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #545b62;
-            }
-            QPushButton:pressed {
-                background-color: #3d4449;
-            }
-        """)
+        # Styling will be applied by Dark Theme
         
         button_layout.addWidget(self.preview_btn)
         button_layout.addWidget(self.apply_btn)
         button_layout.addWidget(self.cancel_btn)
         
         layout.addLayout(button_layout)
+        
+        # Apply Dark Theme styling
+        self.apply_dark_theme()
     
     def setup_connections(self):
         """เชื่อมต่อ signals และ slots"""
@@ -1019,3 +876,242 @@ class DerivedColumnDialog(QDialog):
             
         except Exception as e:
             QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถสร้างคอลัมน์ได้:\n{str(e)}")
+    
+    def apply_dark_theme(self):
+        """Apply Dark Theme styling to the dialog"""
+        dark_theme_qss = """
+        /* Main Dialog Background */
+        DerivedColumnDialog {
+            background-color: #2b2b2b;
+            color: #ffffff;
+        }
+        
+        /* QLineEdit - ชื่อคอลัมน์ใหม่ */
+        DerivedColumnDialog QLineEdit {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 2px solid #404040;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 12px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        DerivedColumnDialog QLineEdit:focus {
+            border-color: #007acc;
+        }
+        DerivedColumnDialog QLineEdit:disabled {
+            background-color: #3c3c3c;
+            color: #808080;
+        }
+        
+        /* QTextEdit - นิพจน์ */
+        DerivedColumnDialog QTextEdit {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 2px solid #404040;
+            border-radius: 4px;
+            padding: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        DerivedColumnDialog QTextEdit:focus {
+            border-color: #007acc;
+        }
+        DerivedColumnDialog QTextEdit:disabled {
+            background-color: #3c3c3c;
+            color: #808080;
+        }
+        
+        /* QListWidget - รายชื่อคอลัมน์ */
+        DerivedColumnDialog QListWidget {
+            background-color: #2b2b2b;
+            color: #ffffff;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        DerivedColumnDialog QListWidget::item {
+            padding: 6px 8px;
+            border-bottom: 1px solid #404040;
+            background-color: transparent;
+        }
+        DerivedColumnDialog QListWidget::item:hover {
+            background-color: #007acc;
+            color: #ffffff;
+        }
+        DerivedColumnDialog QListWidget::item:selected {
+            background-color: #007acc;
+            color: #ffffff;
+        }
+        DerivedColumnDialog QListWidget::item:selected:active {
+            background-color: #0056b3;
+        }
+        
+        /* QTableWidget - พรีวิวผลลัพธ์ */
+        DerivedColumnDialog QTableWidget {
+            background-color: #1e1e1e;
+            color: #dcdcdc;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            gridline-color: #404040;
+            font-size: 11px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        DerivedColumnDialog QTableWidget::item {
+            padding: 4px 8px;
+            border: none;
+            background-color: transparent;
+        }
+        DerivedColumnDialog QTableWidget::item:selected {
+            background-color: #007acc;
+            color: #ffffff;
+        }
+        DerivedColumnDialog QTableWidget::item:alternate {
+            background-color: #252525;
+        }
+        
+        /* QHeaderView - หัวตาราง */
+        DerivedColumnDialog QHeaderView::section {
+            background-color: #333333;
+            color: #ffffff;
+            padding: 6px 8px;
+            border: none;
+            border-bottom: 1px solid #404040;
+            font-weight: bold;
+            font-size: 11px;
+        }
+        DerivedColumnDialog QHeaderView::section:hover {
+            background-color: #404040;
+        }
+        
+        /* QPushButton - ปุ่มฟังก์ชันลัด */
+        DerivedColumnDialog QPushButton {
+            background-color: #0e639c;
+            color: #ffffff;
+            border: 1px solid #0e639c;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: bold;
+            font-family: 'Consolas', 'Monaco', monospace;
+            min-width: 50px;
+        }
+        DerivedColumnDialog QPushButton:hover {
+            background-color: #1177bb;
+            border-color: #1177bb;
+        }
+        DerivedColumnDialog QPushButton:pressed {
+            background-color: #0a4d7a;
+            border-color: #0a4d7a;
+        }
+        
+        /* ปุ่ม Preview */
+        DerivedColumnDialog QPushButton[text*="Preview"] {
+            background-color: #007acc;
+            border-color: #007acc;
+        }
+        DerivedColumnDialog QPushButton[text*="Preview"]:hover {
+            background-color: #0088dd;
+            border-color: #0088dd;
+        }
+        DerivedColumnDialog QPushButton[text*="Preview"]:pressed {
+            background-color: #0066aa;
+            border-color: #0066aa;
+        }
+        
+        /* ปุ่ม Apply */
+        DerivedColumnDialog QPushButton[text*="Apply"] {
+            background-color: #0e9c57;
+            border-color: #0e9c57;
+        }
+        DerivedColumnDialog QPushButton[text*="Apply"]:hover {
+            background-color: #10ad62;
+            border-color: #10ad62;
+        }
+        DerivedColumnDialog QPushButton[text*="Apply"]:pressed {
+            background-color: #0c8a4a;
+            border-color: #0c8a4a;
+        }
+        DerivedColumnDialog QPushButton[text*="Apply"]:disabled {
+            background-color: #6c757d;
+            border-color: #6c757d;
+            color: #adb5bd;
+        }
+        
+        /* ปุ่ม Cancel */
+        DerivedColumnDialog QPushButton[text*="Cancel"] {
+            background-color: #c23c2a;
+            border-color: #c23c2a;
+        }
+        DerivedColumnDialog QPushButton[text*="Cancel"]:hover {
+            background-color: #d44330;
+            border-color: #d44330;
+        }
+        DerivedColumnDialog QPushButton[text*="Cancel"]:pressed {
+            background-color: #a63525;
+            border-color: #a63525;
+        }
+        
+        /* QLabel - ป้ายกำกับ */
+        DerivedColumnDialog QLabel {
+            color: #ffffff;
+            background-color: transparent;
+        }
+        
+        /* QLabel - คำอธิบาย */
+        DerivedColumnDialog QLabel[text*="วิธีใช้"] {
+            background-color: #2b2b2b;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            padding: 8px;
+            color: #dcdcdc;
+        }
+        
+        /* Scrollbars */
+        DerivedColumnDialog QScrollBar:vertical {
+            background-color: #2b2b2b;
+            width: 12px;
+            border-radius: 6px;
+        }
+        DerivedColumnDialog QScrollBar::handle:vertical {
+            background-color: #555555;
+            border-radius: 6px;
+            min-height: 20px;
+        }
+        DerivedColumnDialog QScrollBar::handle:vertical:hover {
+            background-color: #666666;
+        }
+        DerivedColumnDialog QScrollBar::add-line:vertical,
+        DerivedColumnDialog QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+        
+        DerivedColumnDialog QScrollBar:horizontal {
+            background-color: #2b2b2b;
+            height: 12px;
+            border-radius: 6px;
+        }
+        DerivedColumnDialog QScrollBar::handle:horizontal {
+            background-color: #555555;
+            border-radius: 6px;
+            min-width: 20px;
+        }
+        DerivedColumnDialog QScrollBar::handle:horizontal:hover {
+            background-color: #666666;
+        }
+        DerivedColumnDialog QScrollBar::add-line:horizontal,
+        DerivedColumnDialog QScrollBar::sub-line:horizontal {
+            width: 0px;
+        }
+        
+        /* Selection colors */
+        DerivedColumnDialog QLineEdit::selection,
+        DerivedColumnDialog QTextEdit::selection {
+            background-color: #264f78;
+            color: #ffffff;
+        }
+        """
+        
+        # Apply the dark theme styling
+        self.setStyleSheet(dark_theme_qss)

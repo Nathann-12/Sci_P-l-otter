@@ -273,7 +273,7 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
     
     # รวมตัวแปรทั้งหมดและกรองฟังก์ชันที่อนุญาต
     all_vars = set(backtick_vars + other_vars)
-    allowed_functions = {'sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp', 'mean', 'std', 'min', 'max', 'minimum', 'maximum'}
+    allowed_functions = {'sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp', 'len', 'mean', 'sum', 'std', 'var', 'min', 'max', 'minimum', 'maximum'}
     
     # ตรวจสอบเฉพาะตัวแปรที่ไม่ได้อยู่ในคอลัมน์และไม่ใช่ฟังก์ชันที่อนุญาต
     # แต่ต้องไม่ตรวจสอบตัวแปรที่มาจาก backtick เพราะมันถูกแทนที่แล้ว
@@ -316,6 +316,19 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
         var_name = col.replace(' ', '_')
         local_vars[var_name] = series
     
+    # Helper function for aggregation operations that return scalars
+    def _agg_to_scalar(series, fn):
+        """Convert aggregation function result to scalar"""
+        a = np.asarray(series, dtype=float)
+        return {
+            "mean": np.nanmean(a),
+            "sum":  np.nansum(a),
+            "std":  np.nanstd(a, ddof=0),
+            "var":  np.nanvar(a, ddof=0),
+            "min":  np.nanmin(a),
+            "max":  np.nanmax(a),
+        }[fn]
+
     # เพิ่มฟังก์ชัน numpy ที่ปลอดภัย
     safe_functions = {
         'sqrt': np.sqrt,
@@ -327,10 +340,15 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
         'exp': np.exp,
         'minimum': np.minimum,
         'maximum': np.maximum,
-        'mean': lambda x: x.mean() if hasattr(x, 'mean') else np.mean(x),
-        'std': lambda x: x.std() if hasattr(x, 'std') else np.std(x),
-        'min': lambda x: x.min() if hasattr(x, 'min') else np.min(x),
-        'max': lambda x: x.max() if hasattr(x, 'max') else np.max(x),
+        # Helper functions
+        'len': lambda s: float(len(s)),
+        # Aggregation functions that return scalars (will be broadcasted)
+        'mean': lambda s: float(_agg_to_scalar(s, "mean")),
+        'sum':  lambda s: float(_agg_to_scalar(s, "sum")),
+        'std':  lambda s: float(_agg_to_scalar(s, "std")),
+        'var':  lambda s: float(_agg_to_scalar(s, "var")),
+        'min':  lambda s: float(_agg_to_scalar(s, "min")),
+        'max':  lambda s: float(_agg_to_scalar(s, "max")),
     }
     
     # รวมตัวแปรและฟังก์ชันเข้าด้วยกัน
@@ -360,9 +378,10 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
         
         # แปลงผลลัพธ์เป็น Series ถ้ายังไม่ใช่
         if not isinstance(result, pd.Series):
-            if isinstance(result, (int, float)):
+            if isinstance(result, (int, float)) or np.isscalar(result):
                 # ถ้าเป็นค่าคงที่ ให้สร้าง Series ที่มีค่าเดียวกันทุกแถว
-                result = pd.Series([result] * len(df), index=df.index)
+                result = np.full(len(df), result, dtype=float)
+                result = pd.Series(result, index=df.index)
             else:
                 result = pd.Series(result, index=df.index)
         
