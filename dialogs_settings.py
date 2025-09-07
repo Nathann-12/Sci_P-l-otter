@@ -416,6 +416,21 @@ class SettingsDialog(QDialog):
         self.color_cycle_editor = ColorCycleEditor()
         self.color_cycle_editor.colorsChanged.connect(self._update_mpl_preview)
         overrides_layout.addRow("Color Cycle:", self.color_cycle_editor)
+
+        # Matplotlib font family (Thai-friendly)
+        self.mpl_font_combo = QComboBox()
+        self.mpl_font_combo.addItems([
+            "Auto (Thai)",
+            "Same as App",
+            "Noto Sans Thai",
+            "TH Sarabun New",
+            "Sarabun",
+            "Tahoma",
+            "Segoe UI",
+            "Arial",
+            "DejaVu Sans",
+        ])
+        overrides_layout.addRow("Font Family:", self.mpl_font_combo)
         
         left_layout.addWidget(self.overrides_group)
         
@@ -596,6 +611,22 @@ class SettingsDialog(QDialog):
                 self.text_color_button.setColor(QColor(mpl_config.text_color))
             
             self.color_cycle_editor.set_colors(mpl_config.color_cycle)
+
+            # Matplotlib font family
+            try:
+                fam = getattr(mpl_config, 'font_family', '') or ''
+            except Exception:
+                fam = ''
+            if fam:
+                if fam == app_config.font_family:
+                    self.mpl_font_combo.setCurrentText("Same as App")
+                elif self.mpl_font_combo.findText(fam) >= 0:
+                    self.mpl_font_combo.setCurrentText(fam)
+                else:
+                    self.mpl_font_combo.insertItem(0, fam)
+                    self.mpl_font_combo.setCurrentText(fam)
+            else:
+                self.mpl_font_combo.setCurrentText("Auto (Thai)")
             
             # Update previews
             self._update_font_preview()
@@ -623,7 +654,11 @@ class SettingsDialog(QDialog):
                 'grid_linestyle': self._get_linestyle_from_description(self.grid_linestyle_combo.currentText()),
                 'axes_edgecolor': self.axes_color_button.color().name(),
                 'text_color': self.text_color_button.color().name(),
-                'color_cycle': self.color_cycle_editor.get_colors()
+                'color_cycle': self.color_cycle_editor.get_colors(),
+                'font_family': (
+                    self.font_family_combo.currentText() if self.mpl_font_combo.currentText() == "Same as App"
+                    else ("" if self.mpl_font_combo.currentText().startswith("Auto") else self.mpl_font_combo.currentText())
+                )
             }
         }
     
@@ -712,7 +747,8 @@ class SettingsDialog(QDialog):
                     grid_linestyle=settings['matplotlib']['grid_linestyle'],
                     axes_color=settings['matplotlib']['axes_edgecolor'],
                     text_color=settings['matplotlib']['text_color'],
-                    color_cycle=settings['matplotlib']['color_cycle']
+                    color_cycle=settings['matplotlib']['color_cycle'],
+                    font_family=settings['matplotlib']['font_family']
                 )
             
             # Update matplotlib
@@ -723,7 +759,8 @@ class SettingsDialog(QDialog):
                 grid_linestyle=settings['matplotlib']['grid_linestyle'],
                 axes_edgecolor=settings['matplotlib']['axes_edgecolor'],
                 text_color=settings['matplotlib']['text_color'],
-                color_cycle=settings['matplotlib']['color_cycle']
+                color_cycle=settings['matplotlib']['color_cycle'],
+                font_family=settings['matplotlib']['font_family']
             )
             
             # Save and apply

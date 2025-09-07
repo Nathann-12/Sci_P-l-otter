@@ -4,10 +4,76 @@ import os
 import logging
 import matplotlib
 from cycler import cycler
+from typing import Optional
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def _setup_thai_fonts() -> Optional[str]:
+    """Ensure Matplotlib can render Thai text consistently.
+    Tries bundled fonts first, then common system fonts.
+
+    Returns the selected family name if set, else None.
+    """
+    try:
+        import matplotlib.font_manager as fm
+        base = os.path.dirname(__file__)
+        assets_fonts = os.path.join(os.path.dirname(base), "assets", "fonts")
+
+        chosen = None
+
+        # 1) Register bundled Sarabun if present
+        candidates = [
+            (os.path.join(assets_fonts, "THSarabunNew.ttf"), "TH Sarabun New"),
+            (os.path.join(assets_fonts, "THSarabunNew Bold.ttf"), "TH Sarabun New"),
+        ]
+        for path, family in candidates:
+            try:
+                if os.path.isfile(path):
+                    fm.fontManager.addfont(path)
+                    chosen = chosen or family
+            except Exception:
+                pass
+
+        # 2) Known Thai-capable system fonts in order of preference
+        thai_pref = [
+            "Noto Sans Thai",  # Google font
+            "TH Sarabun New",  # Bundled
+            "Sarabun",         # Alternative family name
+            "Tahoma",          # Windows, has Thai glyphs
+            "Segoe UI",        # Windows modern UI font
+        ]
+
+        # Rebuild the font manager to ensure newly added fonts are visible
+        try:
+            # Matplotlib >= 3.6
+            fm._load_fontmanager(try_read_cache=False)  # type: ignore[attr-defined]
+        except Exception:
+            try:
+                # Older Matplotlib
+                fm._rebuild()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+        # Build fallback chains (family can be a list)
+        chain = thai_pref + [
+            "Microsoft YaHei", "Arial", "DejaVu Sans", "Liberation Sans", "Helvetica"
+        ]
+        matplotlib.rcParams["font.sans-serif"] = chain
+        matplotlib.rcParams["font.family"] = chain
+
+        # Pick the first available Thai-capable family for logging
+        for fam in thai_pref:
+            try:
+                fp = fm.findfont(fm.FontProperties(family=fam), fallback_to_default=False)
+                if fp and os.path.exists(fp):
+                    return fam
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning(f"Thai font setup skipped: {e}")
+    return None
 
 def _convert_linestyle_from_thai(thai_text: str) -> str:
     """Convert Thai description to matplotlib linestyle value"""
@@ -23,26 +89,24 @@ def _convert_linestyle_from_thai(thai_text: str) -> str:
         return "-"
 
 def apply_qss(app: QApplication, qss_path: str = None):
-    """Apply QSS styling to application"""
-    logger.info(f"Applying QSS from: {qss_path}")
-    
+    """Apply QSS styling to application (prefers modern dark if available)"""
     try:
+        base_dir = os.path.dirname(__file__)
         if qss_path and os.path.isfile(qss_path):
-            # Use custom QSS file
-            with open(qss_path, "r", encoding="utf-8") as f:
-                qss_content = f.read()
-                app.setStyleSheet(qss_content)
-                logger.info(f"Custom QSS loaded successfully, length: {len(qss_content)}")
+            path = qss_path
         else:
-            # Use default dark theme
-            default_qss_path = os.path.join(os.path.dirname(__file__), "qdark.qss")
-            if os.path.isfile(default_qss_path):
-                with open(default_qss_path, "r", encoding="utf-8") as f:
-                    qss_content = f.read()
-                    app.setStyleSheet(qss_content)
-                    logger.info(f"Default QSS loaded successfully, length: {len(qss_content)}")
-            else:
-                logger.warning(f"Default QSS file not found at: {default_qss_path}")
+            # Prefer modern dark style if present; fallback to legacy qdark.qss
+            modern = os.path.join(base_dir, "dark_modern.qss")
+            legacy = os.path.join(base_dir, "qdark.qss")
+            path = modern if os.path.isfile(modern) else legacy
+
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                qss_content = f.read()
+            app.setStyleSheet(qss_content)
+            logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
+        else:
+            logger.warning("No QSS file found; skipping stylesheet application")
     except Exception as e:
         logger.error(f"Error applying QSS: {e}")
 
@@ -84,24 +148,50 @@ def apply_mpl_style(style_path: str = None):
 
 def apply_mpl_overrides(grid_enabled: bool = True, grid_alpha: float = 0.3, 
                        grid_linestyle: str = "-", axes_color: str = "#000000", 
-                       text_color: str = "#000000", color_cycle: list = None):
+                       text_color: str = "#000000", color_cycle: list = None,
+                       font_family: Optional[str] = None):
     """Apply matplotlib style overrides"""
     logger.info("Applying matplotlib style overrides")
     
     try:
         import matplotlib
         
+        # Prefer Thai-capable fonts if available
+        fam = None
+        if font_family:
+            # Explicit override from settings/dialog
+            try:
+                import matplotlib.font_manager as fm
+                fm._load_fontmanager(try_read_cache=False)  # refresh
+            except Exception:
+                pass
+            matplotlib.rcParams["font.family"] = [font_family,
+                "Noto Sans Thai", "TH Sarabun New", "Sarabun", "Tahoma", "Segoe UI", "Arial", "DejaVu Sans"]
+            fam = font_family
+        else:
+            # Auto choose Thai-capable fonts
+            fam = _setup_thai_fonts()
+        if fam:
+            logger.info(f"Matplotlib font.family set to: {fam}")
+
+        # Avoid TeX (Thai not supported there by default)
+        matplotlib.rcParams["text.usetex"] = False
+
+        # Dark canvas blending defaults
+        matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+        matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+        matplotlib.rcParams["grid.color"] = "#3a3f44"
+        matplotlib.rcParams["axes.edgecolor"] = axes_color
+        matplotlib.rcParams["axes.labelcolor"] = text_color
+        matplotlib.rcParams["xtick.color"] = text_color
+        matplotlib.rcParams["ytick.color"] = text_color
+        matplotlib.rcParams["text.color"] = text_color
+
         # Grid settings
         matplotlib.rcParams["axes.grid"] = grid_enabled
         matplotlib.rcParams["grid.alpha"] = grid_alpha
         matplotlib.rcParams["grid.linestyle"] = grid_linestyle
         
-        # Color settings
-        matplotlib.rcParams["axes.edgecolor"] = axes_color
-        matplotlib.rcParams["text.color"] = text_color
-        matplotlib.rcParams["xtick.color"] = text_color
-        matplotlib.rcParams["ytick.color"] = text_color
-        matplotlib.rcParams["axes.labelcolor"] = text_color
         
         # Color cycle
         if color_cycle:
@@ -354,17 +444,46 @@ def apply_mpl_from_config(config):
             matplotlib.rcParams["grid.alpha"] = 0.3
             matplotlib.rcParams["grid.linestyle"] = "-"
         
-        # Color settings
+        # Color settings and dark canvas blending
         try:
+            matplotlib.rcParams["text.usetex"] = False
             if hasattr(mpl_config, 'axes_edgecolor'):
                 matplotlib.rcParams["axes.edgecolor"] = str(mpl_config.axes_edgecolor)
             if hasattr(mpl_config, 'text_color'):
                 matplotlib.rcParams["text.color"] = str(mpl_config.text_color)
+            # Ensure canvas matches dark palette
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
+            matplotlib.rcParams["xtick.color"] = matplotlib.rcParams["text.color"]
+            matplotlib.rcParams["ytick.color"] = matplotlib.rcParams["text.color"]
+            matplotlib.rcParams["axes.labelcolor"] = matplotlib.rcParams["text.color"]
+            # Font from config if provided; otherwise auto Thai
+            try:
+                cfg_font = getattr(mpl_config, 'font_family', '') or ''
+            except Exception:
+                cfg_font = ''
+            if cfg_font:
+                try:
+                    import matplotlib.font_manager as fm
+                    fm._load_fontmanager(try_read_cache=False)
+                except Exception:
+                    pass
+                matplotlib.rcParams["font.family"] = [cfg_font,
+                    "Noto Sans Thai", "TH Sarabun New", "Sarabun", "Tahoma", "Segoe UI", "Arial", "DejaVu Sans"]
+                logger.info(f"Matplotlib font.family set from config: {cfg_font}")
+            else:
+                fam = _setup_thai_fonts()
+                if fam:
+                    logger.info(f"Matplotlib font.family set to: {fam}")
         except Exception as e:
             logger.error(f"Error setting color parameters: {e}")
             # Set safe defaults
             matplotlib.rcParams["axes.edgecolor"] = "#404040"
             matplotlib.rcParams["text.color"] = "#ffffff"
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
         
         # Color cycle
         if hasattr(mpl_config, 'color_cycle') and mpl_config.color_cycle:

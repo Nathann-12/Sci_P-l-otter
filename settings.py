@@ -23,6 +23,7 @@ class AppearanceConfig:
 class MatplotlibConfig:
     """Matplotlib style and plot settings"""
     mpl_style_path: str = "styles/mpl_style_dark_pro.mplstyle"
+    font_family: str = ""  # empty = Auto (Thai-capable)
     grid_enabled: bool = True
     grid_alpha: float = 0.25
     grid_linestyle: str = "-"
@@ -86,6 +87,7 @@ class SettingsManager:
             if 'matplotlib' in data:
                 mpl_data = data['matplotlib']
                 self.config.matplotlib.mpl_style_path = mpl_data.get('mpl_style_path', self.config.matplotlib.mpl_style_path)
+                self.config.matplotlib.font_family = mpl_data.get('font_family', self.config.matplotlib.font_family)
                 self.config.matplotlib.grid_enabled = mpl_data.get('grid_enabled', self.config.matplotlib.grid_enabled)
                 self.config.matplotlib.grid_alpha = mpl_data.get('grid_alpha', self.config.matplotlib.grid_alpha)
                 self.config.matplotlib.grid_linestyle = mpl_data.get('grid_linestyle', self.config.matplotlib.grid_linestyle)

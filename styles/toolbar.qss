@@ -1,40 +1,41 @@
 QToolBar {
-    background-color: #2b2b2b;
+    background: #1e2126;
     border: none;
-    spacing: 4px;
-    padding: 2px;
+    padding: 4px 8px;
+    spacing: 8px;
 }
 
 QToolBar::separator {
-    background-color: #404040;
-    width: 1px;
-    margin: 4px 2px;
+    width: 10px;
+    margin: 0 6px;
 }
 
 QToolButton {
-    background-color: transparent;
+    background: transparent;
+    color: #d7d7d7;
     border: 1px solid transparent;
-    border-radius: 4px;
-    padding: 4px;
+    border-radius: 6px;
+    padding: 6px 10px;
     margin: 1px;
-    min-width: 22px;
-    min-height: 22px;
-    color: #ffffff;
+    min-width: 24px;
+    min-height: 24px;
 }
 
 QToolButton:hover {
-    background-color: #404040;
-    border: 1px solid #505050;
+    background: #2a2f3a;
+    border-color: #2a2f3a;
+    color: #ffffff;
 }
 
 QToolButton:pressed {
-    background-color: #505050;
-    border: 1px solid #606060;
+    background: #282c34;
+    border: 1px solid #3a3f44;
 }
 
 QToolButton:checked {
-    background-color: #0078d4;
-    border: 1px solid #106ebe;
+    background: #2a2f3a;
+    border: 1px solid #3498db;
+    color: #ffffff;
 }
 
 QToolButton:disabled {

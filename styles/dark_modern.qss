@@ -1,0 +1,185 @@
+/* Modern Dark QSS for SciPlotter */
+
+/* Base */
+QWidget {
+    background-color: #1e2126;
+    color: #e6e6e6;
+    font-family: 'Segoe UI', 'Noto Sans Thai', 'Sarabun', 'Arial', sans-serif;
+    font-size: 10.5pt;
+}
+
+/* Panels / Frames */
+QFrame, QGroupBox {
+    background-color: #23272e;
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 4px 8px;
+    margin-top: 4px;
+    color: #cfd3d6;
+    background: transparent;
+}
+
+/* Inputs */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit, QListWidget, QTreeWidget, QTableWidget {
+    background-color: #262b33;
+    border: 1px solid #3a3f44;
+    border-radius: 6px;
+    padding: 6px 8px;
+    selection-background-color: #2d3642;
+    selection-color: #ffffff;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #3498db;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #23272e;
+    border: 1px solid #3a3f44;
+    selection-background-color: #2d3642;
+    selection-color: #ffffff;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #2b2f36;
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+    padding: 6px 12px;
+    min-height: 34px;
+    min-width: 96px;
+    color: #e6e6e6;
+}
+
+QPushButton:hover {
+    background-color: #323844;
+}
+
+QPushButton:pressed {
+    background-color: #282c34;
+}
+
+QPushButton:disabled {
+    color: #8a8f96;
+    border-color: #343a40;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #2b2f36;
+    color: #ffffff;
+    border: 1px solid #3a3f44;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+/* Tabs */
+QTabWidget::pane {
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+    top: 8px;
+    background: #23272e;
+}
+
+QTabBar::tab {
+    background: #2b2f36;
+    color: #cfd3d6;
+    border: 1px solid #3a3f44;
+    padding: 6px 12px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 4px;
+}
+
+QTabBar::tab:selected {
+    background: #2f3640;
+    color: #ffffff;
+    border-bottom-color: #2f3640; /* seamless with pane */
+    border: 1px solid #3498db;
+}
+
+QTabBar::tab:hover {
+    background: #323844;
+}
+
+QTabBar::close-button {
+    image: url(close-icon.png); /* optional placeholder; app may replace via QIcon */
+    subcontrol-position: right;
+    padding-left: 6px;
+}
+
+QTabBar::close-button:hover {
+    background: transparent;
+    color: #ffffff;
+}
+
+/* Toolbar */
+QToolBar {
+    background: #1e2126;
+    border: none;
+    padding: 4px 8px;
+    spacing: 8px;
+}
+
+QToolBar QToolButton {
+    background: transparent;
+    color: #d7d7d7;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px; /* a bit tighter for small windows */
+    font-size: 10pt;
+}
+
+QToolBar QToolButton:hover {
+    background: #2a2f3a;
+    border-color: #2a2f3a;
+    color: #ffffff;
+}
+
+QToolBar::separator {
+    width: 10px;
+    margin: 0 6px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    background: #23272e;
+    width: 12px;
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: #3a3f44;
+    min-height: 24px;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #46505a;
+}
+QScrollBar:horizontal {
+    background: #23272e;
+    height: 12px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #3a3f44;
+    min-width: 24px;
+    border-radius: 6px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #46505a;
+}
+
+/* Dock widgets & status */
+QDockWidget {
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+QStatusBar {
+    background: #1e2126;
+    color: #aab0b6;
+}

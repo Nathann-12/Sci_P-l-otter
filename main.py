@@ -251,6 +251,17 @@ class TabManager(QTabWidget):
         self.setMovable(True)
         self.setAcceptDrops(False)
         
+        # Responsive tab bar for small window sizes
+        try:
+            from PySide6.QtCore import Qt
+            self.setUsesScrollButtons(True)
+            self.setDocumentMode(True)
+            tb = self.tabBar()
+            tb.setElideMode(Qt.ElideRight)
+            tb.setExpanding(False)
+        except Exception:
+            pass
+        
         # Connect signals
         self.tabCloseRequested.connect(self._on_tab_close_requested)
         self.tabBar().tabBarDoubleClicked.connect(self._on_tab_double_clicked)
@@ -782,7 +793,13 @@ class MainWindow(QMainWindow):
     def build_toolbar(self):
         """Build the main toolbar with organized groups"""
         self.tb = QToolBar("Main Toolbar", self)
-        self.tb.setIconSize(QSize(22, 22))
+        self.tb.setIconSize(QSize(24, 24))
+        # Show icon + text on toolbar buttons for clarity
+        try:
+            from PySide6.QtCore import Qt
+            self.tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        except Exception:
+            pass
         self.addToolBar(self.tb)
         
         # Create toolbar actions
@@ -798,10 +815,18 @@ class MainWindow(QMainWindow):
             self.actToggleInspector = QAction("Inspector", self)
             self.actToggleInspector.setCheckable(True)
             self.actToggleInspector.triggered.connect(self.toggle_inspector)
+            try:
+                self.actToggleInspector.setIcon(self._icon("inspector", QStyle.StandardPixmap.SP_FileDialogInfoView))
+            except Exception:
+                pass
         
         if not hasattr(self, 'actOpen'):
             self.actOpen = QAction("Open", self)
             self.actOpen.triggered.connect(self.open_file)
+            try:
+                self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
+            except Exception:
+                pass
         
         if not hasattr(self, 'actSettings'):
             self.actSettings = QAction("Settings", self)
@@ -811,25 +836,47 @@ class MainWindow(QMainWindow):
         self.tb.addAction(self.actOpen)
         # Place Inspector as the second button after Open
         self.tb.addAction(self.actToggleInspector)
-        self.tb.addAction("Reload", self.on_action_reload)
+        act_reload = self.tb.addAction("Reload", self.on_action_reload)
+        try:
+            act_reload.setIcon(self._icon("reload", QStyle.StandardPixmap.SP_BrowserReload))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 2: การสร้างกราฟ ===
-        self.tb.addAction("Plot", self.on_action_plot)
-        self.tb.addAction("Spectrogram", self.on_action_spectrogram)
+        act_plot = self.tb.addAction("Plot", self.on_action_plot)
+        act_spec = self.tb.addAction("Spectrogram", self.on_action_spectrogram)
+        try:
+            act_plot.setIcon(self._icon("plot", QStyle.StandardPixmap.SP_FileDialogContentsView))
+            act_spec.setIcon(self._icon("fft", QStyle.StandardPixmap.SP_MediaPlay))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 3: การจัดการแท็บ ===
-        self.tb.addAction("Add Tab", self.on_action_add_tab)
+        act_add_tab = self.tb.addAction("Add Tab", self.on_action_add_tab)
+        try:
+            act_add_tab.setIcon(self._icon("add", QStyle.StandardPixmap.SP_FileDialogNewFolder))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 4: การประมวลผลข้อมูล ===
-        self.tb.addAction("Processors", self.on_action_open_processors)
+        act_processors = self.tb.addAction("Processors", self.on_action_open_processors)
+        try:
+            act_processors.setIcon(self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 5: การส่งออกข้อมูล ===
-        self.tb.addAction("Export Figure", self.on_action_export_figure)
-        self.tb.addAction("Export Data", self.on_action_export_data)
+        act_export_fig = self.tb.addAction("Export Figure", self.on_action_export_figure)
+        act_export_data = self.tb.addAction("Export Data", self.on_action_export_data)
+        try:
+            act_export_fig.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
+            act_export_data.setIcon(self._icon("export", QStyle.StandardPixmap.SP_DialogSaveButton))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 6: การแสดงผลและเครื่องมือ ===
@@ -839,6 +886,10 @@ class MainWindow(QMainWindow):
         self.actErrorPanel = self.tb.addAction("Error Panel")
         self.actErrorPanel.setCheckable(True)
         self.actErrorPanel.triggered.connect(self.toggle_error_panel)
+        try:
+            self.actErrorPanel.setIcon(self._icon("clear", QStyle.StandardPixmap.SP_MessageBoxWarning))
+        except Exception:
+            pass
         self.tb.addSeparator()
         
         # === กลุ่มที่ 7: การตั้งค่า (ขวาสุด) ===
@@ -953,6 +1004,30 @@ class MainWindow(QMainWindow):
                 """)
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to apply toolbar styling: {e}")
+
+    # --- Responsive UI helpers ---
+    def _update_compact_ui(self):
+        """Switch toolbar density/icon mode based on window width.
+        Keep icons-only when narrow to avoid ugly elided labels."""
+        try:
+            from PySide6.QtCore import Qt
+            w = self.width()
+            # Wide: text beside icon; Medium: text under icon; Narrow: icon only
+            if w < 900:
+                self.tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            elif w < 1200:
+                self.tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            else:
+                self.tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        try:
+            self._update_compact_ui()
+        except Exception:
+            pass
+        return super().resizeEvent(event)
     
     def toggle_error_panel(self, checked: bool):
         """Toggle error panel visibility"""
@@ -2927,19 +3002,31 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
-    # CHANGE: helper โหลดไอคอนจากโฟลเดอร์ logo หรือ fallback เป็น QStyle
+    # CHANGE: helper โหลดไอคอนจากโฟลเดอร์ไอคอน (รองรับ .svg/.png และชื่อไฟล์ไม่ตรงเคส)
     def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
         try:
             base = os.path.dirname(__file__)
-            # ลองหาไอคอนในโฟลเดอร์ logo ก่อน (PNG format)
-            logo_path = os.path.join(base, "logo", f"{name}.png")
-            if os.path.isfile(logo_path):
-                return QIcon(logo_path)
-            
-            # ถ้าไม่มีใน logo ลองหาใน assets/icons (SVG format)
-            assets_path = os.path.join(base, "assets", "icons", f"{name}.svg")
-            if os.path.isfile(assets_path):
-                return QIcon(assets_path)
+            # 1) ตรงตัวก่อน
+            candidates = [
+                os.path.join(base, "logo", f"{name}.png"),
+                os.path.join(base, "assets", "icons", f"{name}.svg"),
+                os.path.join(base, "assets", "icons", f"{name}.png"),
+            ]
+            for p in candidates:
+                if os.path.isfile(p):
+                    return QIcon(p)
+
+            # 2) ค้นหาแบบ case-insensitive ใน assets/icons (รองรับ .svg/.png/.ico/.jpg)
+            try:
+                icons_dir = os.path.join(base, "assets", "icons")
+                if os.path.isdir(icons_dir):
+                    lname = name.lower()
+                    for fname in os.listdir(icons_dir):
+                        stem, ext = os.path.splitext(fname)
+                        if stem.lower() == lname and ext.lower() in (".svg", ".png", ".ico", ".jpg", ".jpeg"):
+                            return QIcon(os.path.join(icons_dir, fname))
+            except Exception:
+                pass
         except Exception:
             pass
         try:
