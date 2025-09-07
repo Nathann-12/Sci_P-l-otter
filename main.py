@@ -105,6 +105,8 @@ from dialogs_tabs import SelectTabsDialog
 from core.logging_setup import setup_logging
 from UI.widgets.error_panel import ErrorPanel
 from annotations import AnnotationManager, AnnotationStyleDock, AnnotationListDialog
+from crosscorr import CrossCorrManager, CrossCorrDock
+from peaks import PeakDetectorManager, PeakDetectionDock
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -211,6 +213,24 @@ class GraphTab(QWidget):
 
         # Annotation manager per tab
         self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
+
+        # Context menu for analysis toggles
+        try:
+            self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.canvas.customContextMenuRequested.connect(self._on_canvas_menu)
+        except Exception:
+            pass
+
+    def _on_canvas_menu(self, pos):
+        try:
+            menu = QMenu(self)
+            menu.addAction("Enable Multi-Cursor", lambda: self.parent().actCCEnable.toggle()).setCheckable(False)
+            menu.addAction("Enable Peak Detection", lambda: self.parent().actPkEnable.toggle()).setCheckable(False)
+            menu.addSeparator()
+            menu.addAction("Annotate Peaks", lambda: self.parent().actPkAnnotate.toggle()).setCheckable(False)
+            menu.exec(self.canvas.mapToGlobal(pos))
+        except Exception:
+            pass
         
     def clear(self):
         """Clear the canvas"""
@@ -775,9 +795,85 @@ class MainWindow(QMainWindow):
 
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
-        helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
-            "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nCTRL+D: Create Derived Column\nF: FFT\nI: Toggle Inspector"
-        ))
+        # อัปเดตช็อตคัตให้ครอบคลุมฟีเจอร์ใหม่ (Annotation/Analysis)
+        help_shortcuts = (
+            "CTRL+O: Open\n"
+            "CTRL+R: Reset View\n"
+            "CTRL+E: Export PNG (ภาพกราฟ)\n"
+            "CTRL+, : Settings\n"
+            "\n[Annotation]\n"
+            "T/W/L/R/E/C: Add Text/Arrow/Line/Rect/Ellipse/Callout\n"
+            "Double-Click Text: Edit content\n"
+            "CTRL+Z / CTRL+Y: Undo / Redo\n"
+            "\n[Analysis]\n"
+            "CTRL+Shift+X: Toggle Multi-Cursor\n"
+            "CTRL+Shift+P: Toggle Peak Detection\n"
+            "CTRL+D: Detect Peaks in Range\n"
+            "CTRL+E: Export Peak Table (CSV/Excel)\n"
+            "\n[Other]\n"
+            "F: FFT Dialog\n"
+            "I: Toggle Inspector"
+        )
+        helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts", help_shortcuts))
+
+        # === Analysis Menu ===
+        analysisMenu = m.addMenu("&Analysis")
+
+        # Cross-Correlation submenu
+        ccMenu = analysisMenu.addMenu("Cross-Correlation")
+        self.actCCEnable = ccMenu.addAction("Enable Multi-Cursor Mode"); self.actCCEnable.setCheckable(True); self.actCCEnable.setShortcut("Ctrl+Shift+X")
+        self.actCCWindow = ccMenu.addAction("Window…")
+        self.actCCLink = ccMenu.addAction("Link Axes by X-Time"); self.actCCLink.setCheckable(True)
+        self.actCCCompute = ccMenu.addAction("Compute in Range")
+        self.actCCClear = ccMenu.addAction("Clear Results")
+
+        # Peak Detection submenu
+        pkMenu = analysisMenu.addMenu("Peak Detection")
+        self.actPkEnable = pkMenu.addAction("Enable Peak Detection"); self.actPkEnable.setCheckable(True); self.actPkEnable.setShortcut("Ctrl+Shift+P")
+        self.actPkSettings = pkMenu.addAction("Settings…")
+        self.actPkDetect = pkMenu.addAction("Detect in Range"); self.actPkDetect.setShortcut("Ctrl+D")
+        self.actPkAnnotate = pkMenu.addAction("Annotate Peaks"); self.actPkAnnotate.setCheckable(True)
+        self.actPkExport = pkMenu.addAction("Export Peak Table (CSV/Excel)"); self.actPkExport.setShortcut("Ctrl+E")
+        self.actPkClear = pkMenu.addAction("Clear Peaks")
+
+        # Docks + managers
+        self.ccDock = CrossCorrDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.ccDock); self.ccDock.hide()
+        self.crosscorr = CrossCorrManager(self)
+        self.pkDock = PeakDetectionDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.pkDock); self.pkDock.hide()
+        self.peaks = PeakDetectorManager(self)
+
+        def populate_cols_into_docks():
+            try:
+                import pandas as pd
+                df = getattr(self, '_df', None)
+                cols = list(df.columns) if df is not None else []
+            except Exception:
+                cols = []
+            self.ccDock.populate_columns(cols)
+            self.pkDock.populate_columns(cols)
+
+        populate_cols_into_docks()
+
+        # Wire actions
+        self.actCCEnable.toggled.connect(lambda on: self.crosscorr.set_enabled(on))
+        self.actCCLink.toggled.connect(lambda on: self.crosscorr.set_link_axes(on))
+        self.actCCWindow.triggered.connect(lambda: (populate_cols_into_docks(), self.ccDock.show()))
+        self.ccDock.request_compute.connect(self._on_cc_compute)
+        self.actCCCompute.triggered.connect(lambda: self.ccDock._emit_compute())
+        self.actCCClear.triggered.connect(lambda: self.crosscorr._clear_vlines())
+
+        self.actPkEnable.toggled.connect(lambda on: self.peaks.set_enabled(on))
+        self.actPkSettings.triggered.connect(lambda: (populate_cols_into_docks(), self.pkDock.show()))
+        self.pkDock.request_detect.connect(self._on_pk_detect)
+        self.pkDock.request_annotate.connect(lambda _: self._on_pk_annotate(True))
+        self.pkDock.request_clear.connect(lambda: (self.peaks.clear(), self.pkDock.table.setRowCount(0)))
+        self.pkDock.request_export.connect(self._on_pk_export)
+        self.actPkDetect.triggered.connect(lambda: self._on_pk_detect(self._collect_pk_params_from_menu()))
+        self.actPkAnnotate.toggled.connect(lambda on: self._on_pk_annotate(on))
+        self.actPkExport.triggered.connect(self._on_pk_export)
+        self.actPkClear.triggered.connect(lambda: (self.peaks.clear(), self.pkDock.table.setRowCount(0)))
 
         # === Annotation Menu ===
         self.annMenu = m.addMenu("&Annotation")
@@ -1082,6 +1178,141 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return super().resizeEvent(event)
+
+    # ===== Analysis handlers =====
+    def _on_cc_compute(self, opts: dict):
+        try:
+            df = getattr(self, '_df', None)
+            if df is None: return
+            x_raw = df[opts['x']].to_numpy()
+            y1 = df[opts['y1']].to_numpy(); y2 = df[opts['y2']].to_numpy()
+            # Handle datetime x by converting to POSIX seconds and convert view limits likewise
+            def _to_posix_seconds(arr):
+                import numpy as _np
+                import pandas as _pd
+                if _np.issubdtype(arr.dtype, _np.datetime64):
+                    return arr.astype('datetime64[ns]').astype('int64') / 1e9
+                # object -> try pandas to_datetime
+                if arr.dtype == object:
+                    a = _pd.to_datetime(arr, errors='coerce').astype('datetime64[ns]').to_numpy()
+                    return a.astype('int64') / 1e9
+                return arr.astype(float)
+
+            is_dt = np.issubdtype(x_raw.dtype, np.datetime64) or x_raw.dtype == object
+            if is_dt:
+                x_num = _to_posix_seconds(x_raw)
+                import matplotlib.dates as _mdates
+                ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+                v0 = _mdates.num2date(lim0).timestamp(); v1 = _mdates.num2date(lim1).timestamp()
+                lo, hi = (min(v0, v1), max(v0, v1))
+                m1 = (x_num >= lo) & (x_num <= hi)
+                xr = x_num[m1]
+            else:
+                ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+                lo, hi = (min(lim0, lim1), max(lim0, lim1))
+                m1 = (x_raw >= lo) & (x_raw <= hi)
+                xr = x_raw[m1].astype(float)
+
+            y1r = y1[m1]
+            y2r = y2[m1]
+            res = self.crosscorr.compute_crosscorr(xr, y1r, xr, y2r,
+                                                   max_lag=float(opts['max_lag']), step=float(opts['dt']),
+                                                   detrend=opts['detrend'], normalize=opts['normalize'])
+            self.ccDock.show_result(res)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Cross-corr failed: {e}")
+
+    def _collect_pk_params_from_menu(self) -> dict:
+        # fallback gather from dock; if hidden, try default columns
+        try:
+            return {
+                'x': self.pkDock.cbX.currentText(),
+                'y': self.pkDock.cbY.currentText(),
+                'polarity': self.pkDock.cbPolarity.currentText(),
+                'prominence': float(self.pkDock.spinProm.value()),
+                'height': float(self.pkDock.spinHeight.value()),
+                'min_distance': int(self.pkDock.spinMinDist.value()),
+                'min_width': int(self.pkDock.spinMinWidth.value()),
+                'smooth_window': int(self.pkDock.spinSmooth.value()),
+                'annotate': bool(self.pkDock.chkAnnotate.isChecked()),
+            }
+        except Exception:
+            return {'x':'','y':'','polarity':'peaks','prominence':0.0,'height':0.0,'min_distance':5,'min_width':1,'smooth_window':0,'annotate':True}
+
+    def _on_pk_detect(self, opts: dict):
+        try:
+            df = getattr(self, '_df', None)
+            if df is None: return
+            x_raw = df[opts['x']].to_numpy() if opts['x'] in df.columns else np.arange(len(df))
+            y = df[opts['y']].to_numpy()
+            ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+            lo, hi = (min(lim0, lim1), max(lim0, lim1))
+            # Convert datetime x to Matplotlib date numbers for consistent comparison
+            try:
+                import numpy as _np, pandas as _pd, matplotlib.dates as _mdates
+                if _np.issubdtype(x_raw.dtype, _np.datetime64) or x_raw.dtype == object:
+                    x_num = _mdates.date2num(_pd.to_datetime(x_raw, errors='coerce').to_pydatetime())
+                else:
+                    x_num = _np.asarray(x_raw, float)
+            except Exception:
+                x_num = np.asarray(x_raw, float)
+            m = (x_num >= lo) & (x_num <= hi)
+            from peaks import PeakParams
+            p = PeakParams(polarity=opts['polarity'], prominence=opts['prominence'], height=opts['height'],
+                           min_distance=opts['min_distance'], min_width=opts['min_width'], smooth_window=opts['smooth_window'],
+                           annotate=opts.get('annotate', True))
+            res = self.peaks.detect(x_num[m], y[m], p)
+            self.pkDock.show_results(res)
+            if opts.get('annotate', True):
+                self.peaks.annotate(x_num[m], y[m], res)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Peak detect failed: {e}")
+
+    def _on_pk_annotate(self, on: bool):
+        try:
+            if not on: self.peaks.clear(); return
+            if self.pkDock.table.rowCount() == 0: return
+            # reconstruct results from table
+            xs = []; ys = []; idx = []
+            for r in range(self.pkDock.table.rowCount()):
+                xs.append(float(self.pkDock.table.item(r,0).text()))
+                ys.append(float(self.pkDock.table.item(r,1).text()))
+                idx.append(int(self.pkDock.table.item(r,2).text()))
+            res = {'x_peak': xs, 'y_peak': ys, 'index': idx}
+            df = getattr(self, '_df', None)
+            xcol = self.pkDock.cbX.currentText()
+            ycol = self.pkDock.cbY.currentText()
+            x = df[xcol].to_numpy() if xcol in df.columns else np.arange(len(df))
+            y = df[ycol].to_numpy()
+            self.peaks.annotate(x, y, res)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Annotate failed: {e}")
+
+    def _on_pk_export(self):
+        try:
+            import pandas as pd
+        except Exception:
+            pd = None
+        try:
+            from PySide6.QtWidgets import QFileDialog
+            fn, _ = QFileDialog.getSaveFileName(self, "Export Peaks", "peaks.csv", "CSV (*.csv);;Excel (*.xlsx)")
+            if not fn: return
+            # collect table
+            xs = []; ys = []; idx = []
+            for r in range(self.pkDock.table.rowCount()):
+                xs.append(self.pkDock.table.item(r,0).text())
+                ys.append(self.pkDock.table.item(r,1).text())
+                idx.append(self.pkDock.table.item(r,2).text())
+            if pd is not None and fn.lower().endswith('.xlsx'):
+                df = pd.DataFrame({'x_peak': xs, 'y_peak': ys, 'index': idx})
+                df.to_excel(fn, index=False)
+            else:
+                import csv
+                with open(fn, 'w', newline='', encoding='utf-8') as f:
+                    w = csv.writer(f); w.writerow(['x_peak','y_peak','index']); w.writerows(zip(xs,ys,idx))
+            QMessageBox.information(self, "Export", f"Saved: {fn}")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Export failed: {e}")
     
     def toggle_error_panel(self, checked: bool):
         """Toggle error panel visibility"""
@@ -3089,11 +3320,19 @@ class MainWindow(QMainWindow):
             return QIcon()
 
     def show_about(self):
-        QMessageBox.information(self, "เกี่ยวกับโปรแกรม",
-            "SciPlotter (Modular + Features)\n"
-            "ไฟล์แยกเป็น main/dialogs/loaders/processors\n"
-            "ฟีเจอร์: เวลา+7h, |B|, Moving Average, FFT/Export\n"
-            "เปิดไฟล์ → (CDF/NC เลือกตัวแปรแบบ On‑Demand) → โหลดคอลัมน์ → พล็อต")
+        # เกี่ยวกับโปรแกรม (อัปเดตเนื้อหาให้รวมฟีเจอร์ใหม่และธีม)
+        text = (
+            f"{APP_TITLE}\n\n"
+            "เครื่องมือวิเคราะห์/พล็อตข้อมูลวิทยาศาสตร์บนเดสก์ท็อป (PySide6 + Matplotlib)\n"
+            "- นำเข้าข้อมูล: CSV/TSV/Excel, NetCDF/CDF (เลือกตัวแปรแบบ On‑Demand)\n"
+            "- ประมวลผล: Derived Column, Moving Average, FFT, Spectrogram\n"
+            "- Annotation: ข้อความ/ลูกศร/เส้น/สี่เหลี่ยม/วงรี/Callout พร้อม Style Dock\n"
+            "- Analysis: Multi‑Cursor Cross‑Correlation, Peak Detection (ตรวจจุดยอดอัตโนมัติ)\n"
+            "- Export: PNG/CSV/Excel/รายงาน PDF\n\n"
+            "ธีม: Modern Dark (QSS), ฟอนต์รองรับภาษาไทย\n"
+            "ที่มาของโค้ด: main/dialogs/loaders/processors/styles/..."
+        )
+        QMessageBox.information(self, "เกี่ยวกับโปรแกรม", text)
 
     # DnD
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
