@@ -107,6 +107,7 @@ from UI.widgets.error_panel import ErrorPanel
 from annotations import AnnotationManager, AnnotationStyleDock, AnnotationListDialog
 from crosscorr import CrossCorrManager, CrossCorrDock
 from peaks import PeakDetectorManager, PeakDetectionDock
+from context_menu import ContextMenuManager
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -115,6 +116,30 @@ class PlotCanvas(FigureCanvas):
         self.fig = Figure(figsize=(6, 4), dpi=100)
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig); self.setParent(parent)
+        # Ensure facecolors/grid match current theme immediately on startup
+        try:
+            import matplotlib as _mpl
+            # ใช้ค่าที่กลมกลืนกับธีมเป็นค่าเริ่มต้นเสมอ
+            fig_fc = _mpl.rcParams.get("figure.facecolor", "#1e2126") or "#1e2126"
+            ax_fc = _mpl.rcParams.get("axes.facecolor", "#1e2126") or "#1e2126"
+            grid_col = _mpl.rcParams.get("grid.color", "#3a3f44") or "#3a3f44"
+            grid_alpha = float(_mpl.rcParams.get("grid.alpha", 0.3))
+            grid_ls = _mpl.rcParams.get("grid.linestyle", "-") or "-"
+            text_col = _mpl.rcParams.get("text.color", "#e6e6e6") or "#e6e6e6"
+
+            self.fig.patch.set_facecolor(fig_fc)
+            self.ax.set_facecolor(ax_fc)
+            # spines/ticks สีให้เหมาะกับธีม
+            for sp in self.ax.spines.values():
+                sp.set_color(_mpl.rcParams.get("axes.edgecolor", "#3a3f44"))
+            self.ax.tick_params(colors=text_col)
+            self.ax.yaxis.label.set_color(text_col)
+            self.ax.xaxis.label.set_color(text_col)
+            # grid on if requested by rc
+            if bool(_mpl.rcParams.get("axes.grid", True)):
+                self.ax.grid(True, alpha=grid_alpha, linestyle=grid_ls, color=grid_col)
+        except Exception:
+            pass
         self.fig.tight_layout()
     
     def draw(self):
@@ -213,22 +238,20 @@ class GraphTab(QWidget):
 
         # Annotation manager per tab
         self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
-
-        # Context menu for analysis toggles
+        # Rich context menu manager
         try:
-            self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
-            self.canvas.customContextMenuRequested.connect(self._on_canvas_menu)
-        except Exception:
-            pass
-
-    def _on_canvas_menu(self, pos):
-        try:
-            menu = QMenu(self)
-            menu.addAction("Enable Multi-Cursor", lambda: self.parent().actCCEnable.toggle()).setCheckable(False)
-            menu.addAction("Enable Peak Detection", lambda: self.parent().actPkEnable.toggle()).setCheckable(False)
-            menu.addSeparator()
-            menu.addAction("Annotate Peaks", lambda: self.parent().actPkAnnotate.toggle()).setCheckable(False)
-            menu.exec(self.canvas.mapToGlobal(pos))
+            # find MainWindow to pass managers into context menu
+            p = self.parent()
+            while p is not None and not hasattr(p, 'parent'):
+                p = getattr(p, 'parent', lambda: None)()
+            mw = self.parent().parent() if hasattr(self.parent(), 'parent') else None
+            self.ctx_menu = ContextMenuManager(
+                self.canvas, self.canvas.ax,
+                main=mw,
+                annotation_mgr=self.annotation_manager,
+                peak_mgr=getattr(mw, 'peaks', None) if mw else None,
+                xcorr_mgr=getattr(mw, 'crosscorr', None) if mw else None,
+            )
         except Exception:
             pass
         
@@ -924,6 +947,35 @@ class MainWindow(QMainWindow):
         self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
 
         self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
+
+        
+    # --- Apply current Matplotlib theme to the active canvas (useful on first launch) ---
+    def apply_current_mpl_theme_to_canvas(self):
+        try:
+            import matplotlib as _mpl
+            tab = self.tabs.currentWidget()
+            if not tab: return
+            fig = tab.get_figure(); ax = tab.get_axes()
+            fig_fc = _mpl.rcParams.get("figure.facecolor", "#1e2126") or "#1e2126"
+            ax_fc = _mpl.rcParams.get("axes.facecolor", "#1e2126") or "#1e2126"
+            grid_col = _mpl.rcParams.get("grid.color", "#3a3f44") or "#3a3f44"
+            grid_alpha = float(_mpl.rcParams.get("grid.alpha", 0.3))
+            grid_ls = _mpl.rcParams.get("grid.linestyle", "-") or "-"
+            text_col = _mpl.rcParams.get("text.color", "#e6e6e6") or "#e6e6e6"
+
+            if fig: fig.patch.set_facecolor(fig_fc)
+            if ax:
+                ax.set_facecolor(ax_fc)
+                for sp in ax.spines.values():
+                    sp.set_color(_mpl.rcParams.get("axes.edgecolor", "#3a3f44"))
+                ax.tick_params(colors=text_col)
+                ax.yaxis.label.set_color(text_col)
+                ax.xaxis.label.set_color(text_col)
+                if bool(_mpl.rcParams.get("axes.grid", True)):
+                    ax.grid(True, alpha=grid_alpha, linestyle=grid_ls, color=grid_col)
+            fig.canvas.draw_idle()
+        except Exception:
+            pass
         
         # Add keyboard shortcuts
         self.actOpen.setShortcut("Ctrl+O")
@@ -3373,6 +3425,11 @@ def main():
         apply_theme(app)
     
     win = MainWindow()
+    # Ensure the very first canvas adopts current Matplotlib theme
+    try:
+        win.apply_current_mpl_theme_to_canvas()
+    except Exception:
+        pass
     win.show()
     sys.exit(app.exec())
 
