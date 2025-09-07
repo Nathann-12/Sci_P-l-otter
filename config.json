@@ -1,20 +1,25 @@
 {
   "appearance": {
-    "qt_qss_path": "",
-    "font_family": "Script MT",
+    "qt_qss_path": "styles/qdark.qss",
+    "font_family": "Segoe UI",
     "font_size": 10
   },
   "matplotlib": {
-    "mpl_style_path": "",
+    "mpl_style_path": "styles/mpl_style_dark_pro.mplstyle",
     "grid_enabled": true,
     "grid_alpha": 0.25,
-    "grid_linestyle": "เส้นทึบ (-)",
-    "axes_edgecolor": "#ffffff",
-    "text_color": "#00ffff",
+    "grid_linestyle": "-",
+    "axes_edgecolor": "#3b3f46",
+    "text_color": "#d7d7d7",
     "color_cycle": [
-      "#1c6af9",
-      "#2ef9d7",
-      "#ea11f9"
+      "#4F9CF9",
+      "#FFB020",
+      "#6EE7B7",
+      "#F472B6",
+      "#A78BFA",
+      "#F87171",
+      "#22D3EE",
+      "#94A3B8"
     ]
   }
 }

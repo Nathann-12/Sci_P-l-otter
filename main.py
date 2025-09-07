@@ -807,42 +807,46 @@ class MainWindow(QMainWindow):
             self.actSettings = QAction("Settings", self)
             self.actSettings.triggered.connect(self.show_settings)
         
-        # File group
+        # === กลุ่มที่ 1: ไฟล์และข้อมูล ===
         self.tb.addAction(self.actOpen)
+        # Place Inspector as the second button after Open
+        self.tb.addAction(self.actToggleInspector)
         self.tb.addAction("Reload", self.on_action_reload)
         self.tb.addSeparator()
         
-        # Plot group
+        # === กลุ่มที่ 2: การสร้างกราฟ ===
         self.tb.addAction("Plot", self.on_action_plot)
         self.tb.addAction("Spectrogram", self.on_action_spectrogram)
         self.tb.addSeparator()
         
-        # Tabs/Process group
+        # === กลุ่มที่ 3: การจัดการแท็บ ===
         self.tb.addAction("Add Tab", self.on_action_add_tab)
+        self.tb.addSeparator()
+        
+        # === กลุ่มที่ 4: การประมวลผลข้อมูล ===
         self.tb.addAction("Processors", self.on_action_open_processors)
         self.tb.addSeparator()
         
-        # Inspector toggle
-        self.tb.addAction(self.actToggleInspector)
+        # === กลุ่มที่ 5: การส่งออกข้อมูล ===
+        self.tb.addAction("Export Figure", self.on_action_export_figure)
+        self.tb.addAction("Export Data", self.on_action_export_data)
         self.tb.addSeparator()
         
-        # Error Panel group
+        # === กลุ่มที่ 6: การแสดงผลและเครื่องมือ ===
+        # Inspector already added near the Open button for better access
+        
+        # Error Panel toggle
         self.actErrorPanel = self.tb.addAction("Error Panel")
         self.actErrorPanel.setCheckable(True)
         self.actErrorPanel.triggered.connect(self.toggle_error_panel)
         self.tb.addSeparator()
         
-        # Spacer
+        # === กลุ่มที่ 7: การตั้งค่า (ขวาสุด) ===
+        # Spacer เพื่อผลักปุ่ม Settings ไปขวาสุด
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.tb.addWidget(spacer)
         
-        # Output group
-        self.tb.addAction("Export Figure", self.on_action_export_figure)
-        self.tb.addAction("Export Data", self.on_action_export_data)
-        self.tb.addSeparator()
-        
-        # Settings group
         self.tb.addAction(self.actSettings)
     
     def _apply_toolbar_styling(self):
@@ -854,39 +858,97 @@ class MainWindow(QMainWindow):
                 with open(qss_path, 'r', encoding='utf-8') as f:
                     self.tb.setStyleSheet(f.read())
             else:
-                # Fallback styling
+                # Enhanced toolbar styling
                 self.tb.setStyleSheet("""
                     QToolBar {
-                        background-color: #2b2b2b;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                   stop:0 #3a3a3a, stop:1 #2b2b2b);
                         border: none;
-                        spacing: 4px;
-                        padding: 2px;
+                        border-bottom: 1px solid #404040;
+                        spacing: 6px;
+                        padding: 4px 8px;
+                        font-size: 11px;
+                        font-weight: 500;
                     }
+                    
                     QToolBar::separator {
-                        background-color: #404040;
+                        background-color: #555555;
                         width: 1px;
-                        margin: 4px 2px;
+                        margin: 6px 4px;
+                        border-radius: 1px;
                     }
+                    
                     QToolButton {
                         background-color: transparent;
                         border: 1px solid transparent;
-                        border-radius: 4px;
-                        padding: 4px;
+                        border-radius: 6px;
+                        padding: 6px 10px;
                         margin: 1px;
-                        min-width: 22px;
-                        min-height: 22px;
+                        color: #e0e0e0;
+                        font-size: 11px;
+                        font-weight: 500;
+                        min-width: 60px;
+                        text-align: center;
                     }
+                    
                     QToolButton:hover {
-                        background-color: #404040;
-                        border: 1px solid #505050;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                   stop:0 #4a4a4a, stop:1 #3a3a3a);
+                        border: 1px solid #666666;
+                        color: #ffffff;
                     }
+                    
                     QToolButton:pressed {
-                        background-color: #505050;
-                        border: 1px solid #606060;
-                    }
-                    QToolButton:checked {
-                        background-color: #0078d4;
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                   stop:0 #0078d4, stop:1 #106ebe);
                         border: 1px solid #106ebe;
+                        color: #ffffff;
+                    }
+                    
+                    QToolButton:checked {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                                   stop:0 #0078d4, stop:1 #106ebe);
+                        border: 1px solid #106ebe;
+                        color: #ffffff;
+                    }
+                    
+                    /* Special styling for different groups */
+                    QToolButton[text="Open"] {
+                        background-color: #28a745;
+                        color: #ffffff;
+                        font-weight: bold;
+                    }
+                    QToolButton[text="Open"]:hover {
+                        background-color: #218838;
+                    }
+                    
+                    QToolButton[text="Plot"] {
+                        background-color: #007bff;
+                        color: #ffffff;
+                        font-weight: bold;
+                    }
+                    QToolButton[text="Plot"]:hover {
+                        background-color: #0056b3;
+                    }
+                    
+                    QToolButton[text="Export Figure"],
+                    QToolButton[text="Export Data"] {
+                        background-color: #17a2b8;
+                        color: #ffffff;
+                        font-weight: bold;
+                    }
+                    QToolButton[text="Export Figure"]:hover,
+                    QToolButton[text="Export Data"]:hover {
+                        background-color: #138496;
+                    }
+                    
+                    QToolButton[text="Settings"] {
+                        background-color: #6c757d;
+                        color: #ffffff;
+                        font-weight: bold;
+                    }
+                    QToolButton[text="Settings"]:hover {
+                        background-color: #545b62;
                     }
                 """)
         except Exception as e:

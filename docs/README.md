@@ -98,9 +98,7 @@ python main.py
 
 - [คู่มือการใช้งาน Derived Column](docs/README_DERIVED_COLUMN.md)
 - [คู่มือการใช้งาน Spectrogram](docs/README_SPECTROGRAM.md)
-- [โครงสร้างโปรเจค](docs/PROJECT_STRUCTURE.md)
-- [คู่มือการมีส่วนร่วม](docs/CONTRIBUTING.md)
-- [สรุปการจัดระเบียบ](docs/ORGANIZATION_SUMMARY.md)
+- [โครงสร้างโปรเจค](PROJECT_STRUCTURE.md)
 
 ## 🧪 การทดสอบ
 
@@ -122,7 +120,7 @@ python tests/test_system.py
 
 ## 📄 License
 
-โปรเจคนี้อยู่ภายใต้ MIT License - ดูรายละเอียดใน [LICENSE](docs/LICENSE) file
+โปรเจคนี้อยู่ภายใต้ MIT License - ดูรายละเอียดใน [LICENSE](LICENSE) file
 
 ## 👥 ผู้พัฒนา
 

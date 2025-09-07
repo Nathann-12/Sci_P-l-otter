@@ -48,6 +48,12 @@ class ColorCycleEditor(QWidget):
         self.remove_btn = QPushButton("Remove")
         self.move_up_btn = QPushButton("↑")
         self.move_down_btn = QPushButton("↓")
+        # Cosmetic: tooltips for better UX (no logic change)
+        self.add_btn.setToolTip("Add a new color to the cycle")
+        self.edit_btn.setToolTip("Edit the selected color")
+        self.remove_btn.setToolTip("Remove the selected color")
+        self.move_up_btn.setToolTip("Move the selected color up")
+        self.move_down_btn.setToolTip("Move the selected color down")
         
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
