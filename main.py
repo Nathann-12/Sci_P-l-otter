@@ -104,6 +104,7 @@ from dialogs_report import ExportReportDialog
 from dialogs_tabs import SelectTabsDialog
 from core.logging_setup import setup_logging
 from UI.widgets.error_panel import ErrorPanel
+from annotations import AnnotationManager, AnnotationStyleDock, AnnotationListDialog
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
@@ -207,6 +208,9 @@ class GraphTab(QWidget):
         
         # Set size policy
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Annotation manager per tab
+        self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
         
     def clear(self):
         """Clear the canvas"""
@@ -774,6 +778,56 @@ class MainWindow(QMainWindow):
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts",
             "CTRL+O: Open\nCTRL+R: Reset View\nCTRL+E: Export PNG\nCTRL+D: Create Derived Column\nF: FFT\nI: Toggle Inspector"
         ))
+
+        # === Annotation Menu ===
+        self.annMenu = m.addMenu("&Annotation")
+        self.actAnnEnable = self.annMenu.addAction("Enable Annotation Mode")
+        self.actAnnEnable.setCheckable(True)
+        self.actAnnText = self.annMenu.addAction("Add Text (T)")
+        self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)")
+        self.actAnnLine = self.annMenu.addAction("Add Line (L)")
+        self.actAnnRect = self.annMenu.addAction("Add Rectangle (R)")
+        self.actAnnEllipse = self.annMenu.addAction("Add Ellipse (E)")
+        self.actAnnCallout = self.annMenu.addAction("Add Callout (C)")
+        self.annMenu.addSeparator()
+        self.actAnnStyleDock = self.annMenu.addAction("Style Dock…")
+        self.actAnnManage = self.annMenu.addAction("Manage Annotations")
+
+        # Shortcuts
+        self.actAnnText.setShortcut("T")
+        self.actAnnArrow.setShortcut("W")
+        self.actAnnLine.setShortcut("L")
+        self.actAnnRect.setShortcut("R")
+        self.actAnnEllipse.setShortcut("E")
+        self.actAnnCallout.setShortcut("C")
+
+        self.actUndo = self.annMenu.addAction("Undo")
+        self.actRedo = self.annMenu.addAction("Redo")
+        self.actUndo.setShortcut("Ctrl+Z"); self.actRedo.setShortcut("Ctrl+Y")
+
+        # Style dock
+        self.annStyleDock = AnnotationStyleDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.annStyleDock)
+        self.annStyleDock.hide()
+
+        # Wire actions at runtime to current tab's manager
+        def _mgr():
+            tab = self.tabs.currentWidget()
+            return getattr(tab, 'annotation_manager', None)
+
+        self.actAnnEnable.toggled.connect(lambda on: (_mgr() and _mgr().set_enabled(on)))
+        self.actAnnText.triggered.connect(lambda: (_mgr() and _mgr().set_mode('text')))
+        self.actAnnArrow.triggered.connect(lambda: (_mgr() and _mgr().set_mode('arrow')))
+        self.actAnnLine.triggered.connect(lambda: (_mgr() and _mgr().set_mode('line')))
+        self.actAnnRect.triggered.connect(lambda: (_mgr() and _mgr().set_mode('rect')))
+        self.actAnnEllipse.triggered.connect(lambda: (_mgr() and _mgr().set_mode('ellipse')))
+        self.actAnnCallout.triggered.connect(lambda: (_mgr() and _mgr().set_mode('callout')))
+        self.actAnnStyleDock.triggered.connect(lambda: self.annStyleDock.show())
+        self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
+        self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
+        self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
+
+        self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
         
         # Add keyboard shortcuts
         self.actOpen.setShortcut("Ctrl+O")

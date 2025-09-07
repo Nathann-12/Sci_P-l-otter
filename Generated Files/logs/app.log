@@ -360,3 +360,377 @@
 2025-09-07 20:16:16 | INFO | styles.theme | Matplotlib canvases refreshed
 2025-09-07 20:16:16 | INFO | __main__ | All canvases refreshed
 2025-09-07 20:16:16 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 20:32:31 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:32:31 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:32:31 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:32:31 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:32:31 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:32:31 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:32:31 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:32:31 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:32:31 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:32:31 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:32:31 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:32:31 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:32:31 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:32:31 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:32:31 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:32:31 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:32:31 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:32:32 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:32:32 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:32:32 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:32:32 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:32:32 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:32:32 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:32:32 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:32:32 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:32:32 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:32:32 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:32:32 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:32:32 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:32:32 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:32:32 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:32:32 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:32:32 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:32:32 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:32:32 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:35:52 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:35:52 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:35:52 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:35:52 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:35:52 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:35:52 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:35:52 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:35:52 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:35:52 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:35:52 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:35:52 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:35:52 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:35:53 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:35:53 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:35:53 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:35:53 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:35:53 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:35:53 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:35:53 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:35:53 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:35:53 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:35:53 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:35:53 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:35:53 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:35:53 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:35:53 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:35:53 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:35:53 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:35:53 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:35:53 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:35:54 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:35:54 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:35:54 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:35:54 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:35:54 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:41:29 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:41:29 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:41:29 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:41:29 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:41:29 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:41:29 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:41:29 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:41:29 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:41:29 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:41:29 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:41:29 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:41:29 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:41:30 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:41:30 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:41:30 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:41:30 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:41:30 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:41:30 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:41:30 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:41:30 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:41:30 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:41:30 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:41:30 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:41:30 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:41:31 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:41:31 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:41:31 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:41:31 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:41:31 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:41:31 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:41:31 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:41:31 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:41:31 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:41:31 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:41:31 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:43:43 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:43:43 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:43:43 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:43:43 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:43:43 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:43:43 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:43:43 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:43:43 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:43:43 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:43:43 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:43:43 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:43:43 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:43:44 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:43:44 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:43:44 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:43:44 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:43:44 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:43:44 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:43:44 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:43:44 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:43:44 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:43:44 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:43:44 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:43:44 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:43:45 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:43:45 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:43:45 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:43:45 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:43:45 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:43:45 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:43:45 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:43:45 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:43:45 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:43:45 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:43:45 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:49:35 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:49:35 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:49:35 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:49:35 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:49:35 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:49:35 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:49:35 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:49:35 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:49:35 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:49:35 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:49:35 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:49:35 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:49:36 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:49:36 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:49:36 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:49:36 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:49:36 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:49:36 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:49:36 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:49:36 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:49:36 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:49:36 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:49:36 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:49:36 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:49:37 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:49:37 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:49:37 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:49:37 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:49:37 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:49:37 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:49:37 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:49:37 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:49:37 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:49:37 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:49:37 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:53:55 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:53:55 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:53:55 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:53:55 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:53:55 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:53:55 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:53:56 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:53:56 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:53:56 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:53:56 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:53:56 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:53:56 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:53:56 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:53:56 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:53:56 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:53:56 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:53:56 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:53:56 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:53:56 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:53:56 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:53:56 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:53:56 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:53:57 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:53:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:53:57 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:53:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:53:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:53:57 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:53:57 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:53:57 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:53:57 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:53:57 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:53:57 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:53:57 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:53:57 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 20:58:21 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 20:58:21 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:58:21 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:58:21 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:58:21 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:58:21 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:58:21 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:58:21 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:58:21 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:58:21 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:58:21 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:58:21 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:58:22 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:58:22 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:58:22 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:58:22 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:58:22 | INFO | __main__ | Settings applied from configuration
+2025-09-07 20:58:22 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 20:58:22 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 20:58:22 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 20:58:22 | INFO | styles.theme | Font set to: 8514oem size 10
+2025-09-07 20:58:22 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 20:58:22 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 20:58:22 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:58:23 | INFO | styles.theme | Matplotlib font.family set from config: 8514oem
+2025-09-07 20:58:23 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:58:23 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:58:23 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 20:58:23 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 20:58:23 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 20:58:23 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 20:58:23 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 20:58:23 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 20:58:23 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 20:58:23 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 21:02:05 | INFO | styles.theme | Applying font: 8514oem 10pt
+2025-09-07 21:02:05 | WARNING | styles.theme | Font not found: 8514oem, using fallback
+2025-09-07 21:02:05 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:05 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:05 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:02:05 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:02:05 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:02:05 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:02:07 | INFO | styles.theme | Applying font: 8514oem 10pt
+2025-09-07 21:02:07 | WARNING | styles.theme | Font not found: 8514oem, using fallback
+2025-09-07 21:02:07 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:07 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:07 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:02:07 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:02:07 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:02:07 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:02:55 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:02:55 | INFO | styles.theme | Applying font: Algerian 10pt
+2025-09-07 21:02:55 | WARNING | styles.theme | Font not found: Algerian, using fallback
+2025-09-07 21:02:55 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:55 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:02:55 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:02:55 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:02:55 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:02:55 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:03:22 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:03:22 | INFO | styles.theme | Applying font: Algerian 10pt
+2025-09-07 21:03:22 | WARNING | styles.theme | Font not found: Algerian, using fallback
+2025-09-07 21:03:22 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:03:22 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:03:22 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:03:22 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:03:22 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:03:22 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:04:43 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 21:04:43 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 21:04:43 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-07 21:04:43 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 21:04:43 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 21:04:43 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:04:43 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-07 21:04:43 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:04:43 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:04:43 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:04:43 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:04:43 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 21:04:44 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 21:04:44 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 21:04:44 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:04:44 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:04:44 | INFO | __main__ | Settings applied from configuration
+2025-09-07 21:04:44 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 21:04:44 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 21:04:44 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 21:04:44 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-07 21:04:44 | INFO | styles.theme | No custom QSS path or file not found, using default
+2025-09-07 21:04:44 | INFO | styles.theme | Default QSS loaded successfully
+2025-09-07 21:04:44 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:04:44 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-07 21:04:44 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:04:44 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:04:44 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:04:44 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:04:44 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 21:04:45 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 21:04:45 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 21:04:45 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:04:45 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:04:45 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-07 21:04:50 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:04:50 | INFO | styles.theme | Applying font: Algerian 10pt
+2025-09-07 21:04:50 | WARNING | styles.theme | Font not found: Algerian, using fallback
+2025-09-07 21:04:50 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:04:50 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:04:50 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:04:50 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:04:50 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:04:50 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:05:00 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:05:00 | INFO | styles.theme | Applying font: Algerian 10pt
+2025-09-07 21:05:00 | WARNING | styles.theme | Font not found: Algerian, using fallback
+2025-09-07 21:05:00 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:05:00 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:05:00 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:05:00 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:05:00 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:05:00 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:08:33 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:08:33 | INFO | styles.theme | Applying font: Algerian 10pt
+2025-09-07 21:08:33 | WARNING | styles.theme | Font not found: Algerian, using fallback
+2025-09-07 21:08:33 | INFO | styles.theme | Applying matplotlib style from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:08:33 | INFO | styles.theme | Matplotlib style applied successfully from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:08:33 | INFO | settings | Configuration saved to config.json
+2025-09-07 21:08:33 | INFO | styles.theme | Matplotlib canvases refreshed
+2025-09-07 21:08:33 | INFO | __main__ | All canvases refreshed
+2025-09-07 21:08:33 | INFO | __main__ | Settings applied and canvases refreshed
+2025-09-07 21:12:58 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-07 21:12:58 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 21:12:58 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-07 21:12:58 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:12:58 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:12:59 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-07 21:12:59 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:12:59 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:12:59 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:12:59 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:12:59 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 21:12:59 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 21:12:59 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 21:12:59 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:12:59 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:12:59 | INFO | __main__ | Settings applied from configuration
+2025-09-07 21:13:00 | INFO | __main__ | Dark style file loaded successfully
+2025-09-07 21:13:00 | INFO | __main__ | Canvas redrawn with new style
+2025-09-07 21:13:00 | INFO | styles.theme | Applying theme from configuration...
+2025-09-07 21:13:00 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-07 21:13:00 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-07 21:13:00 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:13:00 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-07 21:13:00 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:13:00 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:13:00 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-07 21:13:00 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-07 21:13:00 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-07 21:13:00 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-07 21:13:00 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-07 21:13:00 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-07 21:13:00 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-07 21:13:00 | INFO | __main__ | Settings loaded and applied successfully

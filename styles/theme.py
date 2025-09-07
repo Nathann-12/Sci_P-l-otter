@@ -357,38 +357,26 @@ def apply_theme_from_config(app: QApplication, config):
         except Exception:
             logger.error("Failed to apply fallback font")
 
-    # Apply QSS
+    # Apply QSS (prefer modern dark if available)
     try:
         qss_path = getattr(config, 'qt_qss_path', None)
         if qss_path and os.path.isfile(qss_path):
-            logger.info(f"Looking for QSS file at: {qss_path}")
-            with open(qss_path, "r", encoding="utf-8") as f:
-                qss_content = f.read()
-                app.setStyleSheet(qss_content)
-                logger.info(f"QSS loaded successfully, length: {len(qss_content)}")
+            path = qss_path
         else:
-            logger.info("No custom QSS path or file not found, using default")
-            # Use default dark theme
-            default_qss_path = os.path.join(os.path.dirname(__file__), "qdark.qss")
-            if os.path.isfile(default_qss_path):
-                with open(default_qss_path, "r", encoding="utf-8") as f:
-                    qss_content = f.read()
-                    app.setStyleSheet(qss_content)
-                    logger.info("Default QSS loaded successfully")
-            else:
-                logger.warning(f"Default QSS file not found at: {default_qss_path}")
+            base = os.path.dirname(__file__)
+            modern = os.path.join(base, "dark_modern.qss")
+            legacy = os.path.join(base, "qdark.qss")
+            path = modern if os.path.isfile(modern) else legacy
+
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                qss_content = f.read()
+            app.setStyleSheet(qss_content)
+            logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
+        else:
+            logger.warning("No QSS file found; skipping stylesheet application")
     except Exception as e:
         logger.error(f"Error loading QSS: {e}")
-        # Try to load default QSS as emergency fallback
-        try:
-            default_qss_path = os.path.join(os.path.dirname(__file__), "qdark.qss")
-            if os.path.isfile(default_qss_path):
-                with open(default_qss_path, "r", encoding="utf-8") as f:
-                    qss_content = f.read()
-                    app.setStyleSheet(qss_content)
-                    logger.info("Emergency fallback QSS loaded")
-        except Exception as fallback_error:
-            logger.error(f"Emergency QSS fallback failed: {fallback_error}")
     
     # Apply matplotlib settings from config
     try:
