@@ -23,8 +23,11 @@ class SpectrogramDialog(QDialog):
     def setup_ui(self):
         """Setup the user interface"""
         self.setWindowTitle("Spectrogram Analysis")
-        self.setMinimumSize(500, 600)
-        self.setModal(True)
+        self.resize(720, 480)
+        try:
+            self.setWindowModality(Qt.NonModal)
+        except Exception:
+            pass
         
         # Main layout
         main_layout = QVBoxLayout(self)

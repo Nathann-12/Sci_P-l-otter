@@ -104,6 +104,16 @@ def apply_qss(app: QApplication, qss_path: str = None):
             with open(path, "r", encoding="utf-8") as f:
                 qss_content = f.read()
             app.setStyleSheet(qss_content)
+            # Load sidepanel overrides after main theme
+            try:
+                sidepanel = os.path.join(base_dir, "sidepanel.qss")
+                if os.path.isfile(sidepanel):
+                    with open(sidepanel, "r", encoding="utf-8") as sf:
+                        sp_qss = sf.read()
+                    app.setStyleSheet(app.styleSheet() + "\n" + sp_qss)
+                    logger.info(f"SidePanel QSS loaded: {sidepanel} ({len(sp_qss)} chars)")
+            except Exception as e:
+                logger.warning(f"SidePanel QSS load skipped: {e}")
             logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
         else:
             logger.warning("No QSS file found; skipping stylesheet application")
@@ -372,6 +382,17 @@ def apply_theme_from_config(app: QApplication, config):
             with open(path, "r", encoding="utf-8") as f:
                 qss_content = f.read()
             app.setStyleSheet(qss_content)
+            # Load sidepanel overrides after main theme
+            try:
+                base = os.path.dirname(__file__)
+                sidepanel = os.path.join(base, "sidepanel.qss")
+                if os.path.isfile(sidepanel):
+                    with open(sidepanel, "r", encoding="utf-8") as sf:
+                        sp_qss = sf.read()
+                    app.setStyleSheet(app.styleSheet() + "\n" + sp_qss)
+                    logger.info(f"SidePanel QSS loaded: {sidepanel} ({len(sp_qss)} chars)")
+            except Exception as e:
+                logger.warning(f"SidePanel QSS load skipped: {e}")
             logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
         else:
             logger.warning("No QSS file found; skipping stylesheet application")

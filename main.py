@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # main.py
 import os, sys
 import numpy as np
@@ -34,10 +35,10 @@ print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
     QListWidget, QListWidgetItem, QToolBar, QInputDialog, QSplitter, QTabWidget, QSizePolicy,
-    QFrame, QGroupBox, QStyle
+    QFrame, QGroupBox, QStyle, QGraphicsDropShadowEffect
 )
 from PySide6.QtGui import QAction, QIcon
 
@@ -91,6 +92,8 @@ from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from dialogs import DerivedColumnDialog  # UI-DERIVED: Derived Column dialog
 from dialogs_spectrogram import SpectrogramDialog  # UI-SPECTROGRAM: Spectrogram dialog
+from dialogs_histogram import HistogramDialog  # NEW: Histogram dialog
+from charts_gallery import ChartGalleryMenu
 from dialogs_units import UnitsDialog  # UI-UNITS: Units and calibration dialog
 from core.units import UNIT_REGISTRY  # UI-UNITS: Unit registry for conversions
 from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
@@ -536,6 +539,175 @@ class TabManager(QTabWidget):
             else:
                 print(f"Warning: Tab ID {tab_id} not found in tabs dictionary")
 
+    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", **kwargs):
+        """Overlay a new series onto existing plots without clearing.
+
+        Args:
+            tab_ids: List of tab IDs to add the series to.
+            x, y: Data arrays.
+            label: Optional label. If not provided, auto-numbers the series.
+            style: 'line' | 'scatter' | 'bar' | 'histogram'.
+            **kwargs: Matplotlib plot keyword args.
+        """
+        print(f"Debug: add_series_to_tabs called with {len(tab_ids)} tabs, style={style}, x={len(x)}, y={len(y)}")
+        for tab_id in tab_ids:
+            if tab_id not in self.tabs:
+                continue
+            tab = self.tabs[tab_id]
+            ax = tab.get_axes()
+
+            # Auto-label if none provided
+            auto_label = label
+            if not auto_label:
+                try:
+                    auto_label = f"Series {len([l for l in ax.get_lines() if not l.get_label().startswith('_')]) + 1}"
+                except Exception:
+                    auto_label = "Series"
+
+            try:
+                if style == "line":
+                    ln = ax.plot(x, y, label=auto_label, **kwargs)
+                    print(f"Debug: add_series line plot: {ln}")
+                elif style == "scatter":
+                    sc = ax.scatter(x, y, label=auto_label, **kwargs)
+                    print(f"Debug: add_series scatter: {sc}")
+                elif style == "bar":
+                    bars = ax.bar(range(len(x)), y, label=auto_label, **kwargs)
+                    ax.set_xticks(range(len(x)))
+                    try:
+                        ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                    except Exception:
+                        pass
+                    print(f"Debug: add_series bar: {bars}")
+                elif style == "histogram":
+                    hist = ax.hist(y, label=auto_label, **kwargs)
+                    print(f"Debug: add_series histogram: {hist}")
+                else:
+                    ln = ax.plot(x, y, label=auto_label, **kwargs)
+                    print(f"Debug: add_series default line: {ln}")
+
+                # Rescale to include new series
+                ax.relim(); ax.autoscale_view()
+
+                # Legend when there is at least one labeled handle
+                try:
+                    handles, labels = ax.get_legend_handles_labels()
+                    if any(lbl and not lbl.startswith("_") for lbl in labels):
+                        ax.legend(loc="best")
+                except Exception:
+                    pass
+
+                # Light beautification only; avoid changing core logic
+                try:
+                    from processors import beautify_axes
+                    beautify_axes(ax)
+                except Exception:
+                    pass
+
+                # Layout and draw
+                try:
+                    tab.canvas.fig.tight_layout()
+                except Exception:
+                    pass
+
+                try:
+                    tab.draw()
+                except Exception:
+                    try:
+                        tab.canvas.draw()
+                    except Exception:
+                        try:
+                            tab.canvas.fig.canvas.draw_idle()
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"Debug: add_series_to_tabs error on {tab_id}: {e}")
+
+    def add_series_to_current_tab(self, x, y, label: str = "", style: str = "line", **kwargs):
+        """Convenience wrapper to add a series to the currently active tab without clearing."""
+        current_tab_id = self.get_current_tab_id()
+        if not current_tab_id:
+            return
+        self.add_series_to_tabs([current_tab_id], x, y, label=label, style=style, **kwargs)
+
+
+class CompactPlotPanel(QWidget):
+    """
+    Compact Plot controls panel using form/grid layouts.
+    Exposes widgets so the app can wire signals without changing logic.
+    Attributes exposed:
+      - btnLoadCols, cbo_x, cbo_y, spin_width, chk_points,
+        btn_line, btn_scatter, btn_clear, btn_fit
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("PlotPanel")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(8)
+
+        # Load columns button (kept for existing workflow)
+        self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
+        self.btnLoadCols.setMinimumHeight(28)
+        self.btnLoadCols.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        outer.addWidget(self.btnLoadCols)
+
+        # Form section
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignTop)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(6)
+
+        self.cbo_x = QComboBox(); self.cbo_y = QComboBox()
+        for cb in (self.cbo_x, self.cbo_y):
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            cb.setMinimumWidth(140)
+            cb.setFixedHeight(28)
+
+        self.spin_width = QSpinBox()
+        self.spin_width.setRange(1, 10)
+        self.spin_width.setValue(2)
+        self.spin_width.setFixedHeight(28)
+
+        self.chk_points = QCheckBox("แสดงจุดข้อมูล")
+
+        form.addRow("เลือกคอลัมน์แกน X", self.cbo_x)
+        form.addRow("เลือกคอลัมน์แกน Y", self.cbo_y)
+        form.addRow("ความหนาเส้น", self.spin_width)
+        form.addRow("", self.chk_points)
+        outer.addLayout(form)
+
+        # Buttons grid 2x2
+        grid = QGridLayout(); grid.setContentsMargins(0, 0, 0, 0); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
+        self.btn_line = QPushButton("แสดงกราฟเส้น")
+        self.btn_scatter = QPushButton("แสดงกราฟจุด (Scatter)")
+        self.btn_clear = QPushButton("ล้างกราฟ")
+        self.btn_fit = QPushButton("Curve Fit...")
+        for b in (self.btn_line, self.btn_scatter, self.btn_clear, self.btn_fit):
+            b.setMinimumHeight(32); b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        grid.addWidget(self.btn_line, 0, 0)
+        grid.addWidget(self.btn_scatter, 0, 1)
+        grid.addWidget(self.btn_clear, 1, 0)
+        grid.addWidget(self.btn_fit, 1, 1)
+        outer.addLayout(grid)
+
+        # width limit
+        self.setMaximumWidth(420)
+
+        # Compact style
+        self.setStyleSheet(
+            """
+            QWidget#PlotPanel QComboBox, QWidget#PlotPanel QSpinBox {
+                padding: 2px 6px; min-height: 24px; border-radius: 6px;
+            }
+            QWidget#PlotPanel QPushButton {
+                padding: 4px 10px; min-height: 28px; border-radius: 8px;
+            }
+            """
+        )
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -580,7 +752,19 @@ class MainWindow(QMainWindow):
         
         # Keep reference to current canvas for backward compatibility
         self.canvas = None  # Will be set by _update_canvas_reference
-        self._update_canvas_reference()
+        try:
+            self._update_canvas_reference()
+        except Exception:
+            # Fallback: try to grab first tab's canvas if method not yet available
+            try:
+                if self.tabs.count() > 0:
+                    first_tab_widget = self.tabs.widget(0)
+                    for tid, tab in self.tabs.tabs.items():
+                        if tab == first_tab_widget:
+                            self.canvas = tab.canvas
+                            break
+            except Exception:
+                pass
         
         # Error Panel (hidden by default)
         self.error_panel = ErrorPanel(self)
@@ -588,12 +772,19 @@ class MainWindow(QMainWindow):
 
         # ซ้าย = File/Staging
         self._panel_left = QWidget(self)
+        self._panel_left.setObjectName("SidePanel")
         self._left_layout = QVBoxLayout(self._panel_left)
-        self._left_layout.setContentsMargins(8, 8, 8, 8)  # CHANGE: panel margins
-        self._left_layout.setSpacing(8)
+        self._left_layout.setContentsMargins(12, 12, 12, 12)
+        self._left_layout.setSpacing(10)
         self._build_left_panel()  # UI-REFINE
+        # Apply sidepanel styles and classes after building
+        try:
+            self.apply_sidepanel_style()
+        except Exception:
+            pass
         # UI-REFINE: sidebar ซ้ายมีความกว้างขั้นต่ำ
-        self._panel_left.setMinimumWidth(180)
+        # Ensure side panel is wide enough so Thai labels on buttons don't clip
+        self._panel_left.setMinimumWidth(260)
         self.splitter.insertWidget(0, self._panel_left)
 
         # ขวา = Inspector Tabs (Plot/Processing/Export)
@@ -604,10 +795,15 @@ class MainWindow(QMainWindow):
         self._build_inspector_tabs()  # UI-REFINE
         # UI-REFINE: inspector ขวามีความกว้างขั้นต่ำ
         self._panel_right.setMinimumWidth(220)
+        try:
+            # Limit right inspector panel so it doesn't get too wide on large windows
+            self._panel_right.setMaximumWidth(420)
+        except Exception:
+            pass
         self.splitter.addWidget(self._panel_right)
 
         # UI-REFINE: ขนาดสัดส่วนเริ่มต้น (ซ้าย=200, กลาง=600, ขวา=200)
-        self.splitter.setSizes([200, 600, 200])
+        self.splitter.setSizes([260, 600, 200])
         self.splitter.setHandleWidth(8)  # CHANGE: wider handle for usability
         # UI-REFINE: กลางต้องขยายเมื่อหน้าต่างกว้างขึ้น
         self.splitter.setStretchFactor(0, 0)
@@ -615,7 +811,20 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(2, 0)
 
         # Build toolbar with organized groups first (to create actions)
-        self.build_toolbar()
+        try:
+            self.build_toolbar()
+        except AttributeError:
+            # Fallback: create a basic toolbar and actions if method not bound
+            try:
+                self.tb = QToolBar("Main Toolbar", self)
+                self.tb.setIconSize(QSize(24, 24))
+                self.addToolBar(self.tb)
+                if hasattr(self, '_create_toolbar_actions'):
+                    self._create_toolbar_actions()
+                if hasattr(self, '_apply_toolbar_styling'):
+                    self._apply_toolbar_styling()
+            except Exception:
+                pass
         
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
@@ -635,8 +844,14 @@ class MainWindow(QMainWindow):
         try: self.actToggleInspector.setChecked(False)
         except Exception: pass
         
-        # Connect tab change signal to update canvas reference
-        self.tabs.currentChanged.connect(self._update_canvas_reference)
+        # Connect tab change signal to update canvas reference (safe getattr)
+        try:
+            self.tabs.currentChanged.connect(self._update_canvas_reference)
+        except Exception:
+            try:
+                self.tabs.currentChanged.connect(lambda _: hasattr(self, '_update_canvas_reference') and self._update_canvas_reference())
+            except Exception:
+                pass
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _build_left_panel(self):
@@ -649,7 +864,15 @@ class MainWindow(QMainWindow):
         self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection); gbf.addWidget(self.lstFiles)
         rowStage = QHBoxLayout()
         self.btnAddStage = QPushButton("เพิ่มไฟล์…"); self.btnUseStage = QPushButton("ใช้ไฟล์นี้"); self.btnDelStage = QPushButton("ลบออก")
-        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage); gbf.addLayout(rowStage)
+        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage);
+        # Ensure equal widths for the 3 buttons and compact spacing
+        try:
+            rowStage.setStretch(0, 1); rowStage.setStretch(1, 1); rowStage.setStretch(2, 1)
+            rowStage.setSpacing(8)
+            rowStage.setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        gbf.addLayout(rowStage)
         l.addWidget(gb_files)
 
         # CHANGE: กล่อง "แสดง Crosshair"
@@ -670,15 +893,97 @@ class MainWindow(QMainWindow):
         # UI-REFINE: การเชื่อมสัญญาณย้ายไป _connect_signals()
 
     def _build_inspector_tabs(self):
+        """
+        Inspector ด้านขวา: Plot / Processing / Export
+        - Plot ใช้ CompactPlotPanel เพียงชุดเดียว (ไม่มีวิดเจ็ตเก่าซ้ำซ้อน)
+        - ทำ alias ตัวแปรเดิมให้โค้ดส่วนอื่นเรียกต่อได้
+        """
+        from PySide6.QtWidgets import (
+            QTabWidget, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QPushButton, QFrame
+        )
+        from PySide6.QtCore import Qt
+
         r = self._right_layout
+
+        # ---------- Tabs ----------
         tabs = QTabWidget(self)
-        tabs.setDocumentMode(True)  # CHANGE: modern tabs look
-        # Tab: Plot
-        tab_plot = QWidget(); tp = QVBoxLayout(tab_plot)
-        self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
-        tp.addWidget(self.btnLoadCols)
-        tp.addWidget(QLabel("เลือกคอลัมน์แกน X")); self.cbX = QComboBox(); tp.addWidget(self.cbX)
-        tp.addWidget(QLabel("เลือกคอลัมน์แกน Y")); self.cbY = QComboBox(); tp.addWidget(self.cbY)
+        tabs.setDocumentMode(True)
+        try:
+            tabs.setMaximumWidth(420)
+        except Exception:
+            pass
+
+        # ================== TAB: PLOT ==================
+        tab_plot = QWidget()
+        tp = QVBoxLayout(tab_plot)
+        tp.setContentsMargins(8,8,8,8)
+        tp.setSpacing(8)
+
+        # ใช้ CompactPlotPanel เพียงตัวเดียว
+        panel = CompactPlotPanel(self)
+        tp.addWidget(panel)
+
+        # --- Alias ให้ชื่อเดิม เพื่อไม่ให้โค้ดส่วนอื่นพัง ---
+        self.panel_plot = panel
+        self.btnLoadCols = getattr(panel, "btnLoadCols", getattr(panel, "btn_load_cols", None))
+        self.cbX         = panel.cbo_x
+        self.cbY         = panel.cbo_y
+        self.spLineWidth = panel.spin_width
+        self.chkMarker   = panel.chk_points
+        self.btnLine     = panel.btn_line
+        self.btnScatter  = panel.btn_scatter
+        self.btnClear    = panel.btn_clear
+        self.btnCurveFit = panel.btn_fit
+
+        tabs.addTab(tab_plot, "Plot")
+
+        # ================== TAB: PROCESSING ==================
+        tab_proc = QWidget()
+        pr = QVBoxLayout(tab_proc); pr.setContentsMargins(8,8,8,8); pr.setSpacing(8)
+
+        gb_feat = QGroupBox("ฟีเจอร์เสริม"); pr.addWidget(gb_feat)
+        gbl = QVBoxLayout(gb_feat); gbl.setContentsMargins(8,8,8,8); gbl.setSpacing(8)
+        row1 = QHBoxLayout(); 
+        self.btnTZ  = QPushButton("เพิ่มคอลัมน์เวลา +7h (Bangkok)"); 
+        self.btnMag = QPushButton("เพิ่มคอลัมน์ |B| จาก 3 แกน"); 
+        row1.addWidget(self.btnTZ); row1.addWidget(self.btnMag); gbl.addLayout(row1)
+        row2 = QHBoxLayout(); 
+        self.btnMA  = QPushButton("เพิ่มคอลัมน์ Moving Average (จาก Y)"); 
+        row2.addWidget(self.btnMA); gbl.addLayout(row2)
+        rowAgg = QHBoxLayout(); 
+        self.btnAgg = QPushButton("Aggregate…"); 
+        rowAgg.addWidget(self.btnAgg); gbl.addLayout(rowAgg)
+
+        gb_fmt = QGroupBox("การจัดรูปแบบข้อมูล"); pr.addWidget(gb_fmt)
+        gbf = QVBoxLayout(gb_fmt); gbf.setContentsMargins(8,8,8,8); gbf.setSpacing(8)
+        row3 = QHBoxLayout(); 
+        self.btnTypes = QPushButton("กำหนดชนิดคอลัมน์"); 
+        row3.addWidget(self.btnTypes); gbf.addLayout(row3)
+
+        tabs.addTab(tab_proc, "Processing")
+
+        # ================== TAB: EXPORT ==================
+        tab_exp = QWidget()
+        ex = QVBoxLayout(tab_exp); ex.setContentsMargins(8,8,8,8); ex.setSpacing(8)
+        self.btnExport      = QPushButton("บันทึกรูปภาพ (PNG)"); ex.addWidget(self.btnExport)
+        self.btnExportRange = QPushButton("ส่งออกช่วงที่เห็น (CSV)"); ex.addWidget(self.btnExportRange)
+        self.btnExportAgg   = QPushButton("Export Aggregated CSV"); ex.addWidget(self.btnExportAgg)
+
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine); sep.setFrameShadow(QFrame.Sunken)
+        ex.addWidget(sep)
+
+        self.btnExportReport = QPushButton("Export Report (PDF)"); ex.addWidget(self.btnExportReport)
+
+        tabs.addTab(tab_exp, "Export")
+
+        # ---------- mount ----------
+        r.addWidget(tabs)
+        return
+        # Legacy load-cols and X/Y controls are replaced by CompactPlotPanel; do not add duplicates
+        # self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
+        # tp.addWidget(self.btnLoadCols)
+        # tp.addWidget(QLabel("เลือกคอลัมน์แกน X")); self.cbX = QComboBox(); tp.addWidget(self.cbX)
+        # tp.addWidget(QLabel("เลือกคอลัมน์แกน Y")); self.cbY = QComboBox(); tp.addWidget(self.cbY)
         styleRow = QHBoxLayout(); styleRow.addWidget(QLabel("ความหนาเส้น")); self.spLineWidth = QSpinBox(); self.spLineWidth.setRange(1,10); self.spLineWidth.setValue(2); styleRow.addWidget(self.spLineWidth); tp.addLayout(styleRow)
         markerRow = QHBoxLayout(); self.chkMarker = QCheckBox("แสดงจุดข้อมูล"); self.chkMarker.setChecked(False); markerRow.addWidget(self.chkMarker); markerRow.addStretch(1); tp.addLayout(markerRow)
         btnRow = QHBoxLayout(); self.btnLine = QPushButton("แสดงกราฟเส้น"); self.btnScatter = QPushButton("แสดงกราฟจุด (Scatter)"); btnRow.addWidget(self.btnLine); btnRow.addWidget(self.btnScatter); tp.addLayout(btnRow)
@@ -695,6 +1000,68 @@ class MainWindow(QMainWindow):
         rowH1.addWidget(QLabel("bins")); self.spHistBins = QSpinBox(); self.spHistBins.setRange(5, 200); self.spHistBins.setValue(20); rowH1.addWidget(self.spHistBins)
         rowH2 = QHBoxLayout(); self.chkHistFit = QCheckBox("Fit Normal curve"); self.btnHist = QPushButton("Plot Histogram"); rowH2.addWidget(self.chkHistFit); rowH2.addStretch(1); rowH2.addWidget(self.btnHist); tp.addLayout(rowH2)
         tabs.addTab(tab_plot, "Plot")
+        # Inject compact plot panel and remap references before signals are connected
+        try:
+            _panel = CompactPlotPanel(self)
+            # Replace legacy widget refs with compact ones for downstream logic
+            self.btnLoadCols = _panel.btnLoadCols
+            self.cbX = _panel.cbo_x
+            self.cbY = _panel.cbo_y
+            self.spLineWidth = _panel.spin_width
+            self.chkMarker = _panel.chk_points
+            self.btnLine = _panel.btn_line
+            self.btnScatter = _panel.btn_scatter
+            self.btnClear = _panel.btn_clear
+            self.btnCurveFit = _panel.btn_fit
+            # Place compact panel at top
+            try:
+                tp.insertWidget(0, _panel)
+            except Exception:
+                tp.addWidget(_panel)
+            try:
+                self.btnLoadCols.raise_()
+            except Exception:
+                pass
+            # Remove legacy controls in Plot tab that are not inside CompactPlotPanel
+            try:
+                from PySide6.QtWidgets import QPushButton as _QB, QComboBox as _QCB, QSpinBox as _QSB, QCheckBox as _QCK, QLabel as _QL
+                def _remove_if_not_in_panel(widget):
+                    try:
+                        if _panel.isAncestorOf(widget):
+                            return
+                    except Exception:
+                        return
+                    try:
+                        parent = widget.parent()
+                        widget.setParent(None)
+                        widget.deleteLater()
+                        if parent and hasattr(parent, 'update'):
+                            parent.update()
+                    except Exception:
+                        pass
+                for cls in (_QB, _QCB, _QSB, _QCK, _QL):
+                    for w in tab_plot.findChildren(cls):
+                        _remove_if_not_in_panel(w)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # Hide Spectrogram/Histogram controls in Plot tab (moved to Analysis dialogs)
+        try:
+            if hasattr(self, 'btnSpectrogram'): self.btnSpectrogram.setVisible(False)
+            if hasattr(self, 'cbHist'): self.cbHist.setVisible(False)
+            if hasattr(self, 'spHistBins'): self.spHistBins.setVisible(False)
+            if hasattr(self, 'chkHistFit'): self.chkHistFit.setVisible(False)
+            if hasattr(self, 'btnHist'): self.btnHist.setVisible(False)
+            # Hide the 'Histogram' title label if present
+            for _lbl in tab_plot.findChildren(QLabel):
+                try:
+                    if str(_lbl.text()).strip().lower() == "histogram":
+                        _lbl.setVisible(False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Tab: Processing
         tab_proc = QWidget(); pr = QVBoxLayout(tab_proc)
         # CHANGE: กล่อง "ฟีเจอร์เสริม"
@@ -734,16 +1101,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         r.addWidget(tabs)
+        # Remove legacy Spectrogram/Histogram controls from Plot tab and tighten layout
+        try:
+            self._post_build_cleanup_plot_panel(tab_plot)
+        except Exception:
+            pass
 
     # UI-REFINE: รวมการเชื่อมสัญญาณไว้ที่เดียว เพื่อให้แน่ใจว่าวิดเจ็ตถูกสร้างครบก่อน
     def _connect_signals(self):
         # Plot/Processing/Export (ฝั่งขวา)
         try:
-            self.btnLoadCols.clicked.connect(self.load_columns_from_df)
+            # Prevent duplicate connections; centralize wiring
+            try:
+                self._wire_load_button()
+            except Exception:
+                pass
             self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
+            # Overlay add buttons
+            if hasattr(self, 'btnLineAdd'):
+                self.btnLineAdd.clicked.connect(self.add_line_overlay)
+            if hasattr(self, 'btnScatterAdd'):
+                self.btnScatterAdd.clicked.connect(self.add_scatter_overlay)
             self.btnCurveFit.clicked.connect(self._open_fit_dialog)  # UI-FIT
-            self.btnSpectrogram.clicked.connect(self.open_spectrogram_dialog)  # UI-SPECTROGRAM
-            self.btnHist.clicked.connect(self.plot_histogram)  # UI-REFINE
+            # Histogram controls moved to Analysis dialog
             self.btnExport.clicked.connect(self.export_png)
             self.btnExportRange.clicked.connect(self.export_visible_range_csv)
             self.btnTZ.clicked.connect(self.feature_add_bkk_time)
@@ -763,20 +1143,244 @@ class MainWindow(QMainWindow):
         self.btnDelStage.clicked.connect(self.stage_remove_selected)
         self.lstFiles.itemDoubleClicked.connect(lambda it: self.stage_use_selected())
 
+    def _wire_load_button(self):
+        try:
+            self.btnLoadCols.clicked.disconnect()
+        except Exception:
+            pass
+        # Assign stable object names and deduplicate if multiple exist
+        try:
+            self.btnLoadCols.setObjectName("btnLoadColumns")
+        except Exception:
+            pass
+        # (cleanup moved to _build_inspector_tabs after injecting CompactPlotPanel)
+        try:
+            self.cbX.setObjectName("cboX"); self.cbY.setObjectName("cboY")
+        except Exception:
+            pass
+        try:
+            dups = self.findChildren(QPushButton, "btnLoadColumns")
+            for i, w in enumerate(dups):
+                if i > 0:
+                    w.setParent(None); w.deleteLater()
+        except Exception:
+            pass
+        try:
+            # Prefer the smarter refresh API if available
+            self.btnLoadCols.clicked.connect(self.refresh_xy_columns)
+        except Exception:
+            # Fallback to legacy method
+            self.btnLoadCols.clicked.connect(self.load_columns_from_df)
+
+    def refresh_xy_columns(self):
+        """
+        โหลดคอลัมน์จาก DataFrame ปัจจุบัน → เติมลง cbo_x/cbo_y
+        - คงค่าที่ผู้ใช้เลือกไว้ถ้ายังมีคอลัมน์นั้นอยู่
+        - กรองเฉพาะคอลัมน์ตัวเลขสำหรับ Y
+        - เดา X จากชื่อ time/t/timestamp/datetime ถ้ามี
+        """
+        try:
+            from PySide6.QtCore import QSignalBlocker as _QSignalBlocker
+        except Exception:
+            _QSignalBlocker = None
+        # Resolve current DataFrame
+        df = getattr(self, 'current_df', None)
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            df = getattr(self, '_df', None)
+        if (df is None) or (hasattr(df, 'empty') and df.empty):
+            # Try staging selection
+            try:
+                if hasattr(self, 'lstFiles') and hasattr(self, '_datasets'):
+                    item = self.lstFiles.currentItem()
+                    if item is not None:
+                        data = self._datasets.get(item.text())
+                        if data and isinstance(data.get('df'), pd.DataFrame):
+                            df = data['df']
+                            self._df = df.copy()
+                            self._current_path = data.get('path')
+            except Exception:
+                pass
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            QMessageBox.information(self, "No data", "ยังไม่มีข้อมูลที่ใช้งานอยู่")
+            return
+
+        cols = [str(c) for c in df.columns]
+        try:
+            num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+        except Exception:
+            num_cols = cols[:]
+
+        # Preserve old selection
+        try:
+            old_x = self.cbX.currentText().strip()
+        except Exception:
+            old_x = ""
+        try:
+            old_y = self.cbY.currentText().strip()
+        except Exception:
+            old_y = ""
+
+        # Fill combos with signal blocking
+        if _QSignalBlocker is not None:
+            try:
+                with _QSignalBlocker(self.cbX), _QSignalBlocker(self.cbY):
+                    self.cbX.clear(); self.cbY.clear()
+                    self.cbX.addItems(cols)
+                    self.cbY.addItems(num_cols if num_cols else cols)
+            except Exception:
+                self.cbX.clear(); self.cbY.clear()
+                self.cbX.addItems(cols)
+                self.cbY.addItems(num_cols if num_cols else cols)
+        else:
+            self.cbX.clear(); self.cbY.clear()
+            self.cbX.addItems(cols)
+            self.cbY.addItems(num_cols if num_cols else cols)
+        # Sync histogram column combo if present
+        try:
+            if hasattr(self, 'cbHist') and isinstance(self.cbHist, QComboBox):
+                if _QSignalBlocker is not None:
+                    with _QSignalBlocker(self.cbHist):
+                        self.cbHist.clear(); self.cbHist.addItems(cols)
+                else:
+                    self.cbHist.clear(); self.cbHist.addItems(cols)
+        except Exception:
+            pass
+
+        # Restore X if possible; else guess by time-like names
+        idx = self.cbX.findText(old_x) if old_x else -1
+        if idx >= 0:
+            self.cbX.setCurrentIndex(idx)
+        else:
+            t_candidates = [c for c in cols if any(k in str(c).lower() for k in ("time","t","timestamp","datetime"))]
+            self.cbX.setCurrentText(t_candidates[0] if t_candidates else (num_cols[0] if num_cols else cols[0]))
+
+        # Restore Y if possible; else first numeric not equal to X
+        idy = self.cbY.findText(old_y) if old_y else -1
+        if idy >= 0:
+            self.cbY.setCurrentIndex(idy)
+        else:
+            try:
+                pref = [c for c in num_cols if c != self.cbX.currentText()]
+                self.cbY.setCurrentText(pref[0] if pref else (num_cols[0] if num_cols else cols[0]))
+            except Exception:
+                if cols:
+                    self.cbY.setCurrentText(cols[0])
+
+        # Status/labels
+        try:
+            rows_count = len(df)
+            cols_count = len(df.columns)
+            try:
+                self._sb_rows.setText(f"rows: {rows_count:,}")
+            except Exception:
+                pass
+            self.statusBar().showMessage(f"Loaded columns: rows={rows_count:,}, cols={cols_count}")
+        except Exception:
+            pass
+
+    def apply_sidepanel_style(self):
+        """Assign object names, classes, sizes, and shadows to the left side panel."""
+        try:
+            # Container name for QSS scoping
+            self._panel_left.setObjectName("SidePanel")
+
+            # Staging list styling hooks
+            try:
+                self.lstFiles.setObjectName("StagingList")
+                self.lstFiles.setAlternatingRowColors(False)
+                self.lstFiles.setUniformItemSizes(False)
+                try:
+                    self.lstFiles.setWordWrap(False)
+                    self.lstFiles.setTextElideMode(Qt.ElideNone)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # Buttons sizing + class names
+            for btn, cls in (
+                (self.btnUseStage, "btn-primary"),
+                (self.btnAddStage, "btn-secondary"),
+                (self.btnDelStage, "btn-secondary"),
+                (self.btnBoxZoom, "btn-primary"),
+            ):
+                try:
+                    btn.setProperty("class", cls)
+                    btn.setMinimumHeight(34)
+                    btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                    # Allow shrink so three can fit on narrow sidebars
+                    try:
+                        btn.setMinimumWidth(0)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            # Button/checkbox readable Thai/English labels
+            try:
+                self.btnAddStage.setText("เพิ่มไฟล์")
+                self.btnUseStage.setText("ใช้ไฟล์")
+                self.btnDelStage.setText("ลบ")
+                self.btnBoxZoom.setText("เลือกช่วง (ลากเพื่อซูม)")
+                self.chkCross.setText("แสดง Crosshair")
+            except Exception:
+                pass
+
+            # Card-like frames: add class and shadow, adjust padding
+            try:
+                cards = self._panel_left.findChildren(QGroupBox)
+                for card in cards:
+                    try:
+                        card.setProperty("class", "card")
+                        lay = card.layout()
+                        if lay:
+                            lay.setContentsMargins(12, 12, 12, 12)
+                            lay.setSpacing(10)
+                        # Subtle drop shadow
+                        eff = QGraphicsDropShadowEffect(card)
+                        eff.setColor(Qt.black)
+                        eff.setBlurRadius(18)
+                        eff.setOffset(0, 2)
+                        card.setGraphicsEffect(eff)
+                    except Exception:
+                        pass
+                # Set clean Thai/English titles by containment
+                for card in cards:
+                    try:
+                        if hasattr(self, 'lstFiles') and isinstance(self.lstFiles, QListWidget) and card.isAncestorOf(self.lstFiles):
+                            card.setTitle("ไฟล์ที่เตรียมไว้")
+                        elif hasattr(self, 'chkCross') and isinstance(self.chkCross, QCheckBox) and card.isAncestorOf(self.chkCross):
+                            card.setTitle("Crosshair")
+                        elif hasattr(self, 'btnBoxZoom') and isinstance(self.btnBoxZoom, QPushButton) and card.isAncestorOf(self.btnBoxZoom):
+                            card.setTitle("มุมมอง / เมาส์")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _init_menu(self):
         m = self.menuBar()
-        fileMenu = m.addMenu("&ไฟล์")  # UI-REFINE: File
-        self.actOpen = fileMenu.addAction("เปิดข้อมูล (CSV/TSV/TXT/XLSX/NC/CDF)..."); self.actOpen.triggered.connect(self.open_file)
-        fileMenu.addSeparator()
-        actExport = fileMenu.addAction("บันทึกรูปภาพ (PNG)..."); actExport.triggered.connect(self.export_png)
+        fileMenu = m.addMenu("&File")  # UI-REFINE: File
+        self.actOpen = fileMenu.addAction("Open Data (CSV/TSV/TXT/XLSX/NC/CDF)...")
+        self.actOpen.triggered.connect(lambda: getattr(self, 'open_file', lambda: None)())
+        actExport = fileMenu.addAction("Export PNG..."); actExport.triggered.connect(self.on_action_export_figure)
         fileMenu.addSeparator()
         actExit = fileMenu.addAction("ออกจากโปรแกรม"); actExit.triggered.connect(self.close)
 
         viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
         actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
-        
-        viewMenu.addAction(self.actToggleInspector)
+        try:
+            viewMenu.addAction(self.actToggleInspector)
+        except Exception:
+            try:
+                self.actToggleInspector = QAction("Inspector", self)
+                self.actToggleInspector.setCheckable(True)
+                self.actToggleInspector.triggered.connect(self.toggle_inspector)
+                viewMenu.addAction(self.actToggleInspector)
+            except Exception:
+                pass
         
         # Test Error menu
         test_action = viewMenu.addAction("Raise Test Error")
@@ -797,11 +1401,22 @@ class MainWindow(QMainWindow):
         self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
         dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
+        
+        # Plot menu (top menubar) – overlay only
+        plotMenu = m.addMenu("&Plot")
+        actAddLine = plotMenu.addAction("Add Line (overlay)")
+        actAddScatter = plotMenu.addAction("Add Scatter (overlay)")
+        try:
+            actAddLine.setShortcut("Ctrl+Shift+L")
+            actAddScatter.setShortcut("Ctrl+Shift+S")
+        except Exception:
+            pass
+        actAddLine.triggered.connect(self.add_line_overlay)
+        actAddScatter.triggered.connect(self.add_scatter_overlay)
         dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
         
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
-        procMenu.addAction("Spectrogram…").triggered.connect(self.open_spectrogram_dialog)  # UI-SPECTROGRAM
         procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
         procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
         procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
@@ -822,6 +1437,8 @@ class MainWindow(QMainWindow):
         help_shortcuts = (
             "CTRL+O: Open\n"
             "CTRL+R: Reset View\n"
+            "CTRL+SHIFT+L: Add Line (overlay)\n"
+            "CTRL+SHIFT+S: Add Scatter (overlay)\n"
             "CTRL+E: Export PNG (ภาพกราฟ)\n"
             "CTRL+, : Settings\n"
             "\n[Annotation]\n"
@@ -837,6 +1454,31 @@ class MainWindow(QMainWindow):
             "F: FFT Dialog\n"
             "I: Toggle Inspector"
         )
+
+        # Charts gallery menu (Excel-like)
+        try:
+            import pandas as _pd
+            def _cg_get_df():
+                df = getattr(self, "_df", None)
+                return df if df is not None else _pd.DataFrame()
+            def _cg_get_fig():
+                try:
+                    if getattr(self, "canvas", None) and hasattr(self.canvas, "fig"):
+                        return self.canvas.fig
+                except Exception:
+                    pass
+                try:
+                    tab = self.tabs.currentWidget()
+                    return tab.get_figure()
+                except Exception:
+                    # Last resort: create a temporary Figure (won't show on canvas)
+                    from matplotlib.figure import Figure as _Figure
+                    return _Figure()
+            charts_menu = ChartGalleryMenu(get_dataframe=_cg_get_df, get_main_figure=_cg_get_fig, parent=self)
+            m.addMenu(charts_menu)
+        except Exception:
+            pass
+
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts", help_shortcuts))
 
         # === Analysis Menu ===
@@ -849,6 +1491,89 @@ class MainWindow(QMainWindow):
         self.actCCLink = ccMenu.addAction("Link Axes by X-Time"); self.actCCLink.setCheckable(True)
         self.actCCCompute = ccMenu.addAction("Compute in Range")
         self.actCCClear = ccMenu.addAction("Clear Results")
+
+        # --- MENU-BAR ONLY: Analysis --- (No toolbar entries for Analysis)
+        # Lazy-import overlay dialog and wire actions directly under Analysis
+        from PySide6.QtWidgets import QMessageBox as _QMessageBox
+        from pathlib import Path as _Path
+        import sys as _sys, traceback as _traceback
+
+        # Ensure project folder is on sys.path (for dialogs_charts_adv import)
+        try:
+            _sys.path.insert(0, str(_Path(__file__).resolve().parent))
+        except Exception:
+            pass
+
+        def _get_df():
+            try:
+                df = getattr(self, "_df", None) or getattr(self, "current_df", None)
+                if df is not None:
+                    return df
+                # Fallback: use currently selected staging item, if any
+                try:
+                    item = getattr(self, 'lstFiles', None).currentItem() if hasattr(self, 'lstFiles') else None
+                    if item is not None and hasattr(self, '_datasets'):
+                        data = self._datasets.get(item.text())
+                        if data and isinstance(data.get('df'), pd.DataFrame):
+                            return data['df']
+                except Exception:
+                    pass
+                return pd.DataFrame()
+            except Exception:
+                return pd.DataFrame()
+
+        def _apply_to_main(draw_fn):
+            # Let the drawer decide 2D/3D; start with a clean 2D axes
+            try:
+                fig = self.canvas.fig
+            except Exception:
+                try:
+                    tab = self.tabs.currentWidget(); fig = tab.get_figure()
+                except Exception:
+                    return
+            try:
+                fig.clear()
+                ax = fig.add_subplot(111)
+                draw_fn(ax)
+                fig.canvas.draw_idle()
+            except Exception:
+                try:
+                    fig.canvas.draw_idle()
+                except Exception:
+                    pass
+
+        def open_overlay(kind: str):
+            try:
+                from dialogs_charts_adv import ChartOptionsDialogPro as _ChartOptionsDialogPro
+            except ModuleNotFoundError:
+                try:
+                    from dialogs.dialogs_charts_adv import ChartOptionsDialogPro as _ChartOptionsDialogPro
+                except ModuleNotFoundError as e:
+                    _QMessageBox.critical(
+                        self, "Module not found",
+                        "ไม่พบ 'dialogs_charts_adv.py'\n"
+                        "วางไฟล์ไว้โฟลเดอร์เดียวกับ main.py หรือในโฟลเดอร์ 'dialogs/' ที่มี __init__.py แล้วลองใหม่"
+                    )
+                    print("Import error:", e)
+                    print(_traceback.format_exc())
+                    return
+            dlg = _ChartOptionsDialogPro(kind=kind, get_df=_get_df, apply_to_main=_apply_to_main, parent=self)
+            dlg.exec()
+
+        for title, kind in [
+            ("Line…", "line"),
+            ("Scatter…", "scatter"),
+            ("Bar…", "bar"),
+            ("Area…", "area"),
+            ("Box…", "box"),
+            ("Pie…", "pie"),
+            ("Histogram…", "hist"),
+            ("3D Scatter…", "3d_scatter"),
+        ]:
+            act = QAction(title, self)
+            analysisMenu.addAction(act)
+            act.triggered.connect(lambda _, k=kind: open_overlay(k))
+
 
         # Peak Detection submenu
         pkMenu = analysisMenu.addMenu("Peak Detection")
@@ -898,55 +1623,55 @@ class MainWindow(QMainWindow):
         self.actPkExport.triggered.connect(self._on_pk_export)
         self.actPkClear.triggered.connect(lambda: (self.peaks.clear(), self.pkDock.table.setRowCount(0)))
 
-        # === Annotation Menu ===
-        self.annMenu = m.addMenu("&Annotation")
-        self.actAnnEnable = self.annMenu.addAction("Enable Annotation Mode")
-        self.actAnnEnable.setCheckable(True)
-        self.actAnnText = self.annMenu.addAction("Add Text (T)")
-        self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)")
-        self.actAnnLine = self.annMenu.addAction("Add Line (L)")
-        self.actAnnRect = self.annMenu.addAction("Add Rectangle (R)")
-        self.actAnnEllipse = self.annMenu.addAction("Add Ellipse (E)")
-        self.actAnnCallout = self.annMenu.addAction("Add Callout (C)")
-        self.annMenu.addSeparator()
-        self.actAnnStyleDock = self.annMenu.addAction("Style Dock…")
-        self.actAnnManage = self.annMenu.addAction("Manage Annotations")
-
-        # Shortcuts
-        self.actAnnText.setShortcut("T")
-        self.actAnnArrow.setShortcut("W")
-        self.actAnnLine.setShortcut("L")
-        self.actAnnRect.setShortcut("R")
-        self.actAnnEllipse.setShortcut("E")
-        self.actAnnCallout.setShortcut("C")
-
-        self.actUndo = self.annMenu.addAction("Undo")
-        self.actRedo = self.annMenu.addAction("Redo")
-        self.actUndo.setShortcut("Ctrl+Z"); self.actRedo.setShortcut("Ctrl+Y")
-
-        # Style dock
-        self.annStyleDock = AnnotationStyleDock(self)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.annStyleDock)
-        self.annStyleDock.hide()
-
-        # Wire actions at runtime to current tab's manager
+        # --- Annotation menu (recreate safely) ---
         def _mgr():
             tab = self.tabs.currentWidget()
             return getattr(tab, 'annotation_manager', None)
 
-        self.actAnnEnable.toggled.connect(lambda on: (_mgr() and _mgr().set_enabled(on)))
-        self.actAnnText.triggered.connect(lambda: (_mgr() and _mgr().set_mode('text')))
-        self.actAnnArrow.triggered.connect(lambda: (_mgr() and _mgr().set_mode('arrow')))
-        self.actAnnLine.triggered.connect(lambda: (_mgr() and _mgr().set_mode('line')))
-        self.actAnnRect.triggered.connect(lambda: (_mgr() and _mgr().set_mode('rect')))
-        self.actAnnEllipse.triggered.connect(lambda: (_mgr() and _mgr().set_mode('ellipse')))
-        self.actAnnCallout.triggered.connect(lambda: (_mgr() and _mgr().set_mode('callout')))
-        self.actAnnStyleDock.triggered.connect(lambda: self.annStyleDock.show())
-        self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
-        self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
-        self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
+        try:
+            self.annMenu
+        except Exception:
+            self.annMenu = None
+        if self.annMenu is None:
+            try:
+                self.annMenu = m.addMenu("&Annotation")
+                self.actAnnEnable = self.annMenu.addAction("Enable Annotation Mode"); self.actAnnEnable.setCheckable(True)
+                self.actAnnText = self.annMenu.addAction("Add Text (T)")
+                self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)")
+                self.actAnnLine = self.annMenu.addAction("Add Line (L)")
+                self.actAnnRect = self.annMenu.addAction("Add Rectangle (R)")
+                self.actAnnEllipse = self.annMenu.addAction("Add Ellipse (E)")
+                self.actAnnCallout = self.annMenu.addAction("Add Callout (C)")
+                self.annMenu.addSeparator()
+                self.actAnnStyleDock = self.annMenu.addAction("Style Dock...")
+                self.actAnnManage = self.annMenu.addAction("Manage Annotations")
+                self.annMenu.addSeparator()
+                self.actUndo = self.annMenu.addAction("Undo"); self.actRedo = self.annMenu.addAction("Redo")
+                # Shortcuts
+                self.actAnnText.setShortcut("T"); self.actAnnArrow.setShortcut("W"); self.actAnnLine.setShortcut("L")
+                self.actAnnRect.setShortcut("R"); self.actAnnEllipse.setShortcut("E"); self.actAnnCallout.setShortcut("C")
+                self.actUndo.setShortcut("Ctrl+Z"); self.actRedo.setShortcut("Ctrl+Y")
+                # Dock
+                self.annStyleDock = AnnotationStyleDock(self); self.addDockWidget(Qt.RightDockWidgetArea, self.annStyleDock); self.annStyleDock.hide()
+            except Exception:
+                pass
 
-        self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
+        # Wire actions (guarded)
+        try:
+            self.actAnnEnable.toggled.connect(lambda on: (_mgr() and _mgr().set_enabled(on)))
+            self.actAnnText.triggered.connect(lambda: (_mgr() and _mgr().set_mode('text')))
+            self.actAnnArrow.triggered.connect(lambda: (_mgr() and _mgr().set_mode('arrow')))
+            self.actAnnLine.triggered.connect(lambda: (_mgr() and _mgr().set_mode('line')))
+            self.actAnnRect.triggered.connect(lambda: (_mgr() and _mgr().set_mode('rect')))
+            self.actAnnEllipse.triggered.connect(lambda: (_mgr() and _mgr().set_mode('ellipse')))
+            self.actAnnCallout.triggered.connect(lambda: (_mgr() and _mgr().set_mode('callout')))
+            self.actAnnStyleDock.triggered.connect(lambda: self.annStyleDock.show())
+            self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
+            self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
+            self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
+            self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
+        except Exception:
+            pass
 
         
     # --- Apply current Matplotlib theme to the active canvas (useful on first launch) ---
@@ -1024,7 +1749,11 @@ class MainWindow(QMainWindow):
         
         if not hasattr(self, 'actOpen'):
             self.actOpen = QAction("Open", self)
-            self.actOpen.triggered.connect(self.open_file)
+            # Connect lazily to avoid init-order issues
+            try:
+                self.actOpen.triggered.connect(self.open_file)
+            except Exception:
+                self.actOpen.triggered.connect(lambda: getattr(self, 'open_file', lambda: None)())
             try:
                 self.actOpen.setIcon(self._icon("open", QStyle.StandardPixmap.SP_DialogOpenButton))
             except Exception:
@@ -1231,6 +1960,124 @@ class MainWindow(QMainWindow):
             pass
         return super().resizeEvent(event)
 
+    # --- Cleanup helpers ---
+    def _safe_remove_widget(self, w):
+        try:
+            if w is None:
+                return
+            w.hide()
+            w.setParent(None)
+            w.deleteLater()
+        except Exception:
+            pass
+
+    def _post_build_cleanup_plot_panel(self, plot_widget):
+        """Remove legacy Spectrogram/Histogram widgets from Plot tab and compact layout."""
+        try:
+            for name in ("btnSpectrogram", "cbHist", "spHistBins", "chkHistFit", "btnHist"):
+                self._safe_remove_widget(getattr(self, name, None))
+        except Exception:
+            pass
+        # Remove 'Histogram' label if present
+        try:
+            from PySide6.QtWidgets import QLabel
+            for lbl in plot_widget.findChildren(QLabel):
+                try:
+                    t = str(lbl.text()).strip().lower()
+                    if t.startswith("histogram") or t == "bins" or t == "คอลัมน์" or t == "คอลัมน์:" or t == "columns":
+                        self._safe_remove_widget(lbl)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Compact layout by removing invisible items and empty layouts
+        try:
+            lay = plot_widget.layout()
+            def _prune(l):
+                if l is None: return
+                for i in reversed(range(l.count())):
+                    it = l.itemAt(i)
+                    # Remove nested layouts first
+                    try:
+                        child_lay = it.layout() if hasattr(it, 'layout') else None
+                    except Exception:
+                        child_lay = None
+                    if child_lay is not None:
+                        _prune(child_lay)
+                        # if child layout empty (no visible widgets)
+                        empty = True
+                        for j in range(child_lay.count()):
+                            it2 = child_lay.itemAt(j)
+                            w2 = it2.widget() if hasattr(it2, 'widget') else None
+                            if w2 is not None and w2.isVisible():
+                                empty = False; break
+                        if empty:
+                            l.takeAt(i)
+                            try:
+                                child_lay.deleteLater()
+                            except Exception:
+                                pass
+                        continue
+                    # Remove hidden widgets
+                    w = it.widget() if hasattr(it, 'widget') else None
+                    if w is not None and not w.isVisible():
+                        l.takeAt(i)
+                return
+            if lay is not None:
+                _prune(lay)
+        except Exception:
+            pass
+
+        # Make all buttons in Plot tab compact (avoid full-width expansion)
+        try:
+            from PySide6.QtWidgets import QPushButton
+            btns = plot_widget.findChildren(QPushButton)
+            for b in btns:
+                try:
+                    b.setMaximumWidth(220)
+                    from PySide6.QtWidgets import QSizePolicy
+                    b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Make input widgets (combos/spins/edits/labels) compact and left-aligned
+        try:
+            from PySide6.QtWidgets import QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QLabel
+            from PySide6.QtCore import Qt
+            MAX_W = 260
+            # Direct children alignment to left
+            def _align_left(w):
+                try:
+                    plot_widget.layout().setAlignment(w, Qt.AlignLeft)
+                except Exception:
+                    pass
+            for w in plot_widget.findChildren(QComboBox):
+                try:
+                    w.setMaximumWidth(MAX_W); _align_left(w)
+                except Exception:
+                    pass
+            for w in plot_widget.findChildren((QSpinBox, QDoubleSpinBox)):
+                try:
+                    w.setMaximumWidth(100); _align_left(w)
+                except Exception:
+                    pass
+            for w in plot_widget.findChildren(QLineEdit):
+                try:
+                    w.setMaximumWidth(MAX_W); _align_left(w)
+                except Exception:
+                    pass
+            # Keep labels from stretching across the panel
+            for w in plot_widget.findChildren(QLabel):
+                try:
+                    if w.text().strip():
+                        w.setMaximumWidth(MAX_W)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     # ===== Analysis handlers =====
     def _on_cc_compute(self, opts: dict):
         try:
@@ -1408,6 +2255,58 @@ class MainWindow(QMainWindow):
     def on_action_export_data(self):
         """Export data action handler"""
         self.export_visible_range_csv()
+
+    # Toolbar: histogram plot using compact controls
+    def _on_toolbar_plot_histogram(self):
+        try:
+            # Sync hidden panel controls then reuse existing logic
+            if hasattr(self, 'tbCbHist'):
+                col = self.tbCbHist.currentText()
+                if hasattr(self, 'cbHist'):
+                    try: self.cbHist.setCurrentText(col)
+                    except Exception: pass
+            if hasattr(self, 'tbHistBins') and hasattr(self, 'spHistBins'):
+                try: self.spHistBins.setValue(int(self.tbHistBins.value()))
+                except Exception: pass
+            if hasattr(self, 'tbHistFit') and hasattr(self, 'chkHistFit'):
+                try: self.chkHistFit.setChecked(bool(self.tbHistFit.isChecked()))
+                except Exception: pass
+            # Call existing workflow
+            self.plot_histogram()
+        except Exception as e:
+            print(f"Debug: toolbar histogram failed: {e}")
+
+    # Menu: Plot Histogram (uses toolbar or panel controls)
+    def on_histogram_menu(self):
+        # Open new non-modal Histogram dialog
+        try:
+            self.show_histogram_dialog()
+        except Exception as e:
+            print(f"Debug: open histogram dialog failed: {e}")
+
+    # === Analysis overlay dialogs ===
+    def get_current_xy(self):
+        """Return (x,y) currently selected in Plot tab, using existing _get_xy logic."""
+        try:
+            x, y = self._get_xy()
+            return x, y
+        except Exception:
+            return None, None
+
+    def show_histogram_dialog(self):
+        dlg = HistogramDialog(parent=self, get_current_data=self.get_current_xy)
+        try:
+            from PySide6.QtCore import Qt
+            dlg.setWindowModality(Qt.NonModal)
+        except Exception:
+            pass
+        dlg.resize(720, 480)
+        dlg.setAttribute(Qt.WA_DeleteOnClose, True)
+        dlg.show()
+
+    def show_spectrogram_dialog(self):
+        # Reuse existing spectrogram dialog path
+        self.open_spectrogram_dialog()
 
     # ---------- Plot Style Configuration ----------
     def _get_config_path(self):
@@ -1634,6 +2533,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์")
 
     def load_columns_from_df(self):
+        # Auto-select dataset from staging if _df is not set yet
+        if self._df is None:
+            try:
+                if hasattr(self, 'lstFiles') and hasattr(self, '_datasets'):
+                    item = self.lstFiles.currentItem()
+                    if item is not None:
+                        data = self._datasets.get(item.text())
+                        if data and isinstance(data.get('df'), pd.DataFrame):
+                            self._df = data['df'].copy()
+                            self._current_path = data.get('path')
+            except Exception:
+                pass
         if self._df is None:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
         
@@ -1648,6 +2559,12 @@ class MainWindow(QMainWindow):
         # UI-REFINE: sync คอลัมน์ของ Histogram ด้วย
         try:
             self.cbHist.clear(); self.cbHist.addItems(cols)
+            # Also update toolbar histogram combo if available
+            try:
+                if hasattr(self, 'tbCbHist') and self.tbCbHist is not None:
+                    self.tbCbHist.clear(); self.tbCbHist.addItems(cols)
+            except Exception:
+                pass
         except Exception:
             pass
         
@@ -1994,6 +2911,54 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "พล็อตกราฟจุดไม่สำเร็จ", f"สาเหตุ: {e}")
             import traceback
             traceback.print_exc()
+
+    def add_line_overlay(self):
+        print("Debug: add_line_overlay() called")
+        x, y = self._get_xy()
+        if x is None:
+            print("Debug: add_line_overlay() - no data")
+            return
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "No Tab", "Please create/select a graph tab first"); return
+        lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
+        label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+        try:
+            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="line", linewidth=lw, marker=marker)
+            try:
+                tab = self.tabs.tabs[current_tab_id]; ax = tab.get_axes()
+                ax.set_xlabel(self.cbX.currentText()); ax.set_ylabel(self.cbY.currentText())
+                beautify_axes(ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                tab.draw()
+            except Exception:
+                pass
+            self.statusBar().showMessage("Added line series (overlay)")
+        except Exception as e:
+            print(f"Debug: add_line_overlay() failed: {e}")
+
+    def add_scatter_overlay(self):
+        print("Debug: add_scatter_overlay() called")
+        x, y = self._get_xy()
+        if x is None:
+            print("Debug: add_scatter_overlay() - no data")
+            return
+        current_tab_id = self.tabs.get_current_tab_id()
+        if not current_tab_id:
+            QMessageBox.warning(self, "No Tab", "Please create/select a graph tab first"); return
+        size = self.spLineWidth.value() * 5
+        label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+        try:
+            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="scatter", s=size)
+            try:
+                tab = self.tabs.tabs[current_tab_id]; ax = tab.get_axes()
+                ax.set_xlabel(self.cbX.currentText()); ax.set_ylabel(self.cbY.currentText())
+                beautify_axes(ax, x_is_datetime=self._is_datetime_column(self.cbX.currentText()))
+                tab.draw()
+            except Exception:
+                pass
+            self.statusBar().showMessage("Added scatter series (overlay)")
+        except Exception as e:
+            print(f"Debug: add_scatter_overlay() failed: {e}")
 
     # UI-REFINE: Plot Histogram
     def plot_histogram(self):
@@ -2641,7 +3606,13 @@ class MainWindow(QMainWindow):
         dialog.send_to_curvefit_requested.connect(self.on_spectrogram_send_to_curvefit)
         
         # แสดง dialog
-        dialog.exec()
+        try:
+            dialog.setWindowModality(Qt.NonModal)
+            dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+            dialog.resize(720, 480)
+        except Exception:
+            pass
+        dialog.show()
     
     def on_spectrogram_preview(self, params):
         """แสดง preview ของ Spectrogram"""
@@ -3334,7 +4305,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "บันทึกรูปภาพเป็น", "plot.png", "PNG Image (*.png)")
         if not path: return
         try:
-            self.canvas.fig.savefig(path, dpi=300, bbox_inches="ight")
+            self.canvas.fig.savefig(path, dpi=300, bbox_inches="tight")
             self.statusBar().showMessage(f"บันทึกรูปภาพแล้ว: {path}")
         except Exception as e:
             QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -3435,3 +4406,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
