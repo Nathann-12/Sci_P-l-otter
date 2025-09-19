@@ -15,6 +15,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas 
 from matplotlib.figure import Figure  # UI-FIT
 import numpy as np
 import pandas as pd
+from calc_columns_editor import CalculatedColumnsEditor, evaluate_formula
 
 
 # ---------- เลือกตัวแปรจาก CDF/NetCDF ----------
@@ -234,6 +235,15 @@ class AggregateDialog(QDialog):
         cols = [str(c) for c in columns]
 
         layout = QVBoxLayout(self)
+        # Calculated columns editor (above aggregate controls)
+        self._calc_formulas: list[tuple[str,str]] = []
+        self._df_work = self._df.copy()
+        def _on_calc_changed(formulas):
+            self._calc_formulas = formulas or []
+            self._recompute_calculated_columns()
+            self._refresh_value_columns_list()
+        self.calc_editor = CalculatedColumnsEditor(get_df=lambda: self._df, on_changed=_on_calc_changed)
+        layout.addWidget(self.calc_editor)
         form = QFormLayout()
 
         # ID column
@@ -258,8 +268,9 @@ class AggregateDialog(QDialog):
 
         layout.addLayout(form)
 
-        # Preview table
+        # Preview table (hidden to avoid duplication with top preview)
         self.tbl = QTableView(self)
+        self.tbl.setVisible(False)
         layout.addWidget(self.tbl)
 
         # Buttons
@@ -298,8 +309,9 @@ class AggregateDialog(QDialog):
                 # ล้าง preview ถ้าเลือกไม่ครบ
                 self.tbl.setModel(None)
                 return
-            # groupby preview
-            df = self._df
+            # groupby preview (with calculated columns)
+            self._recompute_calculated_columns()
+            df = self._df_work
             if agg == "sum":
                 out = df.groupby(id_col)[value_cols].sum().reset_index()
             elif agg == "mean":
@@ -323,6 +335,44 @@ class AggregateDialog(QDialog):
             "agg": self.cbAgg.currentText(),
             "stacked": (self.cbStacked.currentIndex() == 1),
         }
+
+    # ---- Calculated columns helpers ----
+    def _recompute_calculated_columns(self):
+        self._df_work = self._df.copy()
+        for name, expr in getattr(self, '_calc_formulas', []) or []:
+            try:
+                self._df_work[name] = evaluate_formula(self._df_work, expr)
+            except Exception as e:
+                print("[Aggregate] formula '{}' failed: {}".format(name, e))
+        # Propagate newly computed columns to main window so X/Y combos see them
+        try:
+            parent = self.parent()
+            if parent is not None and hasattr(parent, '_df'):
+                for name, _ in getattr(self, '_calc_formulas', []) or []:
+                    try:
+                        parent._df[name] = self._df_work[name]
+                    except Exception:
+                        pass
+                # Ask main window to refresh X/Y combos
+                if hasattr(parent, 'refresh_xy_columns'):
+                    try:
+                        parent.refresh_xy_columns()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _refresh_value_columns_list(self):
+        self.lstValues.clear()
+        df = getattr(self, '_df_work', None) or self._df
+        for c in df.columns:
+            try:
+                if pd.api.types.is_numeric_dtype(df[c]):
+                    it = QListWidgetItem(str(c))
+                    it.setCheckState(Qt.Unchecked)
+                    self.lstValues.addItem(it)
+            except Exception:
+                continue
 
 
 # UI-REFINE: Model แสดง DataFrame แบบง่ายใน QTableView

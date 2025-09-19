@@ -33,7 +33,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QSettings
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QFrame, QGroupBox, QStyle, QGraphicsDropShadowEffect
 )
 from PySide6.QtGui import QAction, QIcon
+from enum import Enum
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
@@ -111,8 +112,15 @@ from annotations import AnnotationManager, AnnotationStyleDock, AnnotationListDi
 from crosscorr import CrossCorrManager, CrossCorrDock
 from peaks import PeakDetectorManager, PeakDetectionDock
 from context_menu import ContextMenuManager
+# [Equation Plotter]
+from dialogs_equation import EquationPlotDialog
+from eqplot import plot_equations_on_axes
 
 APP_TITLE = "SciPlotter (Modular + Features)"
+
+class PlotMode(str, Enum):
+    OVERLAY = "overlay"
+    REPLACE = "replace"
 
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None):
@@ -441,9 +449,15 @@ class TabManager(QTabWidget):
                 print(f"Debug: Plotting to tab {tab_id}, axes: {ax}")
                 
                 try:
-                    # Clear existing plots first
-                    ax.clear()
-                    print(f"Debug: Cleared existing plots for tab {tab_id}")
+                    # Respect MainWindow.plot_mode: do not clear in OVERLAY
+                    mw = self.parent() if hasattr(self, 'parent') else None
+                    try:
+                        mode = getattr(mw, 'plot_mode', None)
+                    except Exception:
+                        mode = None
+                    if mode is None or str(mode).endswith('REPLACE'):
+                        ax.clear()
+                        print(f"Debug: Cleared existing plots for tab {tab_id}")
                     
                     if style == "line":
                         line = ax.plot(x, y, label=label, **kwargs)
@@ -733,6 +747,14 @@ class MainWindow(QMainWindow):
         ov.setSpacing(10)  # CHANGE: spacing readable
         # UI-REFINE: ใช้ QSplitter แนวนอน
         self.splitter = QSplitter(Qt.Horizontal, self)
+
+        # Plotting settings/state (Overlay vs Replace)
+        try:
+            self.settings = getattr(self, "settings", QSettings("SciPlotter", "SciPlotter"))
+            val = self.settings.value("plot/mode", PlotMode.OVERLAY.value)
+            self.plot_mode = PlotMode(val) if isinstance(val, str) else PlotMode.OVERLAY
+        except Exception:
+            self.plot_mode = PlotMode.OVERLAY
         ov.addWidget(self.splitter)
         v.addWidget(outer)
 
@@ -1172,6 +1194,46 @@ class MainWindow(QMainWindow):
             # Fallback to legacy method
             self.btnLoadCols.clicked.connect(self.load_columns_from_df)
 
+    # ---------- Central plotting helpers ----------
+    def get_main_axes(self, prefer_3d: bool = False):
+        """Return a matplotlib Axes for plotting based on current PlotMode.
+        - OVERLAY: reuse last axes when possible; create new if 2D/3D differs
+        - REPLACE: clear figure and create fresh axes
+        """
+        try:
+            fig = self.canvas.fig
+        except Exception:
+            try:
+                tab = self.tabs.currentWidget()
+                fig = tab.get_figure()
+            except Exception:
+                from matplotlib.figure import Figure as _Figure
+                fig = _Figure()
+
+        mode = getattr(self, 'plot_mode', PlotMode.OVERLAY)
+        if mode == PlotMode.REPLACE or not fig.axes:
+            fig.clear()
+            return fig.add_subplot(111, projection='3d' if prefer_3d else None)
+
+        ax = fig.axes[-1]
+        is3d = hasattr(ax, 'zaxis')
+        if prefer_3d and not is3d:
+            return fig.add_subplot(111, projection='3d')
+        if not prefer_3d and is3d:
+            return fig.add_subplot(111)
+        return ax
+
+    def apply_plot(self, drawer, prefer_3d: bool = False):
+        ax = self.get_main_axes(prefer_3d=prefer_3d)
+        drawer(ax)
+        try:
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend(loc='best')
+        except Exception:
+            pass
+        ax.figure.canvas.draw_idle()
+
     def refresh_xy_columns(self):
         """
         โหลดคอลัมน์จาก DataFrame ปัจจุบัน → เติมลง cbo_x/cbo_y
@@ -1413,6 +1475,10 @@ class MainWindow(QMainWindow):
             pass
         actAddLine.triggered.connect(self.add_line_overlay)
         actAddScatter.triggered.connect(self.add_scatter_overlay)
+        # [Equation Plotter]
+        chartsMenuBar = m.addMenu('Charts')
+        actPlotEquation = chartsMenuBar.addAction('Plot from Equation...')
+        actPlotEquation.triggered.connect(self.on_plot_from_equation)
         dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
         
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
@@ -1430,6 +1496,30 @@ class MainWindow(QMainWindow):
 
         toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
         toolsMenu.addAction(self.actSettings)
+
+        # Settings menu for plotting mode
+        try:
+            from PySide6.QtGui import QActionGroup
+            settings_menu = m.addMenu("&Settings")
+            plot_mode_menu = settings_menu.addMenu("Plotting Mode")
+            grp = QActionGroup(self); grp.setExclusive(True)
+            act_overlay = QAction("Overlay (default)", self, checkable=True)
+            act_replace = QAction("Replace", self, checkable=True)
+            grp.addAction(act_overlay); grp.addAction(act_replace)
+            plot_mode_menu.addAction(act_overlay); plot_mode_menu.addAction(act_replace)
+            act_overlay.setChecked(getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.OVERLAY)
+            act_replace.setChecked(getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE)
+            def _set_mode(mode):
+                try:
+                    self.plot_mode = mode
+                    if hasattr(self, 'settings'):
+                        self.settings.setValue("plot/mode", mode.value)
+                except Exception:
+                    self.plot_mode = mode
+            act_overlay.triggered.connect(lambda: _set_mode(PlotMode.OVERLAY))
+            act_replace.triggered.connect(lambda: _set_mode(PlotMode.REPLACE))
+        except Exception:
+            pass
 
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
@@ -1474,7 +1564,7 @@ class MainWindow(QMainWindow):
                     # Last resort: create a temporary Figure (won't show on canvas)
                     from matplotlib.figure import Figure as _Figure
                     return _Figure()
-            charts_menu = ChartGalleryMenu(get_dataframe=_cg_get_df, get_main_figure=_cg_get_fig, parent=self)
+            charts_menu = ChartGalleryMenu(get_dataframe=_cg_get_df, get_main_figure=_cg_get_fig, apply_plot=self.apply_plot, parent=self)
             m.addMenu(charts_menu)
         except Exception:
             pass
@@ -1522,22 +1612,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 return pd.DataFrame()
 
-        def _apply_to_main(draw_fn):
-            # Let the drawer decide 2D/3D; start with a clean 2D axes
+        def _apply_to_main(draw_fn, prefer_3d: bool=False):
             try:
-                fig = self.canvas.fig
+                self.apply_plot(draw_fn, prefer_3d=prefer_3d)
             except Exception:
+                # fallback: try best effort without clearing
                 try:
-                    tab = self.tabs.currentWidget(); fig = tab.get_figure()
-                except Exception:
-                    return
-            try:
-                fig.clear()
-                ax = fig.add_subplot(111)
-                draw_fn(ax)
-                fig.canvas.draw_idle()
-            except Exception:
-                try:
+                    fig = self.canvas.fig
+                    ax = fig.axes[-1] if fig.axes else fig.add_subplot(111)
+                    draw_fn(ax)
                     fig.canvas.draw_idle()
                 except Exception:
                     pass
@@ -2798,14 +2881,17 @@ class MainWindow(QMainWindow):
             
             print(f"Debug: plot_line() - parameters: lw={lw}, marker={marker}, label={label}")
             
-            # Plot to selected tabs
-            self.tabs.plot_to_tabs(
-                selected_tab_ids, x, y, 
-                label=label, 
-                style="line",
-                linewidth=lw, 
-                marker=marker
-            )
+            # Plot to selected tabs — overlay or replace
+            if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.OVERLAY:
+                self.tabs.add_series_to_tabs(
+                    selected_tab_ids, x, y,
+                    label=label, style="line", linewidth=lw, marker=marker
+                )
+            else:
+                self.tabs.plot_to_tabs(
+                    selected_tab_ids, x, y,
+                    label=label, style="line", linewidth=lw, marker=marker
+                )
             
             # Set labels after plotting
             for tab_id in selected_tab_ids:
@@ -2875,13 +2961,17 @@ class MainWindow(QMainWindow):
             
             print(f"Debug: plot_scatter() - parameters: size={size}, label={label}")
             
-            # Plot to selected tabs
-            self.tabs.plot_to_tabs(
-                selected_tab_ids, x, y, 
-                label=label, 
-                style="scatter",
-                s=size
-            )
+            # Plot to selected tabs — overlay or replace
+            if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.OVERLAY:
+                self.tabs.add_series_to_tabs(
+                    selected_tab_ids, x, y,
+                    label=label, style="scatter", s=size
+                )
+            else:
+                self.tabs.plot_to_tabs(
+                    selected_tab_ids, x, y,
+                    label=label, style="scatter", s=size
+                )
             
             # Set labels after plotting
             for tab_id in selected_tab_ids:
@@ -2911,6 +3001,63 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "พล็อตกราฟจุดไม่สำเร็จ", f"สาเหตุ: {e}")
             import traceback
             traceback.print_exc()
+
+    # [Equation Plotter]
+    def on_plot_from_equation(self):
+        dlg = EquationPlotDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        vals = dlg.get_values()
+        expressions = vals["expressions"]
+        if not expressions:
+            self._show_status("\u0e01\u0e23\u0e38\u0e13\u0e32\u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e2d\u0e22\u0e48\u0e32\u0e07\u0e19\u0e49\u0e2d\u0e22 1 \u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14", error=True)
+            return
+        try:
+            ax = getattr(self, "axes", None)
+            if ax is None:
+                ax = getattr(self, "ax", None)
+            if ax is None:
+                canvas = getattr(self, "canvas", None)
+                if canvas is not None:
+                    ax = getattr(canvas, "axes", None)
+                    if ax is None:
+                        ax = getattr(canvas, "ax", None)
+                    if ax is None and hasattr(canvas, "fig"):
+                        fig_axes = getattr(canvas.fig, "axes", []) or []
+                        if fig_axes:
+                            ax = fig_axes[0]
+            if ax is None:
+                self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
+                return
+            plot_equations_on_axes(
+                ax=ax,
+                expressions=expressions,
+                x_min=vals["x_min"],
+                x_max=vals["x_max"],
+                n_points=vals["n_points"],
+                params_str=vals["params"],
+                y_scale=vals["y_scale"],
+                overlay=vals["overlay"],
+            )
+            self._show_status("\u0e27\u0e32\u0e14\u0e01\u0e23\u0e32\u0e1f\u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
+        except Exception as exc:
+            self._show_status("\u0e40\u0e01\u0e34\u0e14\u0e02\u0e49\u0e2d\u0e1c\u0e34\u0e14\u0e1e\u0e25\u0e32\u0e14: {}".format(exc), error=True)
+
+    # [Equation Plotter]
+    def _show_status(self, msg: str, error: bool = False) -> None:
+        try:
+            bar = self.statusBar()
+        except Exception:
+            bar = None
+        if bar is not None:
+            try:
+                bar.showMessage(msg, 5000)
+                return
+            except Exception:
+                pass
+        print(msg)
+        if error:
+            logging.getLogger(__name__).debug("Status error: %s", msg)
 
     def add_line_overlay(self):
         print("Debug: add_line_overlay() called")
@@ -3107,7 +3254,12 @@ class MainWindow(QMainWindow):
             ax = fig.axes[0] if fig.axes else fig.add_subplot(111)
             xlim = ax.get_xlim() if keep_limits else None
             ylim = ax.get_ylim() if keep_limits else None
-            ax.clear()
+            try:
+                mode = getattr(self, 'plot_mode', PlotMode.OVERLAY)
+            except Exception:
+                mode = PlotMode.OVERLAY
+            if mode == PlotMode.REPLACE:
+                ax.clear()
             # ถ้ามีเมธอดช่วยดึงข้อมูลปัจจุบัน ให้เรียกที่นี่แทน
             if hasattr(self, "_plot_current"):
                 self._plot_current(ax)  # ปรับชื่อให้ตรงโปรเจกต์คุณ
@@ -3136,7 +3288,11 @@ class MainWindow(QMainWindow):
             out = df.groupby(id_col)[value_cols].min().reset_index()
 
         # Plot: if multiple columns selected
-        self.canvas.clear()
+        try:
+            if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE:
+                self.canvas.clear()
+        except Exception:
+            pass
         x = out[id_col]
         if len(value_cols) == 1 or not stacked:
             # Use first column for bar chart
@@ -3526,7 +3682,11 @@ class MainWindow(QMainWindow):
             self._fft_df = df_fft
             self._fft_meta = {"fs": fs, "x_col": x_col, "y_col": y_col, "window": window, "detrend": detrend}
 
-            self.canvas.clear()
+            try:
+                if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE:
+                    self.canvas.clear()
+            except Exception:
+                pass
             self.canvas.ax.plot(df_fft["freq_Hz"].values, df_fft["amplitude"].values, linewidth=2)
             self.canvas.ax.set_xlabel("Frequency (Hz)")
             self.canvas.ax.set_ylabel("Amplitude")
@@ -3681,7 +3841,11 @@ class MainWindow(QMainWindow):
                 )
             
             # แสดง spectrogram บน axes หลัก
-            self.canvas.ax.clear()
+            try:
+                if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE:
+                    self.canvas.ax.clear()
+            except Exception:
+                pass
             
             # ลบ colorbar เก่าถ้ามี
             if hasattr(self, '_last_cbar') and self._last_cbar is not None:

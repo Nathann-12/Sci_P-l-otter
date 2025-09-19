@@ -226,11 +226,13 @@ class ChartGalleryMenu(QMenu):
 
     def __init__(self,
                  get_dataframe: Callable[[], pd.DataFrame],
-                 get_main_figure: Callable[[], Figure],
+                 get_main_figure: Callable[[], Figure] = None,
+                 apply_plot: Callable[[Callable, bool], None] = None,
                  parent=None):
         super().__init__("Charts", parent)
         self.get_dataframe = get_dataframe
         self.get_main_figure = get_main_figure
+        self.apply_plot = apply_plot
         self.preview = FloatingPreview(self)
         self.specs = _mk_specs()
 
@@ -276,14 +278,15 @@ class ChartGalleryMenu(QMenu):
 
     def _on_apply(self, spec: ChartSpec):
         df = self.get_dataframe()
-        fig = self.get_main_figure()
-        fig.clear()
-        if spec.is3d:
-            ax = fig.add_subplot(111, projection="3d")
+        def drawer(ax):
+            spec.apply_func(ax, df)
+        if self.apply_plot is not None:
+            self.apply_plot(drawer, prefer_3d=spec.is3d)
         else:
-            ax = fig.add_subplot(111)
-        spec.apply_func(ax, df)
-        fig.canvas.draw_idle()
+            # fallback (legacy)
+            fig = self.get_main_figure()
+            ax = fig.add_subplot(111, projection="3d" if spec.is3d else None)
+            drawer(ax)
+            fig.canvas.draw_idle()
         self.hide()
         self.preview.hide()
-

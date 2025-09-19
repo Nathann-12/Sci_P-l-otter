@@ -514,10 +514,13 @@ class ChartOptionsDialogPro(QDialog):
 
     def _on_apply(self):
         opts = self._collect()
+        need3d = (self.kind == "3d_scatter")
 
         def drawer(ax):
             self._plot_with_opts(ax, self.get_df(), opts)
 
-        self.apply_to_main(drawer)
+        try:
+            self.apply_to_main(drawer, prefer_3d=need3d)
+        except TypeError:
+            self.apply_to_main(drawer)
         self.close()
-
