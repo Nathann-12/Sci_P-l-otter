@@ -44,7 +44,7 @@ from PySide6.QtGui import QAction, QIcon
 from enum import Enum
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+from toolbar import PlotNavigationToolbar
 import matplotlib.dates as mdates  # CHANGE: handle datetime axes formatting
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor, RectangleSelector
@@ -111,12 +111,18 @@ from UI.widgets.error_panel import ErrorPanel
 from annotations import AnnotationManager, AnnotationStyleDock, AnnotationListDialog
 from crosscorr import CrossCorrManager, CrossCorrDock
 from peaks import PeakDetectorManager, PeakDetectionDock
+from three_d_view import ThreeDViewDock
 from context_menu import ContextMenuManager
 # [Equation Plotter]
 from dialogs_equation import EquationPlotDialog
 from eqplot import plot_equations_on_axes
+from eqplot3d import plot_surfaces_on_axes
 
 APP_TITLE = "SciPlotter (Modular + Features)"
+
+APP_ICON_FILENAME = "icon_app.png"
+APP_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icons", APP_ICON_FILENAME)
+APP_USER_MODEL_ID = "SciPlotter.SciPlotterApp"
 
 class PlotMode(str, Enum):
     OVERLAY = "overlay"
@@ -232,7 +238,7 @@ class GraphTab(QWidget):
         
         # Create canvas
         self.canvas = PlotCanvas(self)
-        self.toolbar = NavigationToolbar(self.canvas, self)
+        self.toolbar = PlotNavigationToolbar(self.canvas, self)
         
         # Add widgets to layout
         layout.addWidget(self.canvas)
@@ -727,6 +733,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE); self.resize(1180, 760)
+        try:
+            app_icon = self._icon('icon_app', QStyle.StandardPixmap.SP_DesktopIcon)
+            if not app_icon.isNull():
+                self.setWindowIcon(app_icon)
+        except Exception:
+            pass
         self._df = None; self._current_path = None
         self._datasets = {}   # dict: key = ชื่อที่โชว์ในลิสต์, value = {"df": DataFrame, "path": str}
         self._cursor = None
@@ -1435,6 +1447,10 @@ class MainWindow(QMainWindow):
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
         try:
             viewMenu.addAction(self.actToggleInspector)
+            try:
+                viewMenu.addAction(self.view3DDock.toggleViewAction())
+            except Exception:
+                pass
         except Exception:
             try:
                 self.actToggleInspector = QAction("Inspector", self)
@@ -1475,10 +1491,15 @@ class MainWindow(QMainWindow):
             pass
         actAddLine.triggered.connect(self.add_line_overlay)
         actAddScatter.triggered.connect(self.add_scatter_overlay)
-        # [Equation Plotter]
-        chartsMenuBar = m.addMenu('Charts')
-        actPlotEquation = chartsMenuBar.addAction('Plot from Equation...')
-        actPlotEquation.triggered.connect(self.on_plot_from_equation)
+        if hasattr(self, 'actPlotEquation'):
+            plotMenu.addAction(self.actPlotEquation)
+        else:
+            self.actPlotEquation = plotMenu.addAction('Plot from Equation...')
+            self.actPlotEquation.triggered.connect(self.on_plot_from_equation)
+            try:
+                self.actPlotEquation.setIcon(self._icon('Plot_from_Equation', QStyle.StandardPixmap.SP_DialogApplyButton))
+            except Exception:
+                pass
         dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
         
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
@@ -1674,6 +1695,10 @@ class MainWindow(QMainWindow):
         self.pkDock = PeakDetectionDock(self)
         self.addDockWidget(Qt.RightDockWidgetArea, self.pkDock); self.pkDock.hide()
         self.peaks = PeakDetectorManager(self)
+        self.view3DDock = ThreeDViewDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.view3DDock)
+        self.view3DDock.hide()
+        self._3d_dock_has_shown = False
 
         def populate_cols_into_docks():
             try:
@@ -1845,16 +1870,19 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'actSettings'):
             self.actSettings = QAction("Settings", self)
             self.actSettings.triggered.connect(self.show_settings)
+        if not hasattr(self, 'actPlotEquation'):
+            self.actPlotEquation = QAction('Plot from Equation...', self)
+            self.actPlotEquation.triggered.connect(self.on_plot_from_equation)
+            try:
+                self.actPlotEquation.setIcon(self._icon('Plot_from_Equation', QStyle.StandardPixmap.SP_DialogApplyButton))
+            except Exception:
+                pass
         
         # === กลุ่มที่ 1: ไฟล์และข้อมูล ===
         self.tb.addAction(self.actOpen)
         # Place Inspector as the second button after Open
         self.tb.addAction(self.actToggleInspector)
-        act_reload = self.tb.addAction("Reload", self.on_action_reload)
-        try:
-            act_reload.setIcon(self._icon("reload", QStyle.StandardPixmap.SP_BrowserReload))
-        except Exception:
-            pass
+        self.tb.addAction(self.actPlotEquation)
         self.tb.addSeparator()
         
         # === กลุ่มที่ 2: การสร้างกราฟ ===
@@ -1870,7 +1898,7 @@ class MainWindow(QMainWindow):
         # === กลุ่มที่ 3: การจัดการแท็บ ===
         act_add_tab = self.tb.addAction("Add Tab", self.on_action_add_tab)
         try:
-            act_add_tab.setIcon(self._icon("add", QStyle.StandardPixmap.SP_FileDialogNewFolder))
+            act_add_tab.setIcon(self._icon("addtab", QStyle.StandardPixmap.SP_FileDialogNewFolder))
         except Exception:
             pass
         self.tb.addSeparator()
@@ -3003,6 +3031,55 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     # [Equation Plotter]
+    def _ensure_plot_axes_dimension(self, ax, mode: str):
+        """Ensure the active axes match the requested dimensionality."""
+        if ax is None:
+            return None
+        canvas = getattr(self, "canvas", None)
+        fig = ax.figure
+        facecolor = fig.get_facecolor()
+        try:
+            axes_facecolor = ax.get_facecolor()
+        except Exception:
+            axes_facecolor = None
+
+        target = "3d_surface" if mode == "3d_surface" else "2d"
+
+        if target == "3d_surface" and not hasattr(ax, "zaxis"):
+            fig.clf()
+            new_ax = fig.add_subplot(111, projection="3d")
+            fig.patch.set_facecolor(facecolor)
+            if axes_facecolor is not None:
+                try:
+                    new_ax.set_facecolor(axes_facecolor)
+                except Exception:
+                    pass
+            if canvas is not None:
+                canvas.ax = new_ax
+            for attr in ("axes", "ax"):
+                if hasattr(self, attr):
+                    setattr(self, attr, new_ax)
+            return new_ax
+
+        if target == "2d" and hasattr(ax, "zaxis"):
+            fig.clf()
+            new_ax = fig.add_subplot(111)
+            fig.patch.set_facecolor(facecolor)
+            if axes_facecolor is not None:
+                try:
+                    new_ax.set_facecolor(axes_facecolor)
+                except Exception:
+                    pass
+            if canvas is not None:
+                canvas.ax = new_ax
+            for attr in ("axes", "ax"):
+                if hasattr(self, attr):
+                    setattr(self, attr, new_ax)
+            return new_ax
+
+        return ax
+
+    # [Equation Plotter]
     def on_plot_from_equation(self):
         dlg = EquationPlotDialog(self)
         if dlg.exec() != QDialog.Accepted:
@@ -3012,8 +3089,27 @@ class MainWindow(QMainWindow):
         if not expressions:
             self._show_status("\u0e01\u0e23\u0e38\u0e13\u0e32\u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e2d\u0e22\u0e48\u0e32\u0e07\u0e19\u0e49\u0e2d\u0e22 1 \u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14", error=True)
             return
+        mode = vals.get("mode", "2d")
         try:
-            ax = getattr(self, "axes", None)
+            tab = None
+            current_tab_id = None
+            try:
+                if hasattr(self, "tabs") and hasattr(self.tabs, "get_current_tab_id"):
+                    current_tab_id = self.tabs.get_current_tab_id()
+            except Exception:
+                current_tab_id = None
+            if current_tab_id and hasattr(self.tabs, "tabs"):
+                tab = self.tabs.tabs.get(current_tab_id)
+            ax = None
+            if tab is not None:
+                try:
+                    ax = tab.get_axes()
+                    if hasattr(tab, "canvas"):
+                        self.canvas = tab.canvas
+                except Exception:
+                    ax = None
+            if ax is None:
+                ax = getattr(self, "axes", None)
             if ax is None:
                 ax = getattr(self, "ax", None)
             if ax is None:
@@ -3029,21 +3125,96 @@ class MainWindow(QMainWindow):
             if ax is None:
                 self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
                 return
-            plot_equations_on_axes(
-                ax=ax,
-                expressions=expressions,
-                x_min=vals["x_min"],
-                x_max=vals["x_max"],
-                n_points=vals["n_points"],
-                params_str=vals["params"],
-                y_scale=vals["y_scale"],
-                overlay=vals["overlay"],
-            )
-            self._show_status("\u0e27\u0e32\u0e14\u0e01\u0e23\u0e32\u0e1f\u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
+            ax = self._ensure_plot_axes_dimension(ax, mode)
+            if ax is None:
+                self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
+                return
+
+            if mode == "3d_surface":
+                plot_surfaces_on_axes(
+                    ax=ax,
+                    expressions=expressions,
+                    x_min=vals["x_min"],
+                    x_max=vals["x_max"],
+                    n_points=vals["n_points"],
+                    y_min=vals.get("y_min", -10.0),
+                    y_max=vals.get("y_max", 10.0),
+                    n_y_points=vals.get("n_y_points", 200),
+                    params_str=vals["params"],
+                    wireframe=vals["wireframe"],
+                    overlay=vals["overlay"],
+                )
+                self._show_status("\u0e27\u0e32\u0e14\u0e1e\u0e37\u0e49\u0e19\u0e1c\u0e34\u0e27 3D \u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
+            else:
+                plot_equations_on_axes(
+                    ax=ax,
+                    expressions=expressions,
+                    x_min=vals["x_min"],
+                    x_max=vals["x_max"],
+                    n_points=vals["n_points"],
+                    params_str=vals["params"],
+                    y_scale=vals["y_scale"],
+                    overlay=vals["overlay"],
+                )
+                self._show_status("\u0e27\u0e32\u0e14\u0e01\u0e23\u0e32\u0e1f\u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
+            self._update_3d_controls_state(ax, tab)
+        except ValueError as exc:
+            self._warn_equation_failure(str(exc))
         except Exception as exc:
             self._show_status("\u0e40\u0e01\u0e34\u0e14\u0e02\u0e49\u0e2d\u0e1c\u0e34\u0e14\u0e1e\u0e25\u0e32\u0e14: {}".format(exc), error=True)
 
+
     # [Equation Plotter]
+    def _warn_equation_failure(self, details: str) -> None:
+        clean = (details or "").strip()
+        if not clean:
+            clean = "unknown error"
+        message = "\u0e44\u0e21\u0e48\u0e2a\u0e32\u0e21\u0e32\u0e23\u0e16\u0e1e\u0e25\u0e47\u0e2d\u0e15\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e44\u0e14\u0e49:\n{}".format(clean)
+        self._show_status(message, error=True)
+        try:
+            QMessageBox.warning(self, "Plot from Equation", message)
+        except Exception:
+            logger.warning("Failed to show equation warning dialog: %s", message, exc_info=True)
+            print(message)
+
+
+    def _update_3d_controls_state(self, ax=None, tab=None) -> None:
+        if not hasattr(self, "view3DDock"):
+            return
+        try:
+            current_ax = ax
+            current_tab = tab
+            if current_ax is None:
+                tab_id = None
+                try:
+                    tab_id = self.tabs.get_current_tab_id() if hasattr(self.tabs, "get_current_tab_id") else None
+                except Exception:
+                    tab_id = None
+                if tab_id and hasattr(self.tabs, "tabs"):
+                    current_tab = self.tabs.tabs.get(tab_id)
+                if current_tab is not None and hasattr(current_tab, "get_axes"):
+                    try:
+                        current_ax = current_tab.get_axes()
+                    except Exception:
+                        current_ax = None
+            if current_ax is not None and hasattr(current_ax, "zaxis"):
+                canvas = getattr(current_tab, "canvas", None) if current_tab is not None else getattr(self, "canvas", None)
+                toolbar = getattr(current_tab, "toolbar", None) if current_tab is not None else None
+                self.view3DDock.attach_axes(current_ax, canvas=canvas, toolbar=toolbar)
+                try:
+                    should_show = self.view3DDock.toggleViewAction().isChecked()
+                except Exception:
+                    should_show = self.view3DDock.isVisible()
+                if not getattr(self, "_3d_dock_has_shown", False) or should_show:
+                    self.view3DDock.show()
+                    self._3d_dock_has_shown = True
+            else:
+                self.view3DDock.detach_axes()
+                self.view3DDock.hide()
+        except Exception:
+            logger.debug("Failed to update 3D dock state", exc_info=True)
+
+
     def _show_status(self, msg: str, error: bool = False) -> None:
         try:
             bar = self.statusBar()
@@ -4300,6 +4471,8 @@ class MainWindow(QMainWindow):
                     self.canvas = tab.canvas
                     break
             
+        self._update_3d_controls_state()
+
     def _add_new_tab(self):
         """Add a new graph tab"""
         self.tabs.add_tab()
@@ -4530,8 +4703,21 @@ class MainWindow(QMainWindow):
             if os.path.isfile(path): self.load_data(path); break
 
 def main():
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        except Exception:
+            logger.debug('Failed to set AppUserModelID', exc_info=True)
+
     app = QApplication(sys.argv)
-    
+    try:
+        if os.path.isfile(APP_ICON_PATH):
+            app_icon = QIcon(APP_ICON_PATH)
+            app.setWindowIcon(app_icon)
+    except Exception:
+        logger.debug('Failed to set application icon', exc_info=True)
+
     # Setup logging system
     setup_logging()
     

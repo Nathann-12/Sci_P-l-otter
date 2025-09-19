@@ -10,6 +10,24 @@ import numpy as np
 from utils_expr import parse_params, safe_eval
 
 
+def _expression_error_message(expr: str, exc: Exception) -> str:
+    reason = str(exc)
+    hint = ''
+    lowered = reason.lower()
+    if 'unknown function or variable' in lowered:
+        hint = ' Check the spelling of variables or parameters, or define them in the parameter list.'
+    elif 'math domain error' in lowered:
+        hint = ' Ensure the expression stays within the valid domain (e.g. log(x) requires x > 0).'
+    elif 'result shape does not match' in lowered or 'surface does not match' in lowered:
+        hint = ' The expression must return the same number of points as the generated X values.'
+    elif 'invalid parameter' in lowered or 'parameter name' in lowered:
+        hint = ' Parameters must use the format name=value with unique names.'
+    message = f"Failed to plot expression '{expr}': {reason}"
+    if hint:
+        message = f"{message} Hint:{hint}"
+    return message
+
+
 def _evaluate_expression(
     expr: str,
     x: np.ndarray,
@@ -83,15 +101,18 @@ def plot_equations_on_axes(
     ax.set_yscale("log" if y_scale == "log" else "linear")
 
     for expr in expressions:
-        mode, x_vals, y_vals = _evaluate_expression(expr, x, user_params, aliases)
-        if mode == "plot":
-            ax.plot(x_vals, y_vals, label=expr)
-        elif mode == "param":
-            ax.plot(x_vals, y_vals, label=expr)
-        elif mode == "vline":
-            ax.axvline(x_vals[0], label=expr)
-        else:
-            raise ValueError(f"Unknown plotting mode '{mode}' for expression '{expr}'")
+        try:
+            mode, x_vals, y_vals = _evaluate_expression(expr, x, user_params, aliases)
+            if mode == "plot":
+                ax.plot(x_vals, y_vals, label=expr)
+            elif mode == "param":
+                ax.plot(x_vals, y_vals, label=expr)
+            elif mode == "vline":
+                ax.axvline(x_vals[0], label=expr)
+            else:
+                raise ValueError(f"Unknown plotting mode '{mode}' for expression '{expr}'")
+        except Exception as exc:
+            raise ValueError(_expression_error_message(expr, exc)) from exc
 
     ax.legend(loc="best")
     ax.figure.canvas.draw_idle()
