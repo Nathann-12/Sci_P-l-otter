@@ -48,57 +48,109 @@ class PeakDetectorManager(QObject):
 
     # --- detection ---
     def _smooth(self, y: np.ndarray, w: int) -> np.ndarray:
-        if w and w > 1:
+        arr = np.asarray(y, float)
+        if arr.size == 0:
+            return arr
+        if w and w > 1 and arr.size > 0:
             k = int(w)
             kernel = np.ones(k) / k
-            return np.convolve(y, kernel, mode='same')
-        return y
+            return np.convolve(arr, kernel, mode='same')
+        return arr
+
 
     def detect(self, x: np.ndarray, y: np.ndarray, params: PeakParams) -> Dict[str, Any]:
-        x = np.asarray(x, float); y = np.asarray(y, float)
+        x = np.asarray(x, float).reshape(-1)
+        y = np.asarray(y, float).reshape(-1)
+        if x.shape != y.shape:
+            n = min(x.size, y.size)
+            x = x[:n]
+            y = y[:n]
         y = self._smooth(y, params.smooth_window)
-        sign = 1.0
-        if params.polarity == 'troughs':
-            sign = -1.0
-        peaks = self._find_peaks_numpy(sign * y, params)
-        # build results
+        if x.size == 0 or y.size == 0:
+            res = {'index': [], 'x_peak': [], 'y_peak': [], 'kind': []}
+            self._last_results = res
+            return res
+        findings: List[tuple[int, str]] = []
+
+        def _collect(indices: np.ndarray, label: str):
+            if indices is None:
+                return
+            arr = np.asarray(indices, dtype=int)
+            if arr.size == 0:
+                return
+            for idx in arr:
+                findings.append((int(idx), label))
+
+        if params.polarity == 'both':
+            _collect(self._find_peaks_numpy(y, params), 'peak')
+            _collect(self._find_peaks_numpy(-y, params), 'trough')
+        else:
+            label = 'peak' if params.polarity != 'troughs' else 'trough'
+            series = y if label == 'peak' else -y
+            _collect(self._find_peaks_numpy(series, params), label)
+
+        deduped: Dict[int, str] = {}
+        for idx, kind in findings:
+            if idx not in deduped:
+                deduped[idx] = kind
+
+        if deduped:
+            indices = np.array(sorted(deduped.keys()), dtype=int)
+            kinds = [deduped[i] for i in indices]
+            x_vals = x[indices]
+            y_vals = y[indices]
+        else:
+            indices = np.array([], dtype=int)
+            kinds = []
+            x_vals = np.asarray([], dtype=float)
+            y_vals = np.asarray([], dtype=float)
+
         res = {
-            'index': peaks.tolist(),
-            'x_peak': x[peaks].tolist() if x is not None else peaks.astype(float).tolist(),
-            'y_peak': y[peaks].tolist(),
+            'index': indices.tolist(),
+            'x_peak': x_vals.tolist(),
+            'y_peak': y_vals.tolist(),
+            'kind': kinds,
         }
         self._last_results = res
         return res
 
+
     def _find_peaks_numpy(self, y: np.ndarray, p: PeakParams) -> np.ndarray:
+        arr = np.asarray(y, float)
+        n = arr.size
+        if n == 0:
+            return np.array([], dtype=int)
         # simple local maxima with min distance and height/prominence approx
-        dy1 = np.r_[True, y[1:] > y[:-1]]
-        dy2 = np.r_[y[:-1] > y[1:], True]
+        dy1 = np.r_[True, arr[1:] > arr[:-1]]
+        dy2 = np.r_[arr[:-1] > arr[1:], True]
         cand = np.where(dy1 & dy2)[0]
         if p.height > 0:
-            cand = cand[y[cand] >= p.height]
+            cand = cand[arr[cand] >= p.height]
         # crude prominence: value - min(neighborhood)
         if p.prominence > 0 and cand.size:
             win = max(p.min_distance, 3)
             keep = []
-            n = y.size
             for idx in cand:
                 l = max(0, idx - win)
                 r = min(n, idx + win)
-                prom = y[idx] - y[l:r].min()
-                if prom >= p.prominence: keep.append(idx)
+                prom = arr[idx] - arr[l:r].min()
+                if prom >= p.prominence:
+                    keep.append(idx)
             cand = np.array(keep, dtype=int)
         # enforce min distance
         if p.min_distance > 1 and cand.size:
-            cand = cand[np.argsort(-y[cand])]  # sort by height desc
+            cand = cand[np.argsort(-arr[cand])]  # sort by height desc
             keep = []
-            selected = np.zeros(y.size, dtype=bool)
+            selected = np.zeros(n, dtype=bool)
             for idx in cand:
-                lo = max(0, idx - p.min_distance); hi = min(y.size, idx + p.min_distance + 1)
+                lo = max(0, idx - p.min_distance)
+                hi = min(n, idx + p.min_distance + 1)
                 if not selected[lo:hi].any():
-                    keep.append(idx); selected[idx] = True
+                    keep.append(idx)
+                    selected[idx] = True
             cand = np.sort(np.array(keep, dtype=int))
         return cand
+
 
     def annotate(self, x: np.ndarray, y: np.ndarray, res: Dict[str, Any]):
         try:
@@ -107,13 +159,26 @@ class PeakDetectorManager(QObject):
             return
         # clear previous
         self.clear()
-        idx = np.array(res['index'], dtype=int)
-        xp = np.asarray(res['x_peak'], float); yp = np.asarray(res['y_peak'], float)
+        idx = np.array(res.get('index', []), dtype=int)
+        if idx.size == 0:
+            return
+        xp = np.asarray(res.get('x_peak', []), float); yp = np.asarray(res.get('y_peak', []), float)
+        if xp.size == 0 or yp.size == 0:
+            return
+        kinds = res.get('kind') or ['peak'] * idx.size
+        if len(kinds) != idx.size:
+            kinds = ['peak'] * idx.size
+        kinds_arr = np.array([str(k).lower() for k in kinds])
+        colors = ['#e74c3c' if kind != 'trough' else '#3498db' for kind in kinds_arr]
         try:
-            sc = ax.scatter(xp, yp, s=30, color='#e74c3c', zorder=30)
+            sc = ax.scatter(xp, yp, s=30, color=colors, zorder=30)
             self._artists.append(sc)
-            for i, (xx, yy) in enumerate(zip(xp, yp), start=1):
-                t = ax.text(xx, yy, f"Pk{i}", color='#e6e6e6', fontsize=9, zorder=31)
+            counts: Dict[str, int] = {}
+            for xx, yy, kind in zip(xp, yp, kinds_arr):
+                counts[kind] = counts.get(kind, 0) + 1
+                prefix = 'Tr' if kind == 'trough' else 'Pk'
+                label = f"{prefix}{counts[kind]}"
+                t = ax.text(xx, yy, label, color='#e6e6e6', fontsize=9, zorder=31)
                 self._artists.append(t)
             fig.canvas.draw_idle()
         except Exception:
@@ -178,8 +243,7 @@ class PeakDetectionDock(QDockWidget):
         actions_widget = QWidget(); actions_widget.setLayout(hb)
         form.addRow("Actions:", actions_widget)
         # result table
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["x_peak", "y_peak", "index"])
+        self.table = QTableWidget(0, 0)
         form.addRow(self.table)
 
         self.btnDetect.clicked.connect(self._emit_detect)
@@ -205,9 +269,34 @@ class PeakDetectionDock(QDockWidget):
         })
 
     def show_results(self, res: Dict[str, Any]):
-        xs = res.get('x_peak', []); ys = res.get('y_peak', []); idx = res.get('index', [])
-        self.table.setRowCount(len(xs))
-        for r, (x, y, i) in enumerate(zip(xs, ys, idx)):
-            self.table.setItem(r, 0, QTableWidgetItem(f"{x:.6g}"))
-            self.table.setItem(r, 1, QTableWidgetItem(f"{y:.6g}"))
+        xs = res.get('x_peak', []) or []
+        ys = res.get('y_peak', []) or []
+        idx = res.get('index', []) or []
+        kinds = res.get('kind', []) or []
+        has_kind = bool(kinds)
+        headers = ["x_peak", "y_peak", "index"] + (["type"] if has_kind else [])
+        self.table.setColumnCount(len(headers))
+        header_labels = [h if h != 'type' else 'Type' for h in headers]
+        self.table.setHorizontalHeaderLabels(header_labels)
+        rows = min(len(xs), len(ys), len(idx))
+        if has_kind:
+            rows = min(rows, len(kinds))
+        self.table.setRowCount(rows)
+        for r in range(rows):
+            x = xs[r]
+            y = ys[r]
+            i = idx[r]
+            try:
+                x_val = f"{float(x):.6g}"
+            except Exception:
+                x_val = str(x)
+            try:
+                y_val = f"{float(y):.6g}"
+            except Exception:
+                y_val = str(y)
+            self.table.setItem(r, 0, QTableWidgetItem(x_val))
+            self.table.setItem(r, 1, QTableWidgetItem(y_val))
             self.table.setItem(r, 2, QTableWidgetItem(str(i)))
+            if has_kind:
+                kind_val = str(kinds[r]).strip()
+                self.table.setItem(r, 3, QTableWidgetItem(kind_val.capitalize()))

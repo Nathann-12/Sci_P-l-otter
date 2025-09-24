@@ -284,14 +284,14 @@ def apply_theme(app: QApplication):
         else:
             logger.warning(f"Matplotlib style file not found at: {mpl_path}")
             # Apply fallback dark theme
-            matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.edgecolor"] = "#404040"
-            matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
-            matplotlib.rcParams["xtick.color"] = "#ffffff"
-            matplotlib.rcParams["ytick.color"] = "#ffffff"
-            matplotlib.rcParams["text.color"] = "#ffffff"
-            matplotlib.rcParams["grid.color"] = "#404040"
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+            matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
+            matplotlib.rcParams["xtick.color"] = "#cfd3d6"
+            matplotlib.rcParams["ytick.color"] = "#cfd3d6"
+            matplotlib.rcParams["text.color"] = "#e6e6e6"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
             matplotlib.rcParams["grid.alpha"] = 0.3
             logger.info("Fallback matplotlib dark theme applied")
         
@@ -328,14 +328,14 @@ def apply_theme(app: QApplication):
         # Emergency fallback
         try:
             import matplotlib
-            matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.edgecolor"] = "#404040"
-            matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
-            matplotlib.rcParams["xtick.color"] = "#ffffff"
-            matplotlib.rcParams["ytick.color"] = "#ffffff"
-            matplotlib.rcParams["text.color"] = "#ffffff"
-            matplotlib.rcParams["grid.color"] = "#404040"
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+            matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
+            matplotlib.rcParams["xtick.color"] = "#cfd3d6"
+            matplotlib.rcParams["ytick.color"] = "#cfd3d6"
+            matplotlib.rcParams["text.color"] = "#e6e6e6"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
             matplotlib.rcParams["grid.alpha"] = 0.3
             logger.info("Emergency fallback matplotlib dark theme applied")
         except Exception as fallback_error:
@@ -408,14 +408,14 @@ def apply_theme_from_config(app: QApplication, config):
         try:
             import matplotlib
             # Set basic dark theme colors
-            matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.edgecolor"] = "#404040"
-            matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
-            matplotlib.rcParams["xtick.color"] = "#ffffff"
-            matplotlib.rcParams["ytick.color"] = "#ffffff"
-            matplotlib.rcParams["text.color"] = "#ffffff"
-            matplotlib.rcParams["grid.color"] = "#404040"
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+            matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
+            matplotlib.rcParams["xtick.color"] = "#cfd3d6"
+            matplotlib.rcParams["ytick.color"] = "#cfd3d6"
+            matplotlib.rcParams["text.color"] = "#e6e6e6"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
             matplotlib.rcParams["grid.alpha"] = 0.3
             logger.info("Fallback matplotlib dark theme applied")
         except Exception as fallback_error:
@@ -488,8 +488,8 @@ def apply_mpl_from_config(config):
         except Exception as e:
             logger.error(f"Error setting color parameters: {e}")
             # Set safe defaults
-            matplotlib.rcParams["axes.edgecolor"] = "#404040"
-            matplotlib.rcParams["text.color"] = "#ffffff"
+            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+            matplotlib.rcParams["text.color"] = "#e6e6e6"
             matplotlib.rcParams["figure.facecolor"] = "#1e2126"
             matplotlib.rcParams["axes.facecolor"] = "#1e2126"
             matplotlib.rcParams["grid.color"] = "#3a3f44"
@@ -538,14 +538,14 @@ def apply_mpl_from_config(config):
         # Fallback to basic dark theme
         try:
             import matplotlib
-            matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
-            matplotlib.rcParams["axes.edgecolor"] = "#404040"
-            matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
-            matplotlib.rcParams["xtick.color"] = "#ffffff"
-            matplotlib.rcParams["ytick.color"] = "#ffffff"
-            matplotlib.rcParams["text.color"] = "#ffffff"
-            matplotlib.rcParams["grid.color"] = "#404040"
+            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+            matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
+            matplotlib.rcParams["xtick.color"] = "#cfd3d6"
+            matplotlib.rcParams["ytick.color"] = "#cfd3d6"
+            matplotlib.rcParams["text.color"] = "#e6e6e6"
+            matplotlib.rcParams["grid.color"] = "#3a3f44"
             matplotlib.rcParams["grid.alpha"] = 0.3
             logger.info("Fallback matplotlib dark theme applied")
         except Exception as fallback_error:

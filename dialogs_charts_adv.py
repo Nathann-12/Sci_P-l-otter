@@ -3,11 +3,11 @@ from typing import Callable, List, Optional, Dict
 import numpy as np
 import pandas as pd
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QFormLayout, QGridLayout,
     QLabel, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView, QCheckBox,
-    QSpinBox, QDoubleSpinBox, QLineEdit, QPushButton
+    QSpinBox, QDoubleSpinBox, QLineEdit, QPushButton, QMessageBox
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -61,6 +61,8 @@ class ChartOptionsDialogPro(QDialog):
         self.kind = kind
         self.get_df = get_df
         self.apply_to_main = apply_to_main
+        self._col_lookup = {}  # display text -> original column value
+        self._col_signature = None
 
         self.setWindowTitle(f"{kind.capitalize()} — Options")
         self.setWindowFlag(Qt.Window)
@@ -103,6 +105,8 @@ class ChartOptionsDialogPro(QDialog):
         # พรีวิวแรก
         self._on_preview()
 
+        QTimer.singleShot(0, lambda: self._populate_columns(preserve=True))
+
     # -------------------- Data Tab --------------------
     def _build_data_tab(self) -> QWidget:
         w = QWidget()
@@ -119,11 +123,15 @@ class ChartOptionsDialogPro(QDialog):
         self.spin_maxpts.setRange(100, 200000)
         self.spin_maxpts.setValue(5000)
 
+        self.btn_refresh = QPushButton("Refresh Columns")
+        self.btn_refresh.clicked.connect(lambda: self._populate_columns(preserve=True))
+
         form.addRow("X column", self.cbo_x)
         form.addRow("Y columns", self.lst_y)
         form.addRow("", self.chk_dropna)
         form.addRow("", self.chk_sortx)
         form.addRow("Downsample max points", self.spin_maxpts)
+        form.addRow("", self.btn_refresh)
         return w
 
     # -------------------- Style Tab --------------------
@@ -290,28 +298,98 @@ class ChartOptionsDialogPro(QDialog):
         w = QWidget(); w.setLayout(layout); return w
 
     # -------------------- Populate columns --------------------
-    def _populate_columns(self):
-        df = self.get_df()
-        cols = list(df.columns) if df is not None else []
-        self.cbo_x.clear(); self.cbo_x.addItems(["<auto>"] + cols)
+    def _populate_columns(self, preserve=False):
+        prev_x = None
+        prev_x_label = None
+        prev_ys = set()
+        if preserve:
+            prev_x = self.cbo_x.currentData()
+            prev_x_label = self.cbo_x.currentText()
+            for i in range(self.lst_y.count()):
+                item = self.lst_y.item(i)
+                if item.checkState() == Qt.Checked:
+                    val = item.data(Qt.UserRole)
+                    if val is None:
+                        val = item.text()
+                    prev_ys.add(val)
+
+        try:
+            df = self.get_df()
+        except Exception:
+            df = None
+
+        cols = list(df.columns) if (df is not None and hasattr(df, 'columns')) else []
+        signature = tuple(cols)
+        if preserve and signature == getattr(self, '_col_signature', None):
+            return
+
+        display_cols = [str(c) for c in cols]
+        self._col_lookup = {label: col for label, col in zip(display_cols, cols)}
+        self._col_signature = signature
+
+        self.cbo_x.clear()
+        self.cbo_x.addItem('<auto>', None)
         # y list with checkboxes
         self.lst_y.clear()
-        for c in cols:
-            item = QListWidgetItem(str(c))
+        for col, label in zip(cols, display_cols):
+            self.cbo_x.addItem(label, col)
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, col)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Unchecked)
             self.lst_y.addItem(item)
+
         # auto preselect
         xg = _guess_x_col(df) if df is not None else None
-        if xg and xg in cols:
-            self.cbo_x.setCurrentText(xg)
+        if preserve and prev_x is not None:
+            idx = self.cbo_x.findData(prev_x)
+            if idx == -1 and isinstance(prev_x_label, str):
+                idx = self.cbo_x.findText(prev_x_label)
+            if idx != -1:
+                self.cbo_x.setCurrentIndex(idx)
+        elif xg is not None:
+            idx = self.cbo_x.findData(xg)
+            if idx != -1:
+                self.cbo_x.setCurrentIndex(idx)
+
         nums = _numeric_cols(df) if df is not None else []
+        auto_selected = 0
         for c in nums:
-            if c != xg:
-                # ติ๊กไม่เกิน 6 series เริ่มต้น
-                i = cols.index(c); self.lst_y.item(i).setCheckState(Qt.Checked)
-                if sum(self.lst_y.item(j).checkState() == Qt.Checked for j in range(self.lst_y.count())) >= 6:
+            if xg is not None and c == xg:
+                continue
+            try:
+                i = cols.index(c)
+            except ValueError:
+                continue
+            item = self.lst_y.item(i)
+            if item is not None:
+                item.setCheckState(Qt.Checked)
+                auto_selected += 1
+                if auto_selected >= 6:
                     break
+
+        if preserve and prev_ys:
+            for i in range(self.lst_y.count()):
+                item = self.lst_y.item(i)
+                val = item.data(Qt.UserRole)
+                if val is None:
+                    val = item.text()
+                if val in prev_ys:
+                    item.setCheckState(Qt.Checked)
+
+        if not cols:
+            placeholder = QListWidgetItem('<no columns detected - load data then press Refresh>')
+            placeholder.setFlags(placeholder.flags() & ~Qt.ItemIsEnabled)
+            self.lst_y.addItem(placeholder)
+            return
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            self._populate_columns(preserve=True)
+        except Exception:
+            pass
+
 
     # -------------------- Collect options --------------------
     def _collect(self) -> Dict:
@@ -344,9 +422,18 @@ class ChartOptionsDialogPro(QDialog):
             opts["elev"] = self.elev.value(); opts["azim"] = self.azim.value()
 
         # data options
-        opts["x"] = self.cbo_x.currentText()
-        opts["ys"] = [self.lst_y.item(i).text() for i in range(self.lst_y.count())
-                       if self.lst_y.item(i).checkState() == Qt.Checked]
+        x_label = self.cbo_x.currentText()
+        x_data = self.cbo_x.currentData()
+        opts["x"] = x_data if x_data is not None else x_label
+        ys = []
+        for i in range(self.lst_y.count()):
+            item = self.lst_y.item(i)
+            if item.checkState() == Qt.Checked:
+                val = item.data(Qt.UserRole)
+                if val is None:
+                    val = item.text()
+                ys.append(val)
+        opts["ys"] = ys
         opts["dropna"] = self.chk_dropna.isChecked()
         opts["sortx"] = self.chk_sortx.isChecked()
         opts["maxpts"] = self.spin_maxpts.value()
@@ -367,90 +454,132 @@ class ChartOptionsDialogPro(QDialog):
 
     # -------------------- Core draw --------------------
     def _plot_with_opts(self, ax, df: pd.DataFrame, o: Dict):
-        # เตรียมข้อมูล
-        xcol = None if o["x"] in ("<auto>", "") else o["x"]
+        xcol = None if o['x'] in ('<auto>', '') else o['x']
         if xcol is None:
             xcol = _guess_x_col(df)
         xs = df[xcol].to_numpy() if (xcol and xcol in df.columns) else np.arange(len(df))
-        ycols = o["ys"] or [c for c in _numeric_cols(df) if c != xcol][:1]
-        X = xs
-        # จัดการ NaN
-        used = [X] + [df[c].to_numpy() for c in ycols]
-        M = np.column_stack([np.asarray(a, float) for a in used])
-        if o["dropna"]:
-            M = M[~np.any(np.isnan(M), axis=1)]
-        if o["sortx"]:
-            M = M[np.argsort(M[:, 0])]
-        # downsample
-        idx = _down_idx(M.shape[0], o["maxpts"]); M = M[idx]
-        X = M[:, 0]; YS = [M[:, i + 1] for i in range(len(ycols))]
+        ycols = o['ys'] or [c for c in _numeric_cols(df) if c != xcol][:1]
+        kind = o['kind']
 
-        # วาดตาม kind
-        kind = o["kind"]
-        if kind == "line":
+        if kind != 'hist' and not ycols:
+            raise ValueError('Select at least one numeric Y column on the Data tab.')
+        if kind == '3d_scatter' and len(ycols) < 2:
+            raise ValueError('Select at least two Y columns for a 3D scatter plot.')
+
+        used = [xs] + [df[c].to_numpy() for c in ycols]
+        try:
+            arrays = [np.asarray(a, float) for a in used]
+        except ValueError as exc:
+            raise ValueError('Selected columns must contain numeric data.') from exc
+        if not arrays or arrays[0].size == 0:
+            raise ValueError('No data available for plotting.')
+        M = np.column_stack(arrays)
+
+        if o['dropna']:
+            M = M[~np.any(np.isnan(M), axis=1)]
+        if M.size == 0:
+            raise ValueError('No data left after removing NaN rows.')
+
+        if o['sortx']:
+            M = M[np.argsort(M[:, 0])]
+        idx = _down_idx(M.shape[0], o['maxpts'])
+        M = M[idx]
+        if M.size == 0:
+            raise ValueError('No data left to plot after downsampling.')
+
+        X = M[:, 0]
+        YS = [M[:, i + 1] for i in range(len(ycols))]
+        if YS:
+            valid = np.isfinite(X)
+            for arr in YS:
+                valid &= np.isfinite(arr)
+            if not np.any(valid):
+                raise ValueError('Selected columns do not contain finite numeric data.')
+            X = X[valid]
+            YS = [arr[valid] for arr in YS]
+        else:
+            if not np.isfinite(X).any():
+                raise ValueError('Selected column does not contain numeric data to plot.')
+
+        if kind in ('line', 'scatter', 'bar', 'area', 'box') and any(arr.size == 0 for arr in YS):
+            raise ValueError('Not enough data points to plot the selected series.')
+        if kind == '3d_scatter' and len(YS) < 2:
+            raise ValueError('Select at least two Y columns for a 3D scatter plot.')
+
+        if kind == 'line':
             for y, name in zip(YS, ycols):
-                ax.plot(X, y, label=str(name), linestyle=o["linestyle"], linewidth=o["linew"], alpha=o["alpha"])  # noqa: F841
-        elif kind == "scatter":
+                ax.plot(X, y, label=str(name), linestyle=o['linestyle'], linewidth=o['linew'], alpha=o['alpha'])
+        elif kind == 'scatter':
             for y, name in zip(YS, ycols):
-                ax.scatter(X, y, label=str(name), marker=o["marker"], s=o["markersize"] ** 2, alpha=o["alpha"])  # noqa: E501
-        elif kind == "bar":
-            k = len(YS); w = float(o["bar_width"]) if o["bar_width"] else 0.8
-            if o["bar_mode"] == "stacked":
+                ax.scatter(X, y, label=str(name), marker=o['marker'], s=o['markersize'] ** 2, alpha=o['alpha'])
+        elif kind == 'bar':
+            k = len(YS); w = float(o['bar_width']) if o['bar_width'] else 0.8
+            if k == 0:
+                raise ValueError('Select at least one Y column for a bar chart.')
+            if o['bar_mode'] == 'stacked':
                 base = np.zeros_like(YS[0]); xi = np.arange(len(X))
                 for y, name in zip(YS, ycols):
-                    if o["bar_orient"] == "vertical":
-                        ax.bar(xi, y, width=w, bottom=base, label=str(name), alpha=o["alpha"])  # noqa: E501
+                    if o['bar_orient'] == 'vertical':
+                        ax.bar(xi, y, width=w, bottom=base, label=str(name), alpha=o['alpha'])
                     else:
-                        ax.barh(xi, y, height=w, left=base, label=str(name), alpha=o["alpha"])  # noqa: E501
+                        ax.barh(xi, y, height=w, left=base, label=str(name), alpha=o['alpha'])
                     base = base + y
                 ax.set_xticks(xi)
-            else:  # grouped
+            else:
                 xi = np.arange(len(X))
                 step = w / max(k, 1)
                 for i, (y, name) in enumerate(zip(YS, ycols)):
                     shift = (i - (k - 1) / 2.0) * step
-                    if o["bar_orient"] == "vertical":
-                        ax.bar(xi + shift, y, width=step, label=str(name), alpha=o["alpha"])  # noqa: E501
+                    if o['bar_orient'] == 'vertical':
+                        ax.bar(xi + shift, y, width=step, label=str(name), alpha=o['alpha'])
                     else:
-                        ax.barh(xi + shift, y, height=step, label=str(name), alpha=o["alpha"])  # noqa: E501
+                        ax.barh(xi + shift, y, height=step, label=str(name), alpha=o['alpha'])
                 ax.set_xticks(xi)
-        elif kind == "area":
+        elif kind == 'area':
+            if not YS:
+                raise ValueError('Select at least one Y column for an area chart.')
             Y = np.vstack(YS)
-            if o["area_norm"]:
+            if o['area_norm']:
                 s = np.sum(Y, axis=0); s[s == 0] = 1.0; Y = Y / s
-            ax.stackplot(X, Y, labels=[str(n) for n in ycols], alpha=o["alpha"])
-        elif kind == "box":
-            ax.boxplot(YS, labels=[str(n) for n in ycols], notch=o.get("notch", False), showmeans=o.get("means", False))  # noqa: E501
-        elif kind == "pie":
-            vals = np.abs(YS[0]) if YS else np.ones(5)
-            labels = [f"{ycols[0]}[{i}]" for i in range(min(8, len(vals)))]
+            ax.stackplot(X, Y, labels=[str(n) for n in ycols], alpha=o['alpha'])
+        elif kind == 'box':
+            if not YS:
+                raise ValueError('Select at least one Y column for a box plot.')
+            ax.boxplot(YS, labels=[str(n) for n in ycols], notch=o.get('notch', False), showmeans=o.get('means', False))
+        elif kind == 'pie':
+            vals = np.abs(YS[0]) if YS else np.abs(np.asarray(X, float))
+            if vals.size == 0:
+                raise ValueError('Select a column with numeric data for a pie chart.')
+            labels = [f"{ycols[0]}[{i}]" for i in range(min(8, len(vals)))] if YS else [f"{i}" for i in range(min(8, len(vals)))]
             vals = vals[:len(labels)]
             explode = np.zeros_like(vals, dtype=float)
-            if o.get("explode") and len(vals) > 0:
+            if o.get('explode') and len(vals) > 0:
                 explode[np.argmax(vals)] = 0.08
-            autopct = "%1.0f%%" if o.get("autopct") else None
-            ax.pie(vals, labels=labels, startangle=o.get("startangle", 90), explode=explode, autopct=autopct)  # noqa: E501
+            autopct = '%1.0f%%' if o.get('autopct') else None
+            ax.pie(vals, labels=labels, startangle=o.get('startangle', 90), explode=explode, autopct=autopct)
             ax.axis('equal')
-        elif kind == "hist":
-            bins = o["bin_strategy"] if o["bin_strategy"] else o["bins"]
+        elif kind == 'hist':
+            bins = o['bin_strategy'] if o['bin_strategy'] else o['bins']
             data = YS[0] if YS else X
-            kwargs = dict(bins=bins, density=o["density"], cumulative=o["cumulative"], alpha=o["alpha"], orientation='vertical' if o["orient"] == 'vertical' else 'horizontal')  # noqa: E501
+            if data.size == 0:
+                raise ValueError('Select a column with numeric data for a histogram.')
+            kwargs = dict(bins=bins, density=o['density'], cumulative=o['cumulative'], alpha=o['alpha'], orientation='vertical' if o['orient'] == 'vertical' else 'horizontal')
             ax.hist(data, **kwargs)
-            if o["fitnorm"]:
+            if o['fitnorm'] and data.size > 0:
                 mu, sigma = np.nanmean(data), np.nanstd(data)
                 xs = np.linspace(np.nanmin(data), np.nanmax(data), 400)
                 if sigma == 0 or not np.isfinite(sigma):
                     sigma = 1.0
                 pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (xs - mu) ** 2 / (2 * sigma ** 2))
-                if o["density"]:
+                if o['density']:
                     ax.plot(xs, pdf)
                 else:
-                    # approximate bar width for scaling
                     rng = np.nanmax(data) - np.nanmin(data)
-                    bw = (rng / (o["bins"] if isinstance(bins, int) else 20)) if rng > 0 else 1
+                    bw = (rng / (o['bins'] if isinstance(bins, int) else 20)) if rng > 0 else 1
                     ax.plot(xs, pdf * max(len(data), 1) * bw)
-        elif kind == "3d_scatter":
-            # Ensure we have a 3D axis; if not, recreate
+        elif kind == '3d_scatter':
+            if len(YS) < 2:
+                raise ValueError('Select at least two Y columns for a 3D scatter plot.')
             try:
                 is_3d = getattr(ax, 'name', '') == '3d'
             except Exception:
@@ -462,10 +591,9 @@ class ChartOptionsDialogPro(QDialog):
                 except Exception:
                     pass
                 ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(X, YS[0] if YS else np.zeros_like(X), YS[1] if len(YS) > 1 else np.zeros_like(X),
-                       marker=o["marker"], s=o["markersize"] ** 2, alpha=o["alpha"])
-            ax.view_init(elev=o["elev"], azim=o["azim"])
-
+            ax.scatter(X, YS[0], YS[1] if len(YS) > 1 else np.zeros_like(X),
+                       marker=o['marker'], s=o['markersize'] ** 2, alpha=o['alpha'])
+            ax.view_init(elev=o['elev'], azim=o['azim'])
         # ---- axes / legend / labels ----
         if o["title"]:
             ax.set_title(o["title"])
@@ -520,7 +648,14 @@ class ChartOptionsDialogPro(QDialog):
             self._plot_with_opts(ax, self.get_df(), opts)
 
         try:
-            self.apply_to_main(drawer, prefer_3d=need3d)
-        except TypeError:
-            self.apply_to_main(drawer)
+            try:
+                self.apply_to_main(drawer, prefer_3d=need3d)
+            except TypeError:
+                self.apply_to_main(drawer)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Plot Error", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Plot Error", str(exc))
+            return
         self.close()

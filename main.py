@@ -185,8 +185,8 @@ class PlotCanvas(FigureCanvas):
         try:
             # Store current theme colors
             import matplotlib
-            current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e1e1e")
-            current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e1e1e")
+            current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e2126")
+            current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e2126")
             
             self.fig.clf()
             self.ax = self.fig.add_subplot(111)
@@ -211,8 +211,8 @@ class PlotCanvas(FigureCanvas):
                 
                 # Apply theme colors to new figure
                 import matplotlib
-                current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e1e1e")
-                current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e1e1e")
+                current_facecolor = matplotlib.rcParams.get("figure.facecolor", "#1e2126")
+                current_axes_facecolor = matplotlib.rcParams.get("axes.facecolor", "#1e2126")
                 self.fig.patch.set_facecolor(current_facecolor)
                 self.ax.set_facecolor(current_axes_facecolor)
                 
@@ -1246,6 +1246,57 @@ class MainWindow(QMainWindow):
             pass
         ax.figure.canvas.draw_idle()
 
+
+    def _resolve_active_dataframe(self) -> pd.DataFrame:
+        """Return the current DataFrame, falling back to staged datasets."""
+        df = getattr(self, '_df', None)
+        if isinstance(df, pd.DataFrame):
+            return df
+        df = getattr(self, 'current_df', None)
+        if isinstance(df, pd.DataFrame):
+            return df
+        datasets = getattr(self, '_datasets', {}) if hasattr(self, '_datasets') else {}
+        lst_widget = getattr(self, 'lstFiles', None)
+        current_item = None
+        if lst_widget is not None:
+            try:
+                current_item = lst_widget.currentItem()
+            except Exception:
+                current_item = None
+        if current_item is not None and isinstance(datasets, dict):
+            data = datasets.get(current_item.text())
+            df_candidate = data.get('df') if isinstance(data, dict) else None
+            if isinstance(df_candidate, pd.DataFrame):
+                if getattr(self, '_df', None) is None:
+                    try:
+                        self._df = df_candidate.copy()
+                    except Exception:
+                        self._df = df_candidate
+                try:
+                    if isinstance(data, dict) and data.get('path'):
+                        self._current_path = data.get('path')
+                except Exception:
+                    pass
+                return df_candidate
+        if isinstance(datasets, dict):
+            for data in datasets.values():
+                if not isinstance(data, dict):
+                    continue
+                df_candidate = data.get('df')
+                if isinstance(df_candidate, pd.DataFrame):
+                    if getattr(self, '_df', None) is None:
+                        try:
+                            self._df = df_candidate.copy()
+                        except Exception:
+                            self._df = df_candidate
+                    try:
+                        if data.get('path'):
+                            self._current_path = data.get('path')
+                    except Exception:
+                        pass
+                    return df_candidate
+        return pd.DataFrame()
+
     def refresh_xy_columns(self):
         """
         โหลดคอลัมน์จาก DataFrame ปัจจุบัน → เติมลง cbo_x/cbo_y
@@ -1478,7 +1529,7 @@ class MainWindow(QMainWindow):
         self.actDarkStyle.triggered.connect(lambda: self.change_plot_style("dark"))
         self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
-        dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
+        self.dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
         
         # Plot menu (top menubar) – overlay only
         plotMenu = m.addMenu("&Plot")
@@ -1500,7 +1551,7 @@ class MainWindow(QMainWindow):
                 self.actPlotEquation.setIcon(self._icon('Plot_from_Equation', QStyle.StandardPixmap.SP_DialogApplyButton))
             except Exception:
                 pass
-        dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
+        self.dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
         
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
@@ -1617,19 +1668,8 @@ class MainWindow(QMainWindow):
 
         def _get_df():
             try:
-                df = getattr(self, "_df", None) or getattr(self, "current_df", None)
-                if df is not None:
-                    return df
-                # Fallback: use currently selected staging item, if any
-                try:
-                    item = getattr(self, 'lstFiles', None).currentItem() if hasattr(self, 'lstFiles') else None
-                    if item is not None and hasattr(self, '_datasets'):
-                        data = self._datasets.get(item.text())
-                        if data and isinstance(data.get('df'), pd.DataFrame):
-                            return data['df']
-                except Exception:
-                    pass
-                return pd.DataFrame()
+                df = self._resolve_active_dataframe()
+                return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
             except Exception:
                 return pd.DataFrame()
 
@@ -1649,18 +1689,18 @@ class MainWindow(QMainWindow):
         def open_overlay(kind: str):
             try:
                 from dialogs_charts_adv import ChartOptionsDialogPro as _ChartOptionsDialogPro
-            except ModuleNotFoundError:
-                try:
-                    from dialogs.dialogs_charts_adv import ChartOptionsDialogPro as _ChartOptionsDialogPro
-                except ModuleNotFoundError as e:
-                    _QMessageBox.critical(
-                        self, "Module not found",
-                        "ไม่พบ 'dialogs_charts_adv.py'\n"
-                        "วางไฟล์ไว้โฟลเดอร์เดียวกับ main.py หรือในโฟลเดอร์ 'dialogs/' ที่มี __init__.py แล้วลองใหม่"
-                    )
-                    print("Import error:", e)
-                    print(_traceback.format_exc())
-                    return
+            except ModuleNotFoundError as e:
+                _QMessageBox.critical(
+                    self,
+                    "Module not found",
+                    (
+                        "Unable to import 'dialogs_charts_adv.py'.\n"
+                        "Make sure the file lives next to main.py or add its folder to PYTHONPATH."
+                    ),
+                )
+                print("Import error:", e)
+                print(_traceback.format_exc())
+                return
             dlg = _ChartOptionsDialogPro(kind=kind, get_df=_get_df, apply_to_main=_apply_to_main, parent=self)
             dlg.exec()
 
@@ -1815,9 +1855,12 @@ class MainWindow(QMainWindow):
         self.actSettings.setShortcut("Ctrl+,")
         
         # UI-DERIVED: เพิ่มคีย์ลัดสำหรับ Create Derived Column
-        derived_action = dataMenu.addAction("สร้างคอลัมน์ใหม่…")
-        derived_action.setShortcut("Ctrl+D")
-        derived_action.triggered.connect(self.open_derived_column_dialog)
+        data_menu = getattr(self, "dataMenu", None)
+        if data_menu and not hasattr(self, "_actDataDerived"):
+            self._actDataDerived = data_menu.addAction("สร้างคอลัมน์ใหม่…")
+            self._actDataDerived.setShortcut("Ctrl+D")
+            self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
+
         
         # Load saved plot style preference
         self._load_plot_style_config()
@@ -2280,21 +2323,65 @@ class MainWindow(QMainWindow):
 
     def _on_pk_annotate(self, on: bool):
         try:
-            if not on: self.peaks.clear(); return
-            if self.pkDock.table.rowCount() == 0: return
-            # reconstruct results from table
-            xs = []; ys = []; idx = []
-            for r in range(self.pkDock.table.rowCount()):
-                xs.append(float(self.pkDock.table.item(r,0).text()))
-                ys.append(float(self.pkDock.table.item(r,1).text()))
-                idx.append(int(self.pkDock.table.item(r,2).text()))
-            res = {'x_peak': xs, 'y_peak': ys, 'index': idx}
+            if not on:
+                self.peaks.clear()
+                return
+            table = self.pkDock.table
+            rows = table.rowCount()
+            if rows == 0:
+                return
+            header_map = {}
+            for c in range(table.columnCount()):
+                item = table.horizontalHeaderItem(c)
+                if item is None:
+                    continue
+                header_map[item.text().strip().lower()] = c
+            col_x = header_map.get('x_peak', 0)
+            col_y = header_map.get('y_peak', 1)
+            col_idx = header_map.get('index', 2)
+            col_kind = header_map.get('type', header_map.get('kind'))
+            xs = []
+            ys = []
+            idx_vals = []
+            kinds = []
+            for r in range(rows):
+                item_x = table.item(r, col_x)
+                item_y = table.item(r, col_y)
+                item_idx = table.item(r, col_idx)
+                if not item_x or not item_y or not item_idx:
+                    continue
+                try:
+                    x_val = float(item_x.text())
+                    y_val = float(item_y.text())
+                    idx_val = int(float(item_idx.text()))
+                except Exception:
+                    continue
+                xs.append(x_val)
+                ys.append(y_val)
+                idx_vals.append(idx_val)
+                if col_kind is not None:
+                    item_kind = table.item(r, col_kind)
+                    txt = item_kind.text().strip().lower() if item_kind else ''
+                    if 'trough' in txt:
+                        kinds.append('trough')
+                    elif 'peak' in txt:
+                        kinds.append('peak')
+                    else:
+                        kinds.append(txt or 'peak')
+            if not xs:
+                return
+            res = {'x_peak': xs, 'y_peak': ys, 'index': idx_vals}
+            if col_kind is not None and len(kinds) == len(xs):
+                res['kind'] = kinds
             df = getattr(self, '_df', None)
+            if df is None or df.empty:
+                self.peaks.annotate(np.asarray(xs, float), np.asarray(ys, float), res)
+                return
             xcol = self.pkDock.cbX.currentText()
             ycol = self.pkDock.cbY.currentText()
-            x = df[xcol].to_numpy() if xcol in df.columns else np.arange(len(df))
-            y = df[ycol].to_numpy()
-            self.peaks.annotate(x, y, res)
+            x_data = df[xcol].to_numpy() if xcol in df.columns else np.arange(len(df))
+            y_data = df[ycol].to_numpy() if ycol in df.columns else np.asarray(ys, float)
+            self.peaks.annotate(x_data, y_data, res)
         except Exception as e:
             logging.getLogger(__name__).warning(f"Annotate failed: {e}")
 
@@ -2306,20 +2393,47 @@ class MainWindow(QMainWindow):
         try:
             from PySide6.QtWidgets import QFileDialog
             fn, _ = QFileDialog.getSaveFileName(self, "Export Peaks", "peaks.csv", "CSV (*.csv);;Excel (*.xlsx)")
-            if not fn: return
-            # collect table
-            xs = []; ys = []; idx = []
-            for r in range(self.pkDock.table.rowCount()):
-                xs.append(self.pkDock.table.item(r,0).text())
-                ys.append(self.pkDock.table.item(r,1).text())
-                idx.append(self.pkDock.table.item(r,2).text())
+            if not fn:
+                return
+            table = self.pkDock.table
+            header_map = {}
+            for c in range(table.columnCount()):
+                item = table.horizontalHeaderItem(c)
+                if item is None:
+                    continue
+                header_map[item.text().strip().lower()] = c
+            col_x = header_map.get('x_peak')
+            col_y = header_map.get('y_peak')
+            col_idx = header_map.get('index')
+            col_kind = header_map.get('type', header_map.get('kind'))
+            if col_x is None or col_y is None or col_idx is None:
+                QMessageBox.warning(self, "Export", "Peak table is missing required columns.")
+                return
+            def _cell_text(row, col):
+                item = table.item(row, col)
+                return item.text() if item else ''
+            xs = [_cell_text(r, col_x) for r in range(table.rowCount())]
+            ys = [_cell_text(r, col_y) for r in range(table.rowCount())]
+            idx_vals = [_cell_text(r, col_idx) for r in range(table.rowCount())]
+            kinds = [_cell_text(r, col_kind) for r in range(table.rowCount())] if col_kind is not None else []
+            data = {'x_peak': xs, 'y_peak': ys, 'index': idx_vals}
+            if col_kind is not None:
+                data['type'] = kinds
             if pd is not None and fn.lower().endswith('.xlsx'):
-                df = pd.DataFrame({'x_peak': xs, 'y_peak': ys, 'index': idx})
-                df.to_excel(fn, index=False)
+                pd.DataFrame(data).to_excel(fn, index=False)
             else:
                 import csv
+                headers = ['x_peak', 'y_peak', 'index']
+                if col_kind is not None:
+                    headers.append('type')
                 with open(fn, 'w', newline='', encoding='utf-8') as f:
-                    w = csv.writer(f); w.writerow(['x_peak','y_peak','index']); w.writerows(zip(xs,ys,idx))
+                    writer = csv.writer(f)
+                    writer.writerow(headers)
+                    for row_idx in range(len(xs)):
+                        row = [xs[row_idx], ys[row_idx], idx_vals[row_idx]]
+                        if col_kind is not None:
+                            row.append(kinds[row_idx])
+                        writer.writerow(row)
             QMessageBox.information(self, "Export", f"Saved: {fn}")
         except Exception as e:
             logging.getLogger(__name__).warning(f"Export failed: {e}")
@@ -2519,14 +2633,14 @@ class MainWindow(QMainWindow):
                     logger.info("Dark style file loaded successfully")
                 else:
                     # Apply fallback dark theme using rcParams
-                    matplotlib.rcParams["figure.facecolor"] = "#1e1e1e"
-                    matplotlib.rcParams["axes.facecolor"] = "#1e1e1e"
-                    matplotlib.rcParams["axes.edgecolor"] = "#404040"
-                    matplotlib.rcParams["axes.labelcolor"] = "#ffffff"
-                    matplotlib.rcParams["xtick.color"] = "#ffffff"
-                    matplotlib.rcParams["ytick.color"] = "#ffffff"
-                    matplotlib.rcParams["text.color"] = "#ffffff"
-                    matplotlib.rcParams["grid.color"] = "#404040"
+                    matplotlib.rcParams["figure.facecolor"] = "#1e2126"
+                    matplotlib.rcParams["axes.facecolor"] = "#1e2126"
+                    matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
+                    matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
+                    matplotlib.rcParams["xtick.color"] = "#cfd3d6"
+                    matplotlib.rcParams["ytick.color"] = "#cfd3d6"
+                    matplotlib.rcParams["text.color"] = "#e6e6e6"
+                    matplotlib.rcParams["grid.color"] = "#3a3f44"
                     matplotlib.rcParams["grid.alpha"] = 0.3
                     logger.info("Fallback dark theme applied")
                 
