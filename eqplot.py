@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -81,8 +81,8 @@ def plot_equations_on_axes(
     params_str: str,
     y_scale: str = "linear",
     overlay: bool = True,
-) -> None:
-    """Plot multiple equations y = f(x) on the given axes."""
+) -> List[Dict[str, Any]]:
+    """Plot multiple equations y = f(x) and return layer metadata."""
     if x_max <= x_min:
         raise ValueError("x_max must be greater than x_min")
 
@@ -100,19 +100,37 @@ def plot_equations_on_axes(
 
     ax.set_yscale("log" if y_scale == "log" else "linear")
 
+    layer_infos: List[Dict[str, Any]] = []
     for expr in expressions:
         try:
             mode, x_vals, y_vals = _evaluate_expression(expr, x, user_params, aliases)
-            if mode == "plot":
-                ax.plot(x_vals, y_vals, label=expr)
-            elif mode == "param":
-                ax.plot(x_vals, y_vals, label=expr)
+            artists: List[Any] = []
+            if mode in {"plot", "param"}:
+                artists = list(ax.plot(x_vals, y_vals, label=expr))
             elif mode == "vline":
-                ax.axvline(x_vals[0], label=expr)
+                artists = [ax.axvline(x_vals[0], label=expr)]
             else:
                 raise ValueError(f"Unknown plotting mode '{mode}' for expression '{expr}'")
+
+            style_kwargs: Dict[str, Any] = {}
+            if artists:
+                try:
+                    color = artists[0].get_color()
+                    style_kwargs['color'] = color
+                except Exception:
+                    pass
+
+            layer_infos.append({
+                'label': expr,
+                'artists': artists,
+                'style': 'line',
+                'style_kwargs': style_kwargs,
+            })
         except Exception as exc:
             raise ValueError(_expression_error_message(expr, exc)) from exc
 
-    ax.legend(loc="best")
+    if any(info.get('artists') for info in layer_infos):
+        ax.legend(loc="best")
+
     ax.figure.canvas.draw_idle()
+    return layer_infos

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 from matplotlib.lines import Line2D
@@ -64,8 +64,8 @@ def plot_surfaces_on_axes(
     params_str: str,
     wireframe: bool = False,
     overlay: bool = True,
-) -> None:
-    """Plot one or more surfaces z = f(x, y) on a Matplotlib 3D axes."""
+) -> List[Dict[str, Any]]:
+    """Plot one or more surfaces z = f(x, y) and return layer metadata."""
     if x_max <= x_min:
         raise ValueError("x_max must be greater than x_min")
     if y_max <= y_min:
@@ -86,7 +86,8 @@ def plot_surfaces_on_axes(
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
 
-    handles: List[Line2D] = []
+    layer_infos: List[Dict[str, Any]] = []
+    legend_handles: List[Line2D] = []
     for expr in expressions:
         try:
             rhs = _normalize_surface_expression(expr)
@@ -124,12 +125,19 @@ def plot_surfaces_on_axes(
                     color=color,
                     antialiased=False,
                 )
-
-            handles.append(Line2D([0], [0], color=color, label=expr))
+            legend_handles.append(Line2D([0], [0], color=color, label=expr))
+            layer_infos.append({
+                'label': expr,
+                'artists': [artist] if artist is not None else [],
+                'style': 'wireframe' if wireframe else 'surface',
+                'style_kwargs': {'color': color, 'wireframe': wireframe},
+            })
         except Exception as exc:
             raise ValueError(_surface_error_message(expr, exc)) from exc
 
-    if handles:
-        ax.legend(handles=handles, loc="best")
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="best")
 
     ax.figure.canvas.draw_idle()
+    return layer_infos
+

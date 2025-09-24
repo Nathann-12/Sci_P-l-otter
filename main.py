@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # main.py
 import os, sys
 import numpy as np
@@ -6,6 +6,7 @@ import pandas as pd
 import logging
 import locale
 import json
+import itertools
 
 # Set up logging (will be overridden by setup_logging() in main())
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +34,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QSize, QSettings
+from PySide6.QtCore import Qt, QSize, QSettings, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
     QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QIcon
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from toolbar import PlotNavigationToolbar
@@ -113,6 +115,8 @@ from crosscorr import CrossCorrManager, CrossCorrDock
 from peaks import PeakDetectorManager, PeakDetectionDock
 from three_d_view import ThreeDViewDock
 from context_menu import ContextMenuManager
+from widgets.layer_manager import LayerManagerWidget
+from core import session as session_store
 # [Equation Plotter]
 from dialogs_equation import EquationPlotDialog
 from eqplot import plot_equations_on_axes
@@ -255,6 +259,14 @@ class GraphTab(QWidget):
 
         # Annotation manager per tab
         self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
+        self.layer_manager = LayerManagerWidget(self)
+        self.layer_manager.layerVisibilityChanged.connect(self._on_layer_visibility_changed)
+        self.layer_manager.layerRenameRequested.connect(self._on_layer_rename)
+        self.layer_manager.layerRemoveRequested.connect(self._on_layer_remove)
+        self.layer_manager.layerStyleRequested.connect(self._on_layer_style_request)
+        self.layers: Dict[str, Dict[str, Any]] = {}
+        self._layer_id_seq = itertools.count(1)
+
         # Rich context menu manager
         try:
             # find MainWindow to pass managers into context menu
@@ -275,6 +287,7 @@ class GraphTab(QWidget):
     def clear(self):
         """Clear the canvas"""
         self.canvas.clear()
+        self.clear_layers()
         
     def get_axes(self):
         """Get the matplotlib axes"""
@@ -301,10 +314,253 @@ class GraphTab(QWidget):
                 traceback.print_exc()
 
 
+
+    def clear_layers(self) -> None:
+        for info in self.layers.values():
+            for artist in info.get('artists', []):
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+        self.layers.clear()
+        self.layer_manager.clear_layers()
+
+    def register_layer(self, artists, label: str, style: str, meta: Optional[Dict[str, Any]] = None, kwargs: Optional[Dict[str, Any]] = None):
+        if not artists:
+            return None
+        if not isinstance(artists, (list, tuple)):
+            artists = [artists]
+        layer_id = f"{self.tab_id}_L{next(self._layer_id_seq)}"
+        visible = True
+        for artist in artists:
+            try:
+                if not artist.get_visible():
+                    visible = False
+                    break
+            except Exception:
+                continue
+        info = {
+            'artists': list(artists),
+            'label': label,
+            'style': style,
+            'meta': dict(meta or {}),
+            'kwargs': dict(kwargs or {}),
+            'visible': visible,
+        }
+        self.layers[layer_id] = info
+        self.layer_manager.add_layer(layer_id, label, style, visible=visible)
+        return layer_id
+
+    def serialize_layers(self) -> List[Dict[str, Any]]:
+        data = []
+        for layer_id, info in self.layers.items():
+            entry = {
+                'id': layer_id,
+                'label': info.get('label', ''),
+                'style': info.get('style', 'line'),
+                'visible': info.get('visible', True),
+                'meta': info.get('meta', {}),
+                'kwargs': info.get('kwargs', {}),
+                'data': {},
+            }
+            artists = info.get('artists', [])
+            if artists:
+                artist = artists[0]
+                try:
+                    xdata = artist.get_xdata()
+                    ydata = artist.get_ydata()
+                    entry['data'] = {
+                        'x': self._to_serializable_array(xdata),
+                        'y': self._to_serializable_array(ydata),
+                    }
+                except Exception:
+                    try:
+                        offsets = artist.get_offsets()
+                        entry['data'] = {
+                            'x': self._to_serializable_array([pt[0] for pt in offsets]),
+                            'y': self._to_serializable_array([pt[1] for pt in offsets]),
+                        }
+                    except Exception:
+                        entry['data'] = {}
+            data.append(entry)
+        return data
+
+    def restore_layers(self, layers: List[Dict[str, Any]], main_window) -> None:
+        try:
+            parent_manager = self.parent()
+        except Exception:
+            parent_manager = None
+        if not parent_manager or not hasattr(parent_manager, 'add_series_to_tabs'):
+            return
+        self.clear()
+        self.clear_layers()
+        for layer in layers:
+            label = layer.get('label', '')
+            style = layer.get('style', 'line')
+            kwargs = dict(layer.get('kwargs', {}))
+            meta = dict(layer.get('meta', {}))
+            data = layer.get('data', {}) or {}
+            x = data.get('x')
+            y = data.get('y')
+            if (not x or not y) and main_window is not None:
+                df = main_window.get_dataframe_for_layer(meta)
+                if df is not None:
+                    x_col = meta.get('x_column')
+                    y_col = meta.get('y_column')
+                    if x_col in df.columns and y_col in df.columns:
+                        x = df[x_col].tolist()
+                        y = df[y_col].tolist()
+            if x is None or y is None:
+                continue
+            created = parent_manager.add_series_to_tabs([self.tab_id], x, y, label=label, style=style, meta=meta, **kwargs)
+            if not layer.get('visible', True) and created:
+                for tab_id, new_id in created:
+                    if tab_id == self.tab_id and new_id:
+                        self.layer_manager.update_layer_visibility(new_id, False)
+                        self._set_layer_visibility(new_id, False, refresh=False)
+        self.canvas.draw_idle()
+
+    @staticmethod
+    def _to_serializable_array(data):
+        try:
+            import numpy as _np
+            arr = _np.asarray(data)
+            return arr.astype(float).tolist()
+        except Exception:
+            try:
+                return [float(v) for v in data]
+            except Exception:
+                try:
+                    return list(data)
+                except Exception:
+                    return []
+
+    def _set_layer_visibility(self, layer_id: str, visible: bool, refresh: bool = True) -> None:
+        info = self.layers.get(layer_id)
+        if not info:
+            return
+        for artist in info.get('artists', []):
+            try:
+                artist.set_visible(visible)
+            except Exception:
+                pass
+        info['visible'] = visible
+        if refresh:
+            self._refresh_legend()
+            try:
+                self.canvas.draw_idle()
+            except Exception:
+                pass
+
+    def _refresh_legend(self) -> None:
+        ax = self.get_axes()
+        try:
+            legend = ax.get_legend()
+            if legend:
+                legend.remove()
+        except Exception:
+            pass
+        try:
+            handles, labels = ax.get_legend_handles_labels()
+            pairs = [
+                (h, lbl) for h, lbl in zip(handles, labels)
+                if lbl and not str(lbl).startswith('_') and getattr(h, 'get_visible', lambda: True)()
+            ]
+            if pairs:
+                h, l = zip(*pairs)
+                ax.legend(h, l, loc='best')
+        except Exception:
+            pass
+
+    def _on_layer_visibility_changed(self, layer_id: str, visible: bool) -> None:
+        self._set_layer_visibility(layer_id, visible)
+
+    def _on_layer_rename(self, layer_id: str, new_label: str) -> None:
+        info = self.layers.get(layer_id)
+        if not info:
+            return
+        info['label'] = new_label
+        info.setdefault('meta', {})
+        info['meta']['label'] = new_label
+        for artist in info.get('artists', []):
+            try:
+                artist.set_label(new_label)
+            except Exception:
+                pass
+        self.layer_manager.update_layer_label(layer_id, new_label)
+        self._refresh_legend()
+        try:
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
+    def _on_layer_remove(self, layer_id: str) -> None:
+        info = self.layers.pop(layer_id, None)
+        if not info:
+            return
+        for artist in info.get('artists', []):
+            try:
+                artist.remove()
+            except Exception:
+                pass
+        self.layer_manager.remove_layer(layer_id)
+        self._refresh_legend()
+        try:
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
+    def _on_layer_style_request(self, layer_id: str) -> None:
+        info = self.layers.get(layer_id)
+        if not info:
+            return
+        if info.get('style') != 'line':
+            return
+        artists = [a for a in info.get('artists', []) if hasattr(a, 'set_color')]
+        if not artists:
+            return
+        info.setdefault('kwargs', {})
+        info.setdefault('meta', {})
+        style_meta = dict(info['meta'].get('style_kwargs', {}))
+        color = self.layer_manager.prompt_color()
+        if color and getattr(color, 'isValid', lambda: False)():
+            color_name = color.name()
+            for artist in artists:
+                try:
+                    artist.set_color(color_name)
+                except Exception:
+                    pass
+            info['kwargs']['color'] = color_name
+            style_meta['color'] = color_name
+        try:
+            from PySide6.QtWidgets import QInputDialog
+            current_width = artists[0].get_linewidth() if artists else 1.0
+            width, ok = QInputDialog.getDouble(self, "Line Width", "Width:", float(current_width), 0.1, 50.0, 2)
+            if ok:
+                for artist in artists:
+                    try:
+                        artist.set_linewidth(width)
+                    except Exception:
+                        pass
+                info['kwargs']['linewidth'] = float(width)
+                style_meta['linewidth'] = float(width)
+        except Exception:
+            pass
+        if style_meta:
+            info['meta']['style_kwargs'] = style_meta
+        self._refresh_legend()
+        try:
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
 class TabManager(QTabWidget):
     """
     Manages multiple graph tabs with browser-like functionality.
     """
+    tabCreated = Signal(str)
+    tabRemoved = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.tab_counter = 0
@@ -352,8 +608,33 @@ class TabManager(QTabWidget):
         
         # Store reference
         self.tabs[tab_id] = graph_tab
+        try:
+            self.tabCreated.emit(tab_id)
+        except Exception:
+            pass
         
         return tab_id
+
+    def remove_all_tabs(self):
+        while self.count():
+            widget = self.widget(0)
+            tab_identifier = None
+            for tid, tab in list(self.tabs.items()):
+                if tab == widget:
+                    tab_identifier = tid
+                    break
+            self.removeTab(0)
+            if tab_identifier:
+                self.tabs.pop(tab_identifier, None)
+                try:
+                    self.tabRemoved.emit(tab_identifier)
+                except Exception:
+                    pass
+            if widget is not None:
+                try:
+                    widget.deleteLater()
+                except Exception:
+                    pass
         
     def _on_tab_close_requested(self, index):
         """Handle tab close request"""
@@ -373,7 +654,11 @@ class TabManager(QTabWidget):
                 
         if tab_id:
             del self.tabs[tab_id]
-            
+            try:
+                self.tabRemoved.emit(tab_id)
+            except Exception:
+                pass
+
         self.removeTab(index)
         
     def _on_tab_double_clicked(self, index):
@@ -433,203 +718,130 @@ class TabManager(QTabWidget):
                     break
         return result
         
-    def plot_to_tabs(self, tab_ids, x, y, label="", style="line", **kwargs):
+    def plot_to_tabs(self, tab_ids, x, y, label="", style="line", meta: Optional[Dict[str, Any]] = None, **kwargs):
         """
-        Plot data to specified tabs.
-        
-        Args:
-            tab_ids: List of tab IDs to plot to
-            x: X data
-            y: Y data  
-            label: Plot label
-            style: Plot style ('line', 'scatter', etc.)
-            **kwargs: Additional plot parameters
+        Plot data to specified tabs. If the main window is in overlay mode, defer
+        to add_series_to_tabs so existing layers are preserved.
         """
-        print(f"Debug: plot_to_tabs called with {len(tab_ids)} tabs, style={style}, data length: x={len(x)}, y={len(y)}")
-        
-        for tab_id in tab_ids:
-            if tab_id in self.tabs:
-                tab = self.tabs[tab_id]
-                ax = tab.get_axes()
-                
-                print(f"Debug: Plotting to tab {tab_id}, axes: {ax}")
-                
-                try:
-                    # Respect MainWindow.plot_mode: do not clear in OVERLAY
-                    mw = self.parent() if hasattr(self, 'parent') else None
-                    try:
-                        mode = getattr(mw, 'plot_mode', None)
-                    except Exception:
-                        mode = None
-                    if mode is None or str(mode).endswith('REPLACE'):
-                        ax.clear()
-                        print(f"Debug: Cleared existing plots for tab {tab_id}")
-                    
-                    if style == "line":
-                        line = ax.plot(x, y, label=label, **kwargs)
-                        print(f"Debug: Line plot created: {line}")
-                    elif style == "scatter":
-                        scatter = ax.scatter(x, y, label=label, **kwargs)
-                        print(f"Debug: Scatter plot created: {scatter}")
-                    elif style == "bar":
-                        bars = ax.bar(range(len(x)), y, label=label, **kwargs)
-                        print(f"Debug: Bar plot created: {bars}")
-                        # Set x-axis labels for bar plots
-                        ax.set_xticks(range(len(x)))
-                        try:
-                            ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
-                        except Exception:
-                            pass
-                    elif style == "histogram":
-                        hist = ax.hist(y, label=label, **kwargs)
-                        print(f"Debug: Histogram created: {hist}")
-                    else:
-                        # Default to line plot
-                        line = ax.plot(x, y, label=label, **kwargs)
-                        print(f"Debug: Default line plot created: {line}")
-                    
-                    # Force update the plot
-                    ax.relim()
-                    ax.autoscale_view()
-                    print(f"Debug: Applied relim() and autoscale_view() for tab {tab_id}")
-                    
-                    # Set basic formatting
-                    ax.grid(True, alpha=0.3)
-                    if label:
-                        ax.legend()
-                    print(f"Debug: Applied grid and legend for tab {tab_id}")
-                    
-                    # Force figure update
-                    tab.canvas.fig.tight_layout()
-                    print(f"Debug: Applied tight_layout for tab {tab_id}")
-                    
-                    # Draw the canvas with multiple methods
-                    try:
-                        tab.draw()
-                        print(f"Debug: Tab draw() called successfully")
-                    except Exception as e:
-                        print(f"Debug: Tab draw() failed: {e}")
-                        try:
-                            tab.canvas.draw()
-                            print(f"Debug: Canvas draw() called successfully")
-                        except Exception as e2:
-                            print(f"Debug: Canvas draw() failed: {e2}")
-                            try:
-                                tab.canvas.fig.canvas.draw()
-                                print(f"Debug: Figure canvas draw() called successfully")
-                            except Exception as e3:
-                                print(f"Debug: Figure canvas draw() failed: {e3}")
-                                try:
-                                    tab.canvas.fig.canvas.draw_idle()
-                                    print(f"Debug: Figure canvas draw_idle() called successfully")
-                                except Exception as e4:
-                                    print(f"Debug: All draw methods failed: {e4}")
-                    
-                    # Force refresh with multiple methods
-                    try:
-                        tab.canvas.flush_events()
-                        print(f"Debug: Canvas flush_events() called")
-                    except Exception:
-                        pass
-                    
-                    try:
-                        tab.canvas.fig.canvas.flush_events()
-                        print(f"Debug: Figure canvas flush_events() called")
-                    except Exception:
-                        pass
-                    
-                    # Force Qt update
-                    try:
-                        tab.canvas.update()
-                        print(f"Debug: Canvas update() called")
-                    except Exception:
-                        pass
-                    
-                    # Force repaint
-                    try:
-                        tab.canvas.repaint()
-                        print(f"Debug: Canvas repaint() called")
-                    except Exception:
-                        pass
-                        
-                except Exception as e:
-                    print(f"Debug: Error plotting to tab {tab_id}: {e}")
-                    import traceback
-                    traceback.print_exc()
-            else:
-                print(f"Warning: Tab ID {tab_id} not found in tabs dictionary")
-
-    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", **kwargs):
-        """Overlay a new series onto existing plots without clearing.
-
-        Args:
-            tab_ids: List of tab IDs to add the series to.
-            x, y: Data arrays.
-            label: Optional label. If not provided, auto-numbers the series.
-            style: 'line' | 'scatter' | 'bar' | 'histogram'.
-            **kwargs: Matplotlib plot keyword args.
-        """
-        print(f"Debug: add_series_to_tabs called with {len(tab_ids)} tabs, style={style}, x={len(x)}, y={len(y)}")
+        created = []
         for tab_id in tab_ids:
             if tab_id not in self.tabs:
                 continue
             tab = self.tabs[tab_id]
             ax = tab.get_axes()
+            try:
+                mw = self.parent() if hasattr(self, 'parent') else None
+                mode = getattr(mw, 'plot_mode', None)
+            except Exception:
+                mode = None
+            overlay_mode = mode is not None and not str(mode).endswith('REPLACE')
+            if overlay_mode:
+                created.extend(self.add_series_to_tabs([tab_id], x, y, label=label, style=style, meta=meta, **kwargs))
+                continue
+            tab.clear_layers()
+            ax.clear()
+            local_kwargs = dict(kwargs)
+            artists = []
+            if style == "line":
+                artists = list(ax.plot(x, y, label=label, **local_kwargs))
+            elif style == "scatter":
+                artists = [ax.scatter(x, y, label=label, **local_kwargs)]
+            elif style == "bar":
+                container = ax.bar(range(len(x)), y, label=label, **local_kwargs)
+                artists = list(container)
+                ax.set_xticks(range(len(x)))
+                try:
+                    ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                except Exception:
+                    pass
+            elif style == "histogram":
+                hist = ax.hist(y, label=label, **local_kwargs)
+                artists = list(hist[2]) if len(hist) >= 3 else []
+            else:
+                artists = list(ax.plot(x, y, label=label, **local_kwargs))
+            ax.relim(); ax.autoscale_view()
+            ax.grid(True, alpha=0.3)
+            if label:
+                try:
+                    ax.legend(loc="best")
+                except Exception:
+                    pass
+            try:
+                tab.canvas.fig.tight_layout()
+            except Exception:
+                pass
+            try:
+                tab.draw()
+            except Exception:
+                try:
+                    tab.canvas.draw()
+                except Exception:
+                    try:
+                        tab.canvas.fig.canvas.draw_idle()
+                    except Exception:
+                        pass
+            layer_meta = dict(meta or {})
+            layer_meta.setdefault('style', style)
+            if label:
+                layer_meta.setdefault('label', label)
+            layer_id = tab.register_layer(artists, label or "", style, meta=layer_meta, kwargs=local_kwargs)
+            if layer_id:
+                created.append((tab_id, layer_id))
+                if hasattr(tab, '_refresh_legend'):
+                    tab._refresh_legend()
+        return created
 
-            # Auto-label if none provided
+    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
+        """Overlay a new series onto existing plots without clearing."""
+        created = []
+        base_kwargs = dict(kwargs)
+        for tab_id in tab_ids:
+            if tab_id not in self.tabs:
+                continue
+            tab = self.tabs[tab_id]
+            ax = tab.get_axes()
             auto_label = label
             if not auto_label:
                 try:
                     auto_label = f"Series {len([l for l in ax.get_lines() if not l.get_label().startswith('_')]) + 1}"
                 except Exception:
                     auto_label = "Series"
-
+            local_kwargs = dict(base_kwargs)
+            artists = []
             try:
                 if style == "line":
-                    ln = ax.plot(x, y, label=auto_label, **kwargs)
-                    print(f"Debug: add_series line plot: {ln}")
+                    artists = list(ax.plot(x, y, label=auto_label, **local_kwargs))
                 elif style == "scatter":
-                    sc = ax.scatter(x, y, label=auto_label, **kwargs)
-                    print(f"Debug: add_series scatter: {sc}")
+                    artists = [ax.scatter(x, y, label=auto_label, **local_kwargs)]
                 elif style == "bar":
-                    bars = ax.bar(range(len(x)), y, label=auto_label, **kwargs)
+                    container = ax.bar(range(len(x)), y, label=auto_label, **local_kwargs)
+                    artists = list(container)
                     ax.set_xticks(range(len(x)))
                     try:
                         ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
                     except Exception:
                         pass
-                    print(f"Debug: add_series bar: {bars}")
                 elif style == "histogram":
-                    hist = ax.hist(y, label=auto_label, **kwargs)
-                    print(f"Debug: add_series histogram: {hist}")
+                    hist = ax.hist(y, label=auto_label, **local_kwargs)
+                    artists = list(hist[2]) if len(hist) >= 3 else []
                 else:
-                    ln = ax.plot(x, y, label=auto_label, **kwargs)
-                    print(f"Debug: add_series default line: {ln}")
-
-                # Rescale to include new series
+                    artists = list(ax.plot(x, y, label=auto_label, **local_kwargs))
                 ax.relim(); ax.autoscale_view()
-
-                # Legend when there is at least one labeled handle
                 try:
                     handles, labels = ax.get_legend_handles_labels()
-                    if any(lbl and not lbl.startswith("_") for lbl in labels):
+                    if any(lbl and not lbl.startswith('_') for lbl in labels):
                         ax.legend(loc="best")
                 except Exception:
                     pass
-
-                # Light beautification only; avoid changing core logic
                 try:
                     from processors import beautify_axes
                     beautify_axes(ax)
                 except Exception:
                     pass
-
-                # Layout and draw
                 try:
                     tab.canvas.fig.tight_layout()
                 except Exception:
                     pass
-
                 try:
                     tab.draw()
                 except Exception:
@@ -640,15 +852,24 @@ class TabManager(QTabWidget):
                             tab.canvas.fig.canvas.draw_idle()
                         except Exception:
                             pass
+                layer_meta = dict(meta or {})
+                layer_meta.setdefault('style', style)
+                layer_meta.setdefault('label', auto_label)
+                layer_id = tab.register_layer(artists, auto_label, style, meta=layer_meta, kwargs=local_kwargs)
+                if layer_id:
+                    created.append((tab_id, layer_id))
+                    if hasattr(tab, '_refresh_legend'):
+                        tab._refresh_legend()
             except Exception as e:
                 print(f"Debug: add_series_to_tabs error on {tab_id}: {e}")
+        return created
 
-    def add_series_to_current_tab(self, x, y, label: str = "", style: str = "line", **kwargs):
+    def add_series_to_current_tab(self, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
         """Convenience wrapper to add a series to the currently active tab without clearing."""
         current_tab_id = self.get_current_tab_id()
         if not current_tab_id:
-            return
-        self.add_series_to_tabs([current_tab_id], x, y, label=label, style=style, **kwargs)
+            return []
+        return self.add_series_to_tabs([current_tab_id], x, y, label=label, style=style, meta=meta, **kwargs)
 
 
 class CompactPlotPanel(QWidget):
@@ -886,6 +1107,14 @@ class MainWindow(QMainWindow):
                 self.tabs.currentChanged.connect(lambda _: hasattr(self, '_update_canvas_reference') and self._update_canvas_reference())
             except Exception:
                 pass
+        try:
+            self.tabs.currentChanged.connect(lambda _: self._mount_layer_manager())
+            if hasattr(self.tabs, 'tabCreated'):
+                self.tabs.tabCreated.connect(lambda _: self._mount_layer_manager())
+            if hasattr(self.tabs, 'tabRemoved'):
+                self.tabs.tabRemoved.connect(lambda _: self._mount_layer_manager())
+        except Exception:
+            pass
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _build_left_panel(self):
@@ -968,6 +1197,14 @@ class MainWindow(QMainWindow):
         self.btnScatter  = panel.btn_scatter
         self.btnClear    = panel.btn_clear
         self.btnCurveFit = panel.btn_fit
+        self.layerGroup = QGroupBox("Layers", self)
+        self.layerGroupLayout = QVBoxLayout(self.layerGroup)
+        self.layerGroupLayout.setContentsMargins(6, 6, 6, 6)
+        self.layerGroupLayout.setSpacing(6)
+        self._layer_manager_empty = QLabel("ยังไม่มีเลเยอร์", self.layerGroup)
+        self._layer_manager_empty.setAlignment(Qt.AlignCenter)
+        self.layerGroupLayout.addWidget(self._layer_manager_empty)
+        tp.addWidget(self.layerGroup)
 
         tabs.addTab(tab_plot, "Plot")
 
@@ -1012,6 +1249,7 @@ class MainWindow(QMainWindow):
 
         # ---------- mount ----------
         r.addWidget(tabs)
+        self._mount_layer_manager()
         return
         # Legacy load-cols and X/Y controls are replaced by CompactPlotPanel; do not add duplicates
         # self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
@@ -1022,7 +1260,6 @@ class MainWindow(QMainWindow):
         markerRow = QHBoxLayout(); self.chkMarker = QCheckBox("แสดงจุดข้อมูล"); self.chkMarker.setChecked(False); markerRow.addWidget(self.chkMarker); markerRow.addStretch(1); tp.addLayout(markerRow)
         btnRow = QHBoxLayout(); self.btnLine = QPushButton("แสดงกราฟเส้น"); self.btnScatter = QPushButton("แสดงกราฟจุด (Scatter)"); btnRow.addWidget(self.btnLine); btnRow.addWidget(self.btnScatter); tp.addLayout(btnRow)
         # UI-REFINE: ปุ่มล้างกราฟ (Clear Plot)
-        rowClear = QHBoxLayout(); self.btnClear = QPushButton("ล้างกราฟ"); rowClear.addWidget(self.btnClear); rowClear.addStretch(1); tp.addLayout(rowClear)
         # UI-FIT: ปุ่ม Curve Fit
         self.btnCurveFit = QPushButton("Curve Fit…"); tp.addWidget(self.btnCurveFit)
         # UI-SPECTROGRAM: ปุ่ม Spectrogram
@@ -1141,6 +1378,58 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _mount_layer_manager(self):
+        layout = getattr(self, 'layerGroupLayout', None)
+        if layout is None:
+            return
+        # Clear current widget(s) inside container
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        tab_widget = None
+        try:
+            tab_widget = self.tabs.currentWidget()
+        except Exception:
+            tab_widget = None
+        if tab_widget and hasattr(tab_widget, 'layer_manager'):
+            layer_widget = tab_widget.layer_manager
+            try:
+                layer_widget.setParent(self.layerGroup)
+            except Exception:
+                pass
+            layout.addWidget(layer_widget)
+            layer_widget.show()
+        else:
+            placeholder = getattr(self, '_layer_manager_empty', None)
+            if placeholder is None:
+                placeholder = QLabel('ยังไม่มีเลเยอร์', self.layerGroup if hasattr(self, 'layerGroup') else None)
+                placeholder.setAlignment(Qt.AlignCenter)
+                self._layer_manager_empty = placeholder
+            try:
+                placeholder.setParent(self.layerGroup)
+            except Exception:
+                pass
+            layout.addWidget(placeholder)
+            placeholder.show()
+
+    def _prompt_restore_session(self):
+        try:
+            if not session_store.session_available():
+                return
+            reply = QMessageBox.question(
+                self,
+                "Restore last session",
+                "พบเซสชันก่อนหน้าที่บันทึกไว้ ต้องการกู้คืนหรือไม่?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                session_store.load_session(self)
+        except Exception:
+            logger.warning('Session restore failed', exc_info=True)
+
     # UI-REFINE: รวมการเชื่อมสัญญาณไว้ที่เดียว เพื่อให้แน่ใจว่าวิดเจ็ตถูกสร้างครบก่อน
     def _connect_signals(self):
         # Plot/Processing/Export (ฝั่งขวา)
@@ -1157,6 +1446,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'btnScatterAdd'):
                 self.btnScatterAdd.clicked.connect(self.add_scatter_overlay)
             self.btnCurveFit.clicked.connect(self._open_fit_dialog)  # UI-FIT
+            self.btnClear.clicked.connect(self.clear_plot)
             # Histogram controls moved to Analysis dialog
             self.btnExport.clicked.connect(self.export_png)
             self.btnExportRange.clicked.connect(self.export_visible_range_csv)
@@ -1867,6 +2157,7 @@ class MainWindow(QMainWindow):
         
         # Load and apply settings from config
         self._load_and_apply_settings()
+        QTimer.singleShot(300, self._prompt_restore_session)
 
     def build_toolbar(self):
         """Build the main toolbar with organized groups"""
@@ -3020,19 +3311,24 @@ class MainWindow(QMainWindow):
             lw = self.spLineWidth.value()
             marker = "o" if self.chkMarker.isChecked() else None
             label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
-            
+
             print(f"Debug: plot_line() - parameters: lw={lw}, marker={marker}, label={label}")
-            
+
+            plot_kwargs = {'linewidth': lw}
+            if marker:
+                plot_kwargs['marker'] = marker
+            meta = self._build_layer_meta('line', label, plot_kwargs, source='plot_line')
+
             # Plot to selected tabs — overlay or replace
             if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.OVERLAY:
                 self.tabs.add_series_to_tabs(
                     selected_tab_ids, x, y,
-                    label=label, style="line", linewidth=lw, marker=marker
+                    label=label, style="line", meta=meta, **plot_kwargs
                 )
             else:
                 self.tabs.plot_to_tabs(
                     selected_tab_ids, x, y,
-                    label=label, style="line", linewidth=lw, marker=marker
+                    label=label, style="line", meta=meta, **plot_kwargs
                 )
             
             # Set labels after plotting
@@ -3100,19 +3396,22 @@ class MainWindow(QMainWindow):
         try:
             size = self.spLineWidth.value() * 5
             label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
-            
+
             print(f"Debug: plot_scatter() - parameters: size={size}, label={label}")
-            
+
+            plot_kwargs = {'s': size}
+            meta = self._build_layer_meta('scatter', label, plot_kwargs, source='plot_scatter')
+
             # Plot to selected tabs — overlay or replace
             if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.OVERLAY:
                 self.tabs.add_series_to_tabs(
                     selected_tab_ids, x, y,
-                    label=label, style="scatter", s=size
+                    label=label, style="scatter", meta=meta, **plot_kwargs
                 )
             else:
                 self.tabs.plot_to_tabs(
                     selected_tab_ids, x, y,
-                    label=label, style="scatter", s=size
+                    label=label, style="scatter", meta=meta, **plot_kwargs
                 )
             
             # Set labels after plotting
@@ -3214,12 +3513,17 @@ class MainWindow(QMainWindow):
                 current_tab_id = None
             if current_tab_id and hasattr(self.tabs, "tabs"):
                 tab = self.tabs.tabs.get(current_tab_id)
+            overlay_flag = bool(vals.get("overlay", True))
+            tab_cleared = False
             ax = None
             if tab is not None:
                 try:
-                    ax = tab.get_axes()
                     if hasattr(tab, "canvas"):
                         self.canvas = tab.canvas
+                    if not overlay_flag:
+                        tab.clear()
+                        tab_cleared = True
+                    ax = tab.get_axes()
                 except Exception:
                     ax = None
             if ax is None:
@@ -3244,8 +3548,13 @@ class MainWindow(QMainWindow):
                 self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
                 return
 
+            eq_overlay = overlay_flag
+            if tab_cleared:
+                eq_overlay = True
+
+            layer_infos = []
             if mode == "3d_surface":
-                plot_surfaces_on_axes(
+                layer_infos = plot_surfaces_on_axes(
                     ax=ax,
                     expressions=expressions,
                     x_min=vals["x_min"],
@@ -3256,11 +3565,11 @@ class MainWindow(QMainWindow):
                     n_y_points=vals.get("n_y_points", 200),
                     params_str=vals["params"],
                     wireframe=vals["wireframe"],
-                    overlay=vals["overlay"],
+                    overlay=eq_overlay,
                 )
                 self._show_status("\u0e27\u0e32\u0e14\u0e1e\u0e37\u0e49\u0e19\u0e1c\u0e34\u0e27 3D \u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
             else:
-                plot_equations_on_axes(
+                layer_infos = plot_equations_on_axes(
                     ax=ax,
                     expressions=expressions,
                     x_min=vals["x_min"],
@@ -3268,9 +3577,33 @@ class MainWindow(QMainWindow):
                     n_points=vals["n_points"],
                     params_str=vals["params"],
                     y_scale=vals["y_scale"],
-                    overlay=vals["overlay"],
+                    overlay=eq_overlay,
                 )
                 self._show_status("\u0e27\u0e32\u0e14\u0e01\u0e23\u0e32\u0e1f\u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
+
+            if tab is not None:
+                for info in layer_infos:
+                    artists = info.get('artists') or []
+                    if not artists:
+                        continue
+                    label = info.get('label') or 'Equation'
+                    style = info.get('style', 'line')
+                    style_kwargs = info.get('style_kwargs', {})
+                    meta = self._build_layer_meta(style, label, style_kwargs, source='plot_equation')
+                    tab.register_layer(artists, label, style, meta=meta, kwargs=style_kwargs)
+                try:
+                    tab._refresh_legend()
+                except Exception:
+                    pass
+                try:
+                    tab.draw()
+                except Exception:
+                    pass
+                try:
+                    self._mount_layer_manager()
+                except Exception:
+                    pass
+
             self._update_3d_controls_state(ax, tab)
         except ValueError as exc:
             self._warn_equation_failure(str(exc))
@@ -3344,6 +3677,56 @@ class MainWindow(QMainWindow):
         if error:
             logging.getLogger(__name__).debug("Status error: %s", msg)
 
+    def _get_dataset_name_for_path(self, path: Optional[str]) -> str:
+        if not path:
+            return ""
+        datasets = getattr(self, '_datasets', {}) if hasattr(self, '_datasets') else {}
+        if isinstance(datasets, dict):
+            for name, info in datasets.items():
+                if isinstance(info, dict) and info.get('path') == path:
+                    return name or ""
+        return ""
+
+    def _build_layer_meta(self, style: str, label: str, extra_kwargs: Optional[Dict[str, Any]] = None, source: str = 'manual') -> Dict[str, Any]:
+        meta = {
+            'style': style,
+            'label': label,
+            'dataset_path': getattr(self, '_current_path', '') or '',
+            'dataset_name': self._get_dataset_name_for_path(getattr(self, '_current_path', '')),
+            'x_column': self.cbX.currentText() if hasattr(self, 'cbX') else '',
+            'y_column': self.cbY.currentText() if hasattr(self, 'cbY') else '',
+            'source': source,
+        }
+        if extra_kwargs:
+            cleaned = {k: v for k, v in extra_kwargs.items() if v is not None}
+            if cleaned:
+                meta['style_kwargs'] = cleaned
+        return meta
+
+    def _load_dataset_from_path(self, path: str, name: Optional[str] = None):
+        try:
+            ext = os.path.splitext(path)[1].lower()
+        except Exception:
+            return None
+        df = None
+        try:
+            if ext in {'.csv', '.tsv', '.txt', '.xlsx'}:
+                df, _ = load_tabular(path, ext)
+            elif ext in {'.nc', '.cdf'}:
+                df = load_cdf_nc_on_demand(self, path)
+        except Exception as exc:
+            logger.warning('Failed to load dataset %s: %s', path, exc)
+            df = None
+        if df is None or getattr(df, 'empty', False):
+            return None
+        dataset_name = name or f"{os.path.basename(path)}"
+        try:
+            self._stage_insert(dataset_name, df, path)
+        except Exception:
+            logger.warning('Failed to stage dataset during restore: %s', dataset_name, exc_info=True)
+            return None
+        return dataset_name
+
     def add_line_overlay(self):
         print("Debug: add_line_overlay() called")
         x, y = self._get_xy()
@@ -3355,8 +3738,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Tab", "Please create/select a graph tab first"); return
         lw = self.spLineWidth.value(); marker = "o" if self.chkMarker.isChecked() else None
         label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+        plot_kwargs = {'linewidth': lw}
+        if marker:
+            plot_kwargs['marker'] = marker
+        meta = self._build_layer_meta('line', label, plot_kwargs, source='add_line_overlay')
         try:
-            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="line", linewidth=lw, marker=marker)
+            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="line", meta=meta, **plot_kwargs)
             try:
                 tab = self.tabs.tabs[current_tab_id]; ax = tab.get_axes()
                 ax.set_xlabel(self.cbX.currentText()); ax.set_ylabel(self.cbY.currentText())
@@ -3379,8 +3766,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Tab", "Please create/select a graph tab first"); return
         size = self.spLineWidth.value() * 5
         label = f"{self.cbY.currentText()} vs {self.cbX.currentText()}"
+        plot_kwargs = {'s': size}
+        meta = self._build_layer_meta('scatter', label, plot_kwargs, source='add_scatter_overlay')
         try:
-            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="scatter", s=size)
+            self.tabs.add_series_to_tabs([current_tab_id], x, y, label=label, style="scatter", meta=meta, **plot_kwargs)
             try:
                 tab = self.tabs.tabs[current_tab_id]; ax = tab.get_axes()
                 ax.set_xlabel(self.cbX.currentText()); ax.set_ylabel(self.cbY.currentText())
@@ -3486,10 +3875,12 @@ class MainWindow(QMainWindow):
             
         selected_tab_ids = [current_tab_id]
             
+        label = title or ylabel or "Bar Series"
+        meta = self._build_layer_meta('bar', label, {}, source='plot_bar')
         # Plot to selected tabs
         self.tabs.plot_to_tabs(
             selected_tab_ids, x, y, 
-            style="bar"
+            label=label, style="bar", meta=meta
         )
         
         # Set labels and title after plotting
@@ -4560,9 +4951,20 @@ class MainWindow(QMainWindow):
         # Clear current tab
         current_tab_id = self.tabs.get_current_tab_id()
         if current_tab_id and current_tab_id in self.tabs.tabs:
-            self.tabs.tabs[current_tab_id].clear()
+            tab = self.tabs.tabs[current_tab_id]
+            tab.clear()
+            try:
+                ax = tab.get_axes()
+                ax.cla()
+                tab.draw()
+            except Exception:
+                pass
+            try:
+                self._mount_layer_manager()
+            except Exception:
+                pass
             self.statusBar().showMessage("ล้างกราฟแล้ว")
-            
+        
     def _reset_view(self):
         """Reset view for current tab"""
         current_tab_id = self.tabs.get_current_tab_id()
@@ -4572,6 +4974,13 @@ class MainWindow(QMainWindow):
             tab.get_axes().set_ylim(auto=True)
             tab.draw()
             
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        try:
+            session_store.save_session(self)
+        except Exception:
+            logger.warning('Failed to save session on close', exc_info=True)
+        super().closeEvent(event)
+
     def _update_canvas_reference(self):
         """Update canvas reference to point to current tab's canvas"""
         current_tab_id = self.tabs.get_current_tab_id()
