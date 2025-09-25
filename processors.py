@@ -62,9 +62,12 @@ def _infer_sampling_rate(x):
     try:
         xdt = pd.to_datetime(x, errors="coerce")
         if xdt.notna().sum() > 1:
-            dt = (xdt.astype("int64").diff().dropna().median())  # นาโนวินาที
-            if pd.notna(dt) and dt > 0:
-                return 1.0 / (dt / 1e9)  # Hz
+            # ใช้วิธีเดียวกับ spectrogram: คำนวณ time differences เป็นวินาที
+            time_diffs = xdt.diff().dropna()
+            time_diffs_sec = time_diffs.dt.total_seconds()
+            median_diff = time_diffs_sec.median()
+            if pd.notna(median_diff) and median_diff > 0:
+                return 1.0 / median_diff  # Hz
     except Exception:
         pass
     xnum = pd.to_numeric(x, errors="coerce")

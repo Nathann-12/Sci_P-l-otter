@@ -601,13 +601,15 @@ class TabManager(QTabWidget):
             
         tab_id = f"tab_{self.tab_counter}"
         graph_tab = GraphTab(tab_id, name, self)
-        
         # Add to tab widget
         index = self.addTab(graph_tab, name)
+        
+        # Store reference FIRST before setting current index
+        self.tabs[tab_id] = graph_tab
+        
+        # Set current index AFTER storing reference
         self.setCurrentIndex(index)
         
-        # Store reference
-        self.tabs[tab_id] = graph_tab
         try:
             self.tabCreated.emit(tab_id)
         except Exception:
@@ -1441,6 +1443,14 @@ class MainWindow(QMainWindow):
                 pass
             
             # Connect plot buttons - use the correct button references from CompactPlotPanel
+            print(f"Debug: Checking for plot buttons...")
+            print(f"Debug: hasattr(self, 'btn_line'): {hasattr(self, 'btn_line')}")
+            if hasattr(self, 'btn_line'):
+                print(f"Debug: self.btn_line: {self.btn_line}")
+            print(f"Debug: hasattr(self, 'btnLine'): {hasattr(self, 'btnLine')}")
+            if hasattr(self, 'btnLine'):
+                print(f"Debug: self.btnLine: {self.btnLine}")
+                
             if hasattr(self, 'btn_line') and self.btn_line:
                 self.btn_line.clicked.connect(self.plot_line)
                 print("Debug: Connected btn_line to plot_line")
@@ -3190,9 +3200,14 @@ class MainWindow(QMainWindow):
             return False, f"เกิดข้อผิดพลาดในการตรวจสอบคอลัมน์ '{col_name}': {e}"
 
     def _get_xy(self):
+        print("Debug: _get_xy() called")
         if self._df is None:
+            print("Debug: _get_xy() - no DataFrame (_df is None)")
             QMessageBox.warning(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์/เลือกตัวแปร แล้วกด 'โหลดคอลัมน์'"); return None, None
+        print(f"Debug: _get_xy() - DataFrame shape: {self._df.shape}")
+        
         if self.cbX.count() == 0 or self.cbY.count() == 0:
+            print(f"Debug: _get_xy() - cbX count: {self.cbX.count()}, cbY count: {self.cbY.count()}")
             QMessageBox.information(self, "ยังไม่ได้โหลดคอลัมน์", "กดปุ่ม 'โหลดคอลัมน์จากข้อมูล' ก่อน"); return None, None
 
         x_col = self.cbX.currentText(); y_col = self.cbY.currentText()
@@ -3223,7 +3238,16 @@ class MainWindow(QMainWindow):
             # เพิ่มการตรวจสอบข้อมูลเพิ่มเติม
             if len(x) > 0 and len(y) > 0:
                 print(f"Debug: Data range - X: {x.min()} to {x.max()}, Y: {y.min():.6f} to {y.max():.6f}")
-                print(f"Debug: Data variation - X range: {x.max() - x.min()}, Y range: {y.max() - y.min():.6f}")
+                
+                # ตรวจสอบว่า X เป็น datetime หรือไม่ก่อนคำนวณ range
+                try:
+                    if pd.api.types.is_datetime64_any_dtype(x) or isinstance(x[0], str):
+                        print(f"Debug: X is datetime/string, skipping range calculation")
+                    else:
+                        print(f"Debug: Data variation - X range: {x.max() - x.min()}, Y range: {y.max() - y.min():.6f}")
+                except Exception as e:
+                    print(f"Debug: Error calculating X range: {e}")
+                    
                 if len(y) > 1:
                     y_diff = np.diff(y)
                     print(f"Debug: Y variation - min diff: {y_diff.min():.6f}, max diff: {y_diff.max():.6f}, std: {y_diff.std():.6f}")
@@ -3263,20 +3287,34 @@ class MainWindow(QMainWindow):
                         print(f"Debug: All datetime conversion methods failed: {e2}")
                         # Keep original datetime format
             else:
-                # Convert X to numeric with error handling
-                try: 
-                    x_original_count = len(x)
-                    x = pd.to_numeric(x, errors="coerce")
-                    x_nan_count = pd.isna(x).sum()
-                    print(f"Debug: X conversion - original: {x_original_count}, NaN after conversion: {x_nan_count}, valid: {x_original_count - x_nan_count}")
+                # Check if X is datetime string first
+                try:
+                    # Try to convert to datetime first
+                    x_dt = pd.to_datetime(x, errors="coerce")
+                    if x_dt.notna().sum() > 0:
+                        print("Debug: X is datetime string, converting to relative seconds")
+                        # Convert to relative time like datetime case
+                        x_rel = (x_dt - x_dt[0]).total_seconds()
+                        x = x_rel.values
+                        print(f"Debug: Converted datetime string X to relative seconds - range: {x.min():.3f} to {x.max():.3f}")
+                    else:
+                        raise ValueError("Not a valid datetime string")
                 except Exception as e:
-                    print(f"X column conversion error: {e}")
-                    x = pd.to_numeric(x, errors="coerce")
-                
-                # Remove NaN values from both X and Y
-                mask = ~(pd.isna(x) | pd.isna(y))
-                x = x[mask]; y = y[mask]
-                print(f"Debug: After NaN filtering - X: {len(x)}, Y: {len(y)}")
+                    print(f"Debug: X is not datetime string, trying numeric conversion: {e}")
+                    # Convert X to numeric with error handling
+                    try: 
+                        x_original_count = len(x)
+                        x = pd.to_numeric(x, errors="coerce")
+                        x_nan_count = pd.isna(x).sum()
+                        print(f"Debug: X conversion - original: {x_original_count}, NaN after conversion: {x_nan_count}, valid: {x_original_count - x_nan_count}")
+                    except Exception as e2:
+                        print(f"X column conversion error: {e2}")
+                        x = pd.to_numeric(x, errors="coerce")
+
+                    # Remove NaN values from both X and Y
+                    mask = ~(pd.isna(x) | pd.isna(y))
+                    x = x[mask]; y = y[mask]
+                    print(f"Debug: After NaN filtering - X: {len(x)}, Y: {len(y)}")
             
             # Validate final data with more detailed error messages
             if len(x) == 0 or len(y) == 0:
@@ -3376,10 +3414,10 @@ class MainWindow(QMainWindow):
         return False
 
     def plot_line(self):
-        print("Debug: plot_line() called")
+        print("Debug: plot_line() called - button clicked!")
         x, y = self._get_xy()
         if x is None: 
-            print("Debug: plot_line() - no data to plot")
+            print("Debug: plot_line() - no data to plot (x is None)")
             return
         
         print(f"Debug: plot_line() - got data: x={len(x)}, y={len(y)}")
