@@ -1439,14 +1439,42 @@ class MainWindow(QMainWindow):
                 self._wire_load_button()
             except Exception:
                 pass
-            self.btnLine.clicked.connect(self.plot_line); self.btnScatter.clicked.connect(self.plot_scatter)
+            
+            # Connect plot buttons - use the correct button references from CompactPlotPanel
+            if hasattr(self, 'btn_line') and self.btn_line:
+                self.btn_line.clicked.connect(self.plot_line)
+                print("Debug: Connected btn_line to plot_line")
+            elif hasattr(self, 'btnLine') and self.btnLine:
+                self.btnLine.clicked.connect(self.plot_line)
+                print("Debug: Connected btnLine to plot_line")
+            else:
+                print("Debug: No line button found to connect")
+                
+            if hasattr(self, 'btn_scatter') and self.btn_scatter:
+                self.btn_scatter.clicked.connect(self.plot_scatter)
+                print("Debug: Connected btn_scatter to plot_scatter")
+            elif hasattr(self, 'btnScatter') and self.btnScatter:
+                self.btnScatter.clicked.connect(self.plot_scatter)
+                print("Debug: Connected btnScatter to plot_scatter")
+            else:
+                print("Debug: No scatter button found to connect")
+            
             # Overlay add buttons
             if hasattr(self, 'btnLineAdd'):
                 self.btnLineAdd.clicked.connect(self.add_line_overlay)
             if hasattr(self, 'btnScatterAdd'):
                 self.btnScatterAdd.clicked.connect(self.add_scatter_overlay)
-            self.btnCurveFit.clicked.connect(self._open_fit_dialog)  # UI-FIT
-            self.btnClear.clicked.connect(self.clear_plot)
+                
+            # Connect fit and clear buttons
+            if hasattr(self, 'btn_fit') and self.btn_fit:
+                self.btn_fit.clicked.connect(self._open_fit_dialog)
+            elif hasattr(self, 'btnCurveFit') and self.btnCurveFit:
+                self.btnCurveFit.clicked.connect(self._open_fit_dialog)
+                
+            if hasattr(self, 'btn_clear') and self.btn_clear:
+                self.btn_clear.clicked.connect(self.clear_plot)
+            elif hasattr(self, 'btnClear') and self.btnClear:
+                self.btnClear.clicked.connect(self.clear_plot)
             # Histogram controls moved to Analysis dialog
             self.btnExport.clicked.connect(self.export_png)
             self.btnExportRange.clicked.connect(self.export_visible_range_csv)
@@ -3192,6 +3220,14 @@ class MainWindow(QMainWindow):
             print(f"Debug: X column '{x_col}' - dtype: {self._df[x_col].dtype}, sample: {x[:3] if len(x) > 0 else 'empty'}")
             print(f"Debug: Y column '{y_col}' - dtype: {self._df[y_col].dtype}, sample: {y[:3] if len(y) > 0 else 'empty'}")
             
+            # เพิ่มการตรวจสอบข้อมูลเพิ่มเติม
+            if len(x) > 0 and len(y) > 0:
+                print(f"Debug: Data range - X: {x.min()} to {x.max()}, Y: {y.min():.6f} to {y.max():.6f}")
+                print(f"Debug: Data variation - X range: {x.max() - x.min()}, Y range: {y.max() - y.min():.6f}")
+                if len(y) > 1:
+                    y_diff = np.diff(y)
+                    print(f"Debug: Y variation - min diff: {y_diff.min():.6f}, max diff: {y_diff.max():.6f}, std: {y_diff.std():.6f}")
+            
             # Convert Y to numeric with error handling
             try: 
                 y_original_count = len(y)
@@ -3208,6 +3244,24 @@ class MainWindow(QMainWindow):
                 mask = ~(pd.isna(y))
                 x = x[mask]; y = y[mask]
                 print(f"Debug: After datetime filtering - X: {len(x)}, Y: {len(y)}")
+                
+                # Convert datetime to numeric with proper scaling
+                try:
+                    # Convert to pandas datetime first to ensure proper handling
+                    x_dt = pd.to_datetime(x)
+                    # Use relative time from the first point
+                    x_rel = (x_dt - x_dt[0]).dt.total_seconds()
+                    x = x_rel.values
+                    print(f"Debug: Converted datetime X to relative seconds - range: {x.min():.3f} to {x.max():.3f}")
+                except Exception as e:
+                    print(f"Debug: Failed to convert datetime to relative seconds: {e}")
+                    # Fallback: use array index as X (like Chart Gallery does when no time column)
+                    try:
+                        x = np.arange(len(x))
+                        print(f"Debug: Fallback to array index as X - range: {x.min()} to {x.max()}")
+                    except Exception as e2:
+                        print(f"Debug: All datetime conversion methods failed: {e2}")
+                        # Keep original datetime format
             else:
                 # Convert X to numeric with error handling
                 try: 
@@ -3260,6 +3314,40 @@ class MainWindow(QMainWindow):
             if len(x) != len(y):
                 QMessageBox.warning(self, "ข้อมูลไม่ตรงกัน", f"จำนวนข้อมูล X ({len(x)}) และ Y ({len(y)}) ไม่เท่ากัน")
                 return None, None
+            
+            # ตรวจสอบข้อมูล Y สำหรับค่าผิดปกติ
+            if len(y) > 0:
+                y_mean = np.mean(y)
+                y_std = np.std(y)
+                y_median = np.median(y)
+                
+                print(f"Debug: Y statistics - mean: {y_mean:.6f}, std: {y_std:.6f}, median: {y_median:.6f}")
+                
+                # ตรวจสอบค่าผิดปกติ (outliers)
+                q1, q3 = np.percentile(y, [25, 75])
+                iqr = q3 - q1
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                
+                outliers = np.where((y < lower_bound) | (y > upper_bound))[0]
+                if len(outliers) > 0:
+                    print(f"Debug: Found {len(outliers)} outliers in Y data (indices: {outliers[:10]}{'...' if len(outliers) > 10 else ''})")
+                    print(f"Debug: Outlier percentage: {len(outliers)/len(y)*100:.2f}%")
+                    
+                    # แสดงข้อมูล outlier บางส่วน
+                    outlier_values = y[outliers[:5]]
+                    print(f"Debug: Sample outlier values: {outlier_values}")
+                else:
+                    print("Debug: No outliers detected in Y data")
+            
+            # Skip downsampling for now to test if datetime conversion is the real issue
+            # max_points = 2000
+            # if len(x) > max_points:
+            #     print(f"Debug: Data too dense ({len(x)} points), downsampling to {max_points} points")
+            #     idx = np.linspace(0, len(x) - 1, max_points).astype(int)
+            #     x = x[idx]
+            #     y = y[idx]
+            #     print(f"Debug: After downsampling - X: {len(x)}, Y: {len(y)}")
             
             print(f"Debug: Final data ready for plotting - X: {len(x)}, Y: {len(y)}")
             return x, y

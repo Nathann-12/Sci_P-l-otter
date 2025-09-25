@@ -611,7 +611,8 @@ class DerivedColumnDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
         
         # คำอธิบาย
-        help_label = QLabel("""
+        help_label = QLabel(
+        """
         <b>วิธีใช้:</b><br>
         • อ้างอิงคอลัมน์ด้วย backtick: <code>`Bx`</code>, <code>`Mag Field`</code><br>
         • ใช้ฟังก์ชัน: sqrt(), abs(), sin(), cos(), log(), exp()<br>
@@ -619,7 +620,8 @@ class DerivedColumnDialog(QDialog):
         • ตัวอย่าง: <code>sqrt(`Bx`**2 + `By`**2 + `Bz`**2)</code>
         """)
         help_label.setWordWrap(True)
-        help_label.setStyleSheet("""
+        help_label.setStyleSheet(
+        """
             QLabel {
                 background-color: #f8f9fa;
                 border: 1px solid #dee2e6;
@@ -654,7 +656,7 @@ class DerivedColumnDialog(QDialog):
         row1 = QHBoxLayout()
         basic_functions = [
             ("sqrt()", "sqrt()"), ("abs()", "abs()"), 
-            ("sin()", "sin()"), ("cos()", "cos()"), ("tan()", "tan()")
+            ("sin()", "sin()"), ("cos()", "cos()"), ("tan()", "tan")
         ]
         for text, func in basic_functions:
             btn = QPushButton(text)
@@ -802,7 +804,8 @@ class DerivedColumnDialog(QDialog):
         
         # แสดงข้อความเตือน
         if has_name and name_exists:
-            self.name_edit.setStyleSheet("""
+            self.name_edit.setStyleSheet(
+            """
                 QLineEdit {
                     padding: 8px;
                     border: 2px solid #dc3545;
@@ -813,7 +816,8 @@ class DerivedColumnDialog(QDialog):
                 }
             """)
         else:
-            self.name_edit.setStyleSheet("""
+            self.name_edit.setStyleSheet(
+            """
                 QLineEdit {
                     padding: 8px;
                     border: 2px solid #ddd;
@@ -1132,7 +1136,7 @@ class DerivedColumnDialog(QDialog):
         DerivedColumnDialog QScrollBar::handle:vertical:hover {
             background-color: #666666;
         }
-        DerivedColumnDialog QScrollBar::add-line:vertical,
+        DerivedColumnDialog QScrollBar::add-line:vertical, 
         DerivedColumnDialog QScrollBar::sub-line:vertical {
             height: 0px;
         }
@@ -1150,13 +1154,13 @@ class DerivedColumnDialog(QDialog):
         DerivedColumnDialog QScrollBar::handle:horizontal:hover {
             background-color: #666666;
         }
-        DerivedColumnDialog QScrollBar::add-line:horizontal,
+        DerivedColumnDialog QScrollBar::add-line:horizontal, 
         DerivedColumnDialog QScrollBar::sub-line:horizontal {
             width: 0px;
         }
         
         /* Selection colors */
-        DerivedColumnDialog QLineEdit::selection,
+        DerivedColumnDialog QLineEdit::selection, 
         DerivedColumnDialog QTextEdit::selection {
             background-color: #264f78;
             color: #ffffff;

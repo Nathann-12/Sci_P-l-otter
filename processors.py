@@ -164,16 +164,42 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
     
     # Enable minor ticks and grid
     ax.minorticks_on()
-    ax.grid(True, which='major', alpha=0.3)
-    ax.grid(True, which='minor', alpha=0.1)
+    ax.grid(True, which='major', alpha=0.3, linestyle='-', linewidth=0.5)
+    ax.grid(True, which='minor', alpha=0.1, linestyle=':', linewidth=0.3)
+    
+    # ปรับแต่งการแสดงผลให้ดูดีขึ้น
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(0.8)
+    ax.spines['bottom'].set_linewidth(0.8)
+    
+    # ปรับแต่งขนาดตัวอักษร
+    ax.tick_params(axis='both', which='major', labelsize=9)
+    ax.tick_params(axis='both', which='minor', labelsize=7)
     
     # Set datetime formatting if needed
     if x_is_datetime:
         try:
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))
-        except Exception:
-            pass  # Fallback to default if datetime formatting fails
+            # ใช้ AutoDateLocator และ ConciseDateFormatter สำหรับ datetime
+            locator = mdates.AutoDateLocator(maxticks=8)
+            formatter = mdates.ConciseDateFormatter(locator)
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+            
+            # หมุนป้ายกำกับแกน X เพื่อให้อ่านง่าย
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            
+            # ปรับแต่งระยะห่างของป้ายกำกับ
+            ax.tick_params(axis='x', which='major', labelsize=9)
+            
+        except Exception as e:
+            print(f"Debug: DateTime formatting failed: {e}")
+            # Fallback to basic datetime formatting
+            try:
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            except Exception:
+                pass
     
     # Set optional title - ensure it's displayable
     if title:
