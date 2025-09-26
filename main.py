@@ -1564,15 +1564,68 @@ class MainWindow(QMainWindow):
         return ax
 
     def apply_plot(self, drawer, prefer_3d: bool = False):
-        ax = self.get_main_axes(prefer_3d=prefer_3d)
+        tab = None
+        canvas = None
+        try:
+            if hasattr(self, '_update_canvas_reference') and hasattr(self, 'tabs'):
+                self._update_canvas_reference()
+            tab = self.tabs.currentWidget() if hasattr(self, 'tabs') else None
+        except Exception:
+            tab = None
+        if tab is not None and hasattr(tab, 'canvas'):
+            canvas = tab.canvas
+            self.canvas = canvas
+            ax = canvas.ax
+            is3d = hasattr(ax, 'zaxis')
+            if prefer_3d and not is3d:
+                canvas.fig.clf()
+                ax = canvas.fig.add_subplot(111, projection='3d')
+                canvas.ax = ax
+            elif not prefer_3d and is3d:
+                canvas.fig.clf()
+                ax = canvas.fig.add_subplot(111)
+                canvas.ax = ax
+            else:
+                ax = canvas.ax
+            try:
+                import matplotlib as _mpl
+                fig_fc = _mpl.rcParams.get('figure.facecolor', '#1e2126') or '#1e2126'
+                ax_fc = _mpl.rcParams.get('axes.facecolor', '#1e2126') or '#1e2126'
+                canvas.fig.patch.set_facecolor(fig_fc)
+                ax.set_facecolor(ax_fc)
+            except Exception:
+                pass
+        else:
+            ax = self.get_main_axes(prefer_3d=prefer_3d)
+            tab = None
         drawer(ax)
+
+        try:
+            if hasattr(ax, 'relim'):
+                ax.relim()
+            if hasattr(ax, 'autoscale_view'):
+                ax.autoscale_view(True, True, True)
+        except Exception:
+            pass
+
         try:
             handles, labels = ax.get_legend_handles_labels()
             if handles:
                 ax.legend(loc='best')
         except Exception:
             pass
-        ax.figure.canvas.draw_idle()
+        try:
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            pass
+        if tab is not None:
+            try:
+                tab.draw()
+            except Exception:
+                try:
+                    tab.canvas.draw()
+                except Exception:
+                    pass
 
 
     def _resolve_active_dataframe(self) -> pd.DataFrame:
