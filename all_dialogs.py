@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpinBox,
+    QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpinBox,
     QPushButton, QFormLayout, QWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QListWidget, QListWidgetItem, QTableView, QCheckBox,
     QLineEdit, QTextEdit, QMessageBox, QSplitter
@@ -616,8 +616,10 @@ class DerivedColumnDialog(QDialog):
         <b>วิธีใช้:</b><br>
         • อ้างอิงคอลัมน์ด้วย backtick: <code>`Bx`</code>, <code>`Mag Field`</code><br>
         • ใช้ฟังก์ชัน: sqrt(), abs(), sin(), cos(), log(), exp()<br>
+        • ปุ่ม Diff/Integrate ช่วยสร้างอนุพันธ์หรือปริพันธ์สะสมอัตโนมัติ
         • คลิกสองครั้งที่คอลัมน์เพื่อแทรกชื่อลงในนิพจน์<br>
-        • ตัวอย่าง: <code>sqrt(`Bx`**2 + `By`**2 + `Bz`**2)</code>
+        • ตัวอย่าง: <code>sqrt(Bx**2 + By**2 + Bz**2)</code><br>
+        • ตัวอย่างใหม่: <code>diff(Voltage, x=Time)</code>, <code>integrate(I, dt=0.1)</code>
         """)
         help_label.setWordWrap(True)
         help_label.setStyleSheet(
@@ -677,6 +679,15 @@ class DerivedColumnDialog(QDialog):
             btn.clicked.connect(lambda checked, f=func: self.insert_function(f))
             row2.addWidget(btn)
         functions_layout.addLayout(row2)
+        # แถวที่ 3: ปุ่มคำนวณอนุพันธ์/อินทิกรัล
+        row3 = QHBoxLayout()
+        self.btnDiff = QPushButton("Diff…")
+        self.btnDiff.setToolTip("สร้างสูตรอนุพันธ์จากคอลัมน์ที่เลือก")
+        self.btnIntegrate = QPushButton("Integrate…")
+        self.btnIntegrate.setToolTip("สร้างสูตรปริพันธ์สะสม (cumulative integral)")
+        row3.addWidget(self.btnDiff)
+        row3.addWidget(self.btnIntegrate)
+        functions_layout.addLayout(row3)
         
         left_layout.addLayout(functions_layout)
         left_layout.addStretch()
@@ -745,6 +756,8 @@ class DerivedColumnDialog(QDialog):
         
         # คลิกสองครั้งที่คอลัมน์เพื่อแทรกชื่อลงในนิพจน์
         self.columns_list.itemDoubleClicked.connect(self.insert_column_name)
+        self.btnDiff.clicked.connect(self._open_diff_dialog)
+        self.btnIntegrate.clicked.connect(self._open_integrate_dialog)
         
         # เปลี่ยนชื่อคอลัมน์เมื่อพิมพ์
         self.name_edit.textChanged.connect(self.validate_inputs)
@@ -787,6 +800,135 @@ class DerivedColumnDialog(QDialog):
         self.expression_edit.setTextCursor(cursor)
         self.expression_edit.setFocus()
     
+    def _numeric_columns(self):
+        try:
+            return [col for col in self.dataframe.columns if pd.api.types.is_numeric_dtype(self.dataframe[col])]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _wrap_column(name: str) -> str:
+        return f"{name}"
+
+    @staticmethod
+    def _safe_name(name: str) -> str:
+        cleaned = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in str(name)).strip('_')
+        return cleaned or 'value'
+
+    def _insert_expression(self, expression: str, suggested_name: str | None = None):
+        self.expression_edit.setPlainText(expression)
+        if suggested_name and not self.name_edit.text().strip():
+            self.name_edit.setText(suggested_name)
+        self.expression_edit.setFocus()
+        self.validate_inputs()
+
+    def _open_diff_dialog(self):
+        result = self._show_math_dialog('diff')
+        if result:
+            expr, name = result
+            self._insert_expression(expr, name)
+
+    def _open_integrate_dialog(self):
+        result = self._show_math_dialog('integrate')
+        if result:
+            expr, name = result
+            self._insert_expression(expr, name)
+
+    def _show_math_dialog(self, kind: str):
+        numeric_cols = self._numeric_columns()
+        if not numeric_cols:
+            QMessageBox.warning(self, 'ไม่มีคอลัมน์ตัวเลข', 'ต้องมีคอลัมน์ตัวเลขอย่างน้อยหนึ่งคอลัมน์เพื่อคำนวณ')
+            return None
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle('สร้างอนุพันธ์ (Diff)' if kind == 'diff' else 'สร้างปริพันธ์สะสม (Integrate)')
+        form = QFormLayout(dialog)
+
+        cbo_value = QComboBox(dialog)
+        cbo_value.addItems([str(c) for c in numeric_cols])
+        form.addRow('คอลัมน์เป้าหมาย', cbo_value)
+
+        cbo_axis = QComboBox(dialog)
+        placeholder = 'ไม่เลือก (ใช้ dt = 1)'
+        cbo_axis.addItem(placeholder)
+        for col in numeric_cols:
+            cbo_axis.addItem(str(col))
+        form.addRow('คอลัมน์เวลา/dt', cbo_axis)
+
+        dt_edit = QLineEdit(dialog)
+        dt_edit.setPlaceholderText('เช่น 0.1 (เมื่อไม่เลือกคอลัมน์)')
+        form.addRow('ค่าคงที่ dt', dt_edit)
+
+        initial_edit = None
+        if kind == 'integrate':
+            initial_edit = QLineEdit(dialog)
+            initial_edit.setText('0')
+            initial_edit.setPlaceholderText('ค่าเริ่มต้นของปริพันธ์ เช่น 0')
+            form.addRow('ค่าเริ่มต้น', initial_edit)
+
+        note = QLabel('ปล่อยว่างเพื่อใช้ dt = 1 หรือเลือกคอลัมน์เวลา/ระยะทางที่มีอยู่', dialog)
+        note.setWordWrap(True)
+        form.addRow(note)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        form.addRow(buttons)
+
+        def update_dt_field(index: int):
+            dt_edit.setEnabled(index == 0)
+        update_dt_field(cbo_axis.currentIndex())
+        cbo_axis.currentIndexChanged.connect(update_dt_field)
+
+        result_holder: dict[str, tuple[str, str | None]] = {}
+
+        def handle_accept():
+            target_col = cbo_value.currentText()
+            axis_col = cbo_axis.currentText() if cbo_axis.currentIndex() > 0 else None
+            dt_text = dt_edit.text().strip() if cbo_axis.currentIndex() == 0 else ''
+            if cbo_axis.currentIndex() == 0 and dt_text:
+                try:
+                    float(dt_text)
+                except ValueError:
+                    QMessageBox.warning(dialog, 'dt ไม่ถูกต้อง', 'กรุณาใส่ค่า dt เป็นตัวเลข เช่น 0.1')
+                    return
+            initial_value = '0'
+            if kind == 'integrate':
+                initial_value = initial_edit.text().strip() if initial_edit else '0'
+                if not initial_value:
+                    initial_value = '0'
+                else:
+                    try:
+                        float(initial_value)
+                    except ValueError:
+                        QMessageBox.warning(dialog, 'ค่าเริ่มต้นไม่ถูกต้อง', 'กรุณาใส่ค่าเริ่มต้นเป็นตัวเลข เช่น 0 หรือ 1.5')
+                        return
+            parts = [self._wrap_column(target_col)]
+            if axis_col:
+                parts.append(f"x={self._wrap_column(axis_col)}")
+            elif dt_text:
+                parts.append(f"dt={dt_text}")
+            if kind == 'integrate':
+                parts.append(f"initial={initial_value}")
+            expression = f"{kind}(" + ', '.join(parts) + ')'
+            base_name = self._safe_name(target_col)
+            if kind == 'diff':
+                if axis_col:
+                    axis_name = self._safe_name(axis_col)
+                    suggested = f"d_{base_name}_by_{axis_name}"
+                elif dt_text:
+                    suggested = f"d_{base_name}_dt"
+                else:
+                    suggested = f"d_{base_name}"
+            else:
+                suggested = f"int_{base_name}"
+            result_holder['value'] = (expression, suggested)
+            dialog.accept()
+
+        buttons.accepted.connect(handle_accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec() == QDialog.Accepted and 'value' in result_holder:
+            return result_holder['value']
+        return None
     def validate_inputs(self):
         """ตรวจสอบความถูกต้องของข้อมูลที่ป้อน"""
         name = self.name_edit.text().strip()

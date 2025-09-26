@@ -49,6 +49,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from toolbar import PlotNavigationToolbar
 import matplotlib.dates as mdates  # CHANGE: handle datetime axes formatting
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
+from matplotlib.collections import PathCollection
 from matplotlib.widgets import Cursor, RectangleSelector
 import matplotlib.pyplot as plt
 
@@ -1580,12 +1582,17 @@ class MainWindow(QMainWindow):
     def apply_plot(self, drawer, prefer_3d: bool = False):
         tab = None
         canvas = None
+        initial_layer_ids = set()
+        pre_artist_ids = set()
         try:
             if hasattr(self, '_update_canvas_reference') and hasattr(self, 'tabs'):
                 self._update_canvas_reference()
             tab = self.tabs.currentWidget() if hasattr(self, 'tabs') else None
         except Exception:
             tab = None
+
+        mode = getattr(self, 'plot_mode', PlotMode.OVERLAY)
+
         if tab is not None and hasattr(tab, 'canvas'):
             canvas = tab.canvas
             self.canvas = canvas
@@ -1609,9 +1616,24 @@ class MainWindow(QMainWindow):
                 ax.set_facecolor(ax_fc)
             except Exception:
                 pass
+
+            if mode == PlotMode.REPLACE:
+                try:
+                    ax.clear()
+                except Exception:
+                    pass
+                try:
+                    tab.clear_layers()
+                except Exception:
+                    pass
+
+            initial_layer_ids = set(getattr(tab, 'layers', {}).keys())
+            pre_artist_ids = {id(artist) for artist in self._collect_plot_artists(ax)}
         else:
             ax = self.get_main_axes(prefer_3d=prefer_3d)
             tab = None
+            pre_artist_ids = {id(artist) for artist in self._collect_plot_artists(ax)}
+
         drawer(ax)
 
         try:
@@ -1621,6 +1643,34 @@ class MainWindow(QMainWindow):
                 ax.autoscale_view(True, True, True)
         except Exception:
             pass
+
+        post_layer_ids = set(getattr(tab, 'layers', {}).keys()) if tab is not None else set()
+        if tab is not None and post_layer_ids == initial_layer_ids:
+            new_artists = [artist for artist in self._collect_plot_artists(ax) if id(artist) not in pre_artist_ids]
+            if new_artists:
+                used_labels = {info.get('label', '') for info in tab.layers.values() if info.get('label')}
+                registered = False
+                for artist in new_artists:
+                    style = self._infer_artist_style(artist)
+                    if style == 'layer':
+                        continue
+                    try:
+                        label = artist.get_label()
+                    except Exception:
+                        label = ''
+                    if not label or str(label).startswith('_'):
+                        label = self._generate_auto_layer_label(tab, style, used_labels)
+                    else:
+                        used_labels.add(label)
+                    layer_meta = {'source': 'analysis.apply_plot', 'style': style}
+                    layer_id = tab.register_layer([artist], label, style, meta=layer_meta, kwargs={})
+                    if layer_id:
+                        registered = True
+                if registered:
+                    try:
+                        tab._refresh_legend()
+                    except Exception:
+                        pass
 
         try:
             handles, labels = ax.get_legend_handles_labels()
@@ -1641,6 +1691,47 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+
+    def _collect_plot_artists(self, ax):
+        """Return new plot artists (lines/collections) for layer registration."""
+        artists = []
+        try:
+            artists.extend(getattr(ax, 'lines', []))
+        except Exception:
+            pass
+        try:
+            artists.extend(getattr(ax, 'collections', []))
+        except Exception:
+            pass
+        unique = []
+        seen = set()
+        for artist in artists:
+            if artist is None:
+                continue
+            art_id = id(artist)
+            if art_id in seen:
+                continue
+            seen.add(art_id)
+            unique.append(artist)
+        return unique
+
+    @staticmethod
+    def _infer_artist_style(artist: object) -> str:
+        if isinstance(artist, Line2D):
+            return 'line'
+        if isinstance(artist, PathCollection):
+            return 'scatter'
+        return 'layer'
+
+    def _generate_auto_layer_label(self, tab, style: str, used_labels: set) -> str:
+        base = 'Series' if style == 'line' else (style.capitalize() if style else 'Series')
+        idx = 1
+        candidate = f"{base} {idx}"
+        while candidate in used_labels:
+            idx += 1
+            candidate = f"{base} {idx}"
+        used_labels.add(candidate)
+        return candidate
 
     def _resolve_active_dataframe(self) -> pd.DataFrame:
         """Return the current DataFrame, falling back to staged datasets."""

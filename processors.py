@@ -254,6 +254,117 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
         pass  # Continue without redraw
 
 # ---- Derived Column Expression Evaluation ----
+def _coerce_numeric_series(value, length=None, name="value"):
+    """Convert Series/array-like to numeric pandas Series or scalar float."""
+    if value is None:
+        return None
+    if np.isscalar(value):
+        return float(value)
+    if isinstance(value, pd.Series):
+        series = pd.to_numeric(value, errors='coerce')
+        if length is not None and len(series) != length:
+            raise ValueError(f"{name} ต้องมีจำนวนแถวเท่ากับข้อมูลต้นฉบับ")
+        return series
+    series = pd.Series(value)
+    series = pd.to_numeric(series, errors='coerce')
+    if length is not None and len(series) != length:
+        raise ValueError(f"{name} ต้องมีจำนวนแถวเท่ากับข้อมูลต้นฉบับ")
+    return series
+
+
+def _diff_series(y, dt=None, x=None, method='central'):
+    """Numerical derivative of y with respect to x or dt."""
+    if y is None:
+        raise ValueError("ต้องระบุคอลัมน์สำหรับอนุพันธ์ (diff)")
+    y_series = _coerce_numeric_series(y)
+    if y_series.isna().all():
+        raise ValueError("คอลัมน์ที่เลือกไม่มีข้อมูลตัวเลขเพียงพอสำหรับอนุพันธ์")
+    arr = y_series.to_numpy(dtype=float)
+    if arr.size < 2:
+        return pd.Series(np.zeros_like(arr), index=y_series.index)
+
+    spacing = None
+    if x is not None:
+        x_series = _coerce_numeric_series(x, length=len(arr), name="x")
+        if isinstance(x_series, pd.Series):
+            if x_series.isna().all():
+                raise ValueError("คอลัมน์เวลา/ตำแหน่งมีค่า NaN ทั้งหมด")
+            spacing = x_series.to_numpy(dtype=float)
+        else:
+            spacing = float(x_series)
+    elif dt is not None:
+        dt_value = _coerce_numeric_series(dt, length=len(arr), name="dt")
+        if isinstance(dt_value, pd.Series):
+            if dt_value.isna().all():
+                raise ValueError("dt ที่ระบุไม่มีข้อมูลตัวเลข")
+            spacing = dt_value.to_numpy(dtype=float)
+        else:
+            spacing = float(dt_value)
+    else:
+        spacing = 1.0
+
+    try:
+        gradient = np.gradient(arr, spacing)
+    except Exception as exc:
+        raise ValueError(f"ไม่สามารถคำนวณอนุพันธ์ได้: {exc}")
+    return pd.Series(gradient, index=y_series.index)
+
+
+def _integrate_series(y, dt=None, x=None, initial=0.0, method='trapezoid'):
+    """Cumulative integral of y with respect to x or dt."""
+    if y is None:
+        raise ValueError("ต้องระบุคอลัมน์สำหรับอินทิกรัล (integrate)")
+    y_series = _coerce_numeric_series(y)
+    if y_series.isna().all():
+        raise ValueError("คอลัมน์ที่เลือกไม่มีข้อมูลตัวเลขเพียงพอสำหรับอินทิกรัล")
+    arr = y_series.to_numpy(dtype=float)
+    n = arr.size
+    if n == 0:
+        return y_series.astype(float)
+
+    def _prepare_spacing_from_series(series, label):
+        series = _coerce_numeric_series(series, length=n, name=label)
+        if isinstance(series, pd.Series):
+            if series.isna().all():
+                raise ValueError(f"{label} ที่ระบุไม่มีข้อมูลตัวเลข")
+            return series.to_numpy(dtype=float)
+        return float(series)
+
+    spacing_values = None
+    if x is not None:
+        spacing_values = _prepare_spacing_from_series(x, "x")
+        if np.isscalar(spacing_values):
+            dx = float(spacing_values)
+        else:
+            dx = np.diff(spacing_values)
+    elif dt is not None:
+        spacing_values = _prepare_spacing_from_series(dt, "dt")
+        if np.isscalar(spacing_values):
+            dx = float(spacing_values)
+        else:
+            arr_dt = np.asarray(spacing_values, dtype=float)
+            if arr_dt.size == n:
+                dx = np.diff(arr_dt)
+            elif arr_dt.size == n - 1:
+                dx = arr_dt
+            else:
+                raise ValueError("ความยาว dt ต้องเท่ากับข้อมูลหรือสั้นกว่า 1 ตำแหน่ง")
+    else:
+        dx = 1.0
+
+    cumulative = np.zeros_like(arr, dtype=float)
+    if n > 1:
+        if np.isscalar(dx):
+            increments = 0.5 * (arr[1:] + arr[:-1]) * float(dx)
+        else:
+            dx = np.asarray(dx, dtype=float)
+            if dx.size != n - 1:
+                raise ValueError("จำนวนช่วงเวลาไม่ตรงกับข้อมูลสำหรับการอินทิกรัล")
+            increments = 0.5 * (arr[1:] + arr[:-1]) * dx
+        cumulative[1:] = np.cumsum(increments)
+    cumulative = cumulative + float(initial)
+    return pd.Series(cumulative, index=y_series.index)
+
 def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto") -> pd.Series:
     """
     ประเมินนิพจน์ทางคณิตศาสตร์จากคอลัมน์ที่มีอยู่ใน DataFrame
@@ -302,7 +413,7 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
     
     # รวมตัวแปรทั้งหมดและกรองฟังก์ชันที่อนุญาต
     all_vars = set(backtick_vars + other_vars)
-    allowed_functions = {'sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp', 'len', 'mean', 'sum', 'std', 'var', 'min', 'max', 'minimum', 'maximum'}
+    allowed_functions = {'sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'exp', 'len', 'mean', 'sum', 'std', 'var', 'min', 'max', 'minimum', 'maximum', 'diff', 'integrate'}
     
     # ตรวจสอบเฉพาะตัวแปรที่ไม่ได้อยู่ในคอลัมน์และไม่ใช่ฟังก์ชันที่อนุญาต
     # แต่ต้องไม่ตรวจสอบตัวแปรที่มาจาก backtick เพราะมันถูกแทนที่แล้ว
@@ -378,6 +489,8 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
         'var':  lambda s: float(_agg_to_scalar(s, "var")),
         'min':  lambda s: float(_agg_to_scalar(s, "min")),
         'max':  lambda s: float(_agg_to_scalar(s, "max")),
+        'diff': lambda series, dt=None, x=None, method='central': _diff_series(series, dt=dt, x=x, method=method),
+        'integrate': lambda series, dt=None, x=None, initial=0.0, method='trapezoid': _integrate_series(series, dt=dt, x=x, initial=initial, method=method),
     }
     
     # รวมตัวแปรและฟังก์ชันเข้าด้วยกัน
