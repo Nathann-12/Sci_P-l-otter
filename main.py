@@ -662,7 +662,17 @@ class TabManager(QTabWidget):
                 pass
 
         self.removeTab(index)
-        
+
+        if tab_widget is not None:
+            try:
+                tab_widget.hide()
+            except Exception:
+                pass
+            try:
+                tab_widget.deleteLater()
+            except Exception:
+                pass
+
     def _on_tab_double_clicked(self, index):
         """Handle tab double-click for rename"""
         self._rename_tab(index)
@@ -1389,6 +1399,10 @@ class MainWindow(QMainWindow):
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                try:
+                    widget.hide()
+                except Exception:
+                    pass
                 widget.setParent(None)
         tab_widget = None
         try:
