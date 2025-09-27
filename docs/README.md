@@ -1,158 +1,106 @@
-# 📊 SciPlotter - Scientific Data Visualization Tool
+# SciPlotter - เครื่องมือวิเคราะห์และพล็อตข้อมูลทางวิทยาศาสตร์
 
-![SciPlotter Logo](assets/icons/Plot.png)
+![SciPlotter Logo](../assets/icons/Plot.png)
 
-## 🎯 เกี่ยวกับโปรเจค
+## ภาพรวม
 
-**SciPlotter** เป็นเครื่องมือสำหรับการวิเคราะห์และแสดงผลข้อมูลทางวิทยาศาสตร์ที่พัฒนาด้วย Python, PySide6 และ Matplotlib โดยออกแบบมาให้ใช้งานง่ายและมีประสิทธิภาพสูง
+SciPlotter เป็นแอปเดสก์ท็อปที่พัฒนาโดย Python, PySide6 และ Matplotlib สำหรับงานวิเคราะห์และนำเสนอข้อมูลเชิงวิทยาศาสตร์ รองรับไฟล์ข้อมูลทั่วไป (CSV, Excel, NetCDF, CDF) พร้อมเครื่องมือเตรียมข้อมูล การพล็อตกราฟ และโมดูลวิเคราะห์พิเศษในแอปเดียว
 
-## ✨ ฟีเจอร์หลัก
+## ไฮไลต์ฟีเจอร์
 
-### 📈 **การสร้างกราฟ**
-- **Line Plot** - กราฟเส้นสำหรับข้อมูลต่อเนื่อง
-- **Scatter Plot** - กราฟกระจายสำหรับข้อมูลจุด
-- **Histogram** - กราฟแท่งสำหรับการแจกแจงข้อมูล
-- **Spectrogram** - การวิเคราะห์ความถี่-เวลา
-- **FFT Analysis** - การวิเคราะห์ฟูริเยร์
+### การพล็อตและการวิเคราะห์
+- กราฟมาตรฐาน: Line, Scatter, Bar, Area, Box, Pie, Histogram, 3D Scatter พร้อมหน้าต่าง Chart Options ที่ปรับสไตล์และแกนได้ละเอียด
+- Histogram dialog รุ่นใหม่: เลือกคอลัมน์เดียว, ปรับจำนวน bin หรือ bin strategy (auto, fd, scott ฯลฯ) และเลือกแสดง Normal fit ได้ทันที
+- Spectrogram และ FFT Analysis สำหรับสัญญาณเวลา
+- Peak Detection, Cross-Correlation, Multi-cursor และการวิเคราะห์ในช่วง (visible range) ผ่าน context menu
 
-### 🔧 **การประมวลผลข้อมูล**
-- **Derived Columns** - สร้างคอลัมน์ใหม่ด้วยนิพจน์ทางคณิตศาสตร์
-- **Aggregation Functions** - mean, sum, std, var, min, max
-- **Data Filtering** - กรองข้อมูลตามเงื่อนไข
-- **Unit Conversion** - แปลงหน่วยการวัด
-- **Calibration** - การสอบเทียบข้อมูล
+### การเตรียมและจัดการข้อมูล
+- Derived Columns Builder (`Ctrl+D`) สำหรับสร้างคอลัมน์ด้วยสูตร NumPy/Pandas
+- Processors สำหรับคำนวณสถิติพื้นฐาน, rolling, smoothing, unit conversion และ calibration
+- ตัวเลือกจัดการข้อมูลในแต่ละกราฟ: กรอง NaN, sort ตามแกน X, downsample สูงสุด 200k จุด
 
-### 📁 **การจัดการไฟล์**
-- **CSV/TSV** - ไฟล์ข้อมูลแยกด้วยจุลภาค/แท็บ
-- **Excel** - ไฟล์ .xlsx
-- **NetCDF** - ไฟล์ข้อมูลวิทยาศาสตร์
-- **CDF** - ไฟล์ข้อมูลอวกาศ
-- **Text Files** - ไฟล์ข้อความทั่วไป
+### อินเทอร์เฟซและการใช้งาน
+- Multi-tab canvas, Inspector panel และ Chart gallery ให้เลือกตัวอย่างพล็อตได้รวดเร็ว
+- Annotation Tool (Text/Arrow/Shape/Callout) พร้อม Style Dock, undo/redo และบันทึก overlay เป็น JSON
+- Context menu แบบคลิกขวา: ซูม/แพน, ตั้งค่าช่วงแกน, snapshot, copy figure, export visible CSV
+- ธีมให้เลือก (Light, Dark, Dark Modern) หรือโหลด QSS เอง รวมถึงกำหนดฟอนต์และ Matplotlib overrides ผ่าน Settings dialog
 
-### 🎨 **การแสดงผล**
-- **Dark/Light Theme** - ธีมมืดและสว่าง
-- **Multiple Tabs** - จัดการหลายกราฟพร้อมกัน
-- **Export Options** - ส่งออกเป็น PNG, PDF
-- **Report Generation** - สร้างรายงาน PDF อัตโนมัติ
+### การนำเข้า/ส่งออก
+- รองรับไฟล์ข้อมูล CSV, TSV, Excel (.xlsx), NetCDF, CDF และไฟล์ข้อความที่คั่นด้วยช่องว่างหรือแท็บ
+- Export figure เป็น PNG/PDF, Copy to clipboard และสร้างรายงาน PDF พร้อมรูปและสรุปค่าทางสถิติ
+- เก็บค่าตั้งต้นและธีมด้วย `config/` และไฟล์ JSON
 
-## 🚀 การติดตั้ง
+## โครงสร้างโปรเจ็กต์ที่สำคัญ
+- `main.py` – จุดเริ่มต้นของแอปและการจัดการหน้าต่างหลัก
+- `dialogs/` – กล่องโต้ตอบสำหรับ Settings, Histogram, Spectrogram, Advanced Charts, Annotations ฯลฯ
+- `assets/icons/` – โลโก้และไอคอน (รวม `Plot.png` ที่ใช้บน README)
+- `styles/` – QSS ธีมและสคริปต์ปรับ Matplotlib
+- `docs/` – เอกสารประกอบหัวข้อย่อย (เช่น Derived Column, Annotation Context Menu)
 
-### ข้อกำหนดระบบ
-- Python 3.8+
-- PySide6
-- Matplotlib
-- Pandas
-- NumPy
+## การติดตั้ง (โคลนผ่าน Git)
 
-### การติดตั้ง
-#### Installation via Git clone
-
-1. ??????? Git ??? Python 3.8+ ????????????????????
-2. ?????????????????? PowerShell ??????????????????????????????????????
+1. ติดตั้ง Git และ Python 3.8 ขึ้นไปให้พร้อมใช้งาน
+2. โคลนโปรเจ็กต์และเข้าไดเรกทอรี
 
 ```bash
 git clone https://github.com/yourusername/SciPlotter.git
 cd SciPlotter
 ```
 
-3. (?????) ????? virtual environment ??????????? dependencies
+3. (แนะนำ) สร้าง virtual environment แล้วติดตั้งไลบรารี
 
 ```bash
 python -m venv .venv
-.venv\\Scripts\\activate  # ?? Windows
-source .venv/bin/activate   # ?? macOS / Linux
+.venv\Scripts\activate  # บน Windows
+source .venv/bin/activate   # บน macOS / Linux
 pip install -r requirements.txt
 ```
 
-4. ??????????????
+4. รันแอปพลิเคชัน
 
 ```bash
 python main.py
 ```
 
-## 📖 การใช้งาน
+> หมายเหตุ: ตรวจสอบให้แน่ใจว่าโฟลเดอร์ `assets/` ถูก commit/push ไปยังรีโมตก่อนให้ผู้อื่นโคลน เพื่อให้โลโก้และไอคอนแสดงถูกต้อง
 
-### 1. เปิดไฟล์ข้อมูล
-- คลิก **Open** ใน toolbar หรือใช้ `Ctrl+O`
-- เลือกไฟล์ข้อมูลที่ต้องการ
+## เริ่มต้นใช้งานอย่างรวดเร็ว
+1. เปิดไฟล์ข้อมูลจากเมนู **File > Open** หรือปุ่มใน toolbar (`Ctrl+O`)
+2. เลือกคอลัมน์ X/Y จาก Inspector แล้วพล็อตผ่านปุ่ม **Plot** หรือเมนู **Charts > Advanced** เพื่อเปิด Chart Options dialog
+3. ใช้แท็บ **Analysis** สำหรับ Histogram, FFT, Spectrogram, Peak Detection หรือ Cross-Correlation ตามต้องการ
+4. เพิ่ม Annotation เพื่ออธิบายจุดสำคัญ แล้วบันทึกหรือคัดลอกรูปไปใช้งานต่อ
+5. ส่งออกกราฟหรือรายงานผ่านเมนู **Export**
 
-### 2. สร้างกราฟ
-- เลือกคอลัมน์ X และ Y ใน Inspector Panel
-- คลิก **Plot** เพื่อสร้างกราฟ
+## ฟีเจอร์เสริมและทิป
+- `Ctrl+Shift+X` เปิด Multi-cursor / Cross-Correlation, `Ctrl+Shift+P` เปิด Peak Detection
+- ปุ่ม **Snapshot View** ใน context menu ใช้บันทึกมุมมองแล้วเรียกกลับได้รวดเร็ว
+- Settings dialog ช่วยสลับธีม, ตั้งฟอนต์, ตั้งค่า Matplotlib grid/linestyle ได้แบบเรียลไทม์
+- ใช้ `samples/` และ `data/` สำหรับตัวอย่างชุดข้อมูลทดลอง
 
-### 3. การประมวลผลข้อมูล
-- ใช้ **Derived Column** (`Ctrl+D`) เพื่อสร้างคอลัมน์ใหม่
-- ใช้ **Processors** สำหรับการประมวลผลขั้นสูง
-
-### 4. การส่งออก
-- **Export Figure** - ส่งออกกราฟเป็น PNG
-- **Export Data** - ส่งออกข้อมูลเป็น CSV
-- **Export Report** - สร้างรายงาน PDF
-
-## 🎨 ธีมและการตั้งค่า
-
-### Dark Theme
-- พื้นหลังสีเข้ม
-- ข้อความสีขาว
-- เหมาะสำหรับการใช้งานในที่มืด
-
-### Light Theme
-- พื้นหลังสีสว่าง
-- ข้อความสีเข้ม
-- เหมาะสำหรับการใช้งานในที่สว่าง
-
-## 🔧 การตั้งค่า
-
-เข้าถึงการตั้งค่าผ่าน:
-- **Tools → Settings** หรือ
-- คลิกปุ่ม **Settings** ใน toolbar
-
-## 📚 เอกสารเพิ่มเติม
-
-- [คู่มือการใช้งาน Derived Column](docs/README_DERIVED_COLUMN.md)
-- [คู่มือการใช้งาน Spectrogram](docs/README_SPECTROGRAM.md)
-- [โครงสร้างโปรเจค](PROJECT_STRUCTURE.md)
-
-## 🧪 การทดสอบ
+## การทดสอบ
 
 ```bash
-# รันการทดสอบทั้งหมด
 python -m pytest tests/
-
-# รันการทดสอบเฉพาะ
-python tests/test_system.py
 ```
 
-## 🤝 การมีส่วนร่วม
+## เอกสารเพิ่มเติม
+- [Derived Column Guide](README_DERIVED_COLUMN.md)
+- [Spectrogram Guide](README_SPECTROGRAM.md)
+- [Annotation, Analysis & Context Menu](README_ANNOTATION_ANALYSIS_CONTEXT_MENU.md)
+- [โครงสร้างโปรเจ็กต์](../PROJECT_STRUCTURE.md)
 
-1. Fork โปรเจค
-2. สร้าง feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit การเปลี่ยนแปลง (`git commit -m 'Add some AmazingFeature'`)
-4. Push ไปยัง branch (`git push origin feature/AmazingFeature`)
-5. เปิด Pull Request
+## การมีส่วนร่วม
+1. Fork โปรเจ็กต์และสร้าง branch ใหม่ (`git checkout -b feature/my-feature`)
+2. พัฒนาและรันทดสอบที่เกี่ยวข้อง
+3. Commit ข้อความสั้นชัดเจน (`git commit -m "Add my feature"`)
+4. Push branch (`git push origin feature/my-feature`)
+5. เปิด Pull Request พร้อมรายละเอียดการเปลี่ยนแปลง
 
-## 📄 License
+## License
 
-โปรเจคนี้อยู่ภายใต้ MIT License - ดูรายละเอียดใน [LICENSE](LICENSE) file
+โปรเจ็กต์นี้อยู่ภายใต้ MIT License ดูรายละเอียดที่ไฟล์ [LICENSE](../LICENSE)
 
-## 👥 ผู้พัฒนา
+## ติดต่อ
 
-- **Main Developer**: [Your Name]
-- **Contributors**: [Contributor List]
-
-## 📞 การติดต่อ
-
-- **Email**: [your.email@example.com]
-- **GitHub**: [github.com/yourusername]
-- **Issues**: [GitHub Issues](https://github.com/yourusername/sciplotter/issues)
-
-## 🙏 การขอบคุณ
-
-- **Matplotlib** - สำหรับการสร้างกราฟ
-- **Pandas** - สำหรับการจัดการข้อมูล
-- **PySide6** - สำหรับ GUI
-- **NumPy** - สำหรับการคำนวณทางคณิตศาสตร์
-
----
-
-⭐ **หากโปรเจคนี้มีประโยชน์ กรุณาให้ดาวน์โหวต!** ⭐
+- Email: your.email@example.com
+- GitHub Issues: https://github.com/yourusername/SciPlotter/issues
