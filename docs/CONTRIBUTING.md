@@ -8,7 +8,7 @@
 ```bash
 # Fork โปรเจคใน GitHub
 # จากนั้น clone fork ของคุณ
-git clone https://github.com/YOUR_USERNAME/sciplotter.git
+git clone https://github.com/Nathamn-12/sciplotter.git
 cd sciplotter
 ```
 
@@ -57,7 +57,7 @@ python tests/test_system.py
 
 ### ก่อนรายงาน
 1. ตรวจสอบว่าเป็น bug จริงๆ
-2. ค้นหาใน [Issues](https://github.com/yourusername/sciplotter/issues) ว่ามีคนรายงานแล้วหรือไม่
+2. ค้นหาใน [Issues](https://github.com/Nathann-12/sciplotter/issues) ว่ามีคนรายงานแล้วหรือไม่
 3. ทดสอบกับเวอร์ชันล่าสุด
 
 ### การรายงาน
@@ -87,7 +87,7 @@ python tests/test_system.py
 ## ✨ การเสนอ Feature
 
 ### ก่อนเสนอ
-1. คิดให้ดีว่า feature นี้มีประโยชน์กับผู้ใช้ทั่วไปหรือไม่
+1. คิดให้ดีว่า feature ไว้ทำอะไร 
 2. ตรวจสอบว่าไม่มี feature คล้ายกันอยู่แล้ว
 3. อธิบาย use case ที่ชัดเจน
 
@@ -107,7 +107,7 @@ python tests/test_system.py
 อธิบายทางเลือกอื่นๆ ที่พิจารณา
 ```
 
-## 🔄 Pull Request Process
+## 🔄 Pull Request Process(เขียนๆมาเถอะไม่ต้องสนคำแนะนำมาก)
 
 ### 1. เตรียม PR
 - เขียนโค้ดให้เสร็จสมบูรณ์
@@ -192,13 +192,8 @@ Closes #123
 - README.md
 - Release notes
 - Contributors page
+- เอาเป็นว่าใครช่วยผมเอาชื่อชึ้นหมด
 
-## 📞 การติดต่อ
 
-หากมีคำถาม สามารถติดต่อได้ที่:
-- **Email**: [your.email@example.com]
-- **GitHub**: [@yourusername]
 
----
-
-ขอบคุณที่สนใจมีส่วนร่วมในการพัฒนา SciPlotter! 🎉
+ขอบคุณที่สนใจมีส่วนร่วมในการพัฒนา SciPlotter! 
