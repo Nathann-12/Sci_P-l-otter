@@ -136,7 +136,7 @@ python tests/test_system.py
 ## 👥 ผู้พัฒนา
 
 - **Main Developer**: [Gu3t]
-- **Adviser**: [Yanapat_Kitbuntem]
+- **Advisor**: [Yanapat_Kitbuntem]
 
 ## 📞 การติดต่อ
 
