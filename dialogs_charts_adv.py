@@ -132,6 +132,15 @@ class ChartOptionsDialogPro(QDialog):
         form.addRow("", self.chk_sortx)
         form.addRow("Downsample max points", self.spin_maxpts)
         form.addRow("", self.btn_refresh)
+        if self.kind == "hist":
+            lbl_x = form.labelForField(self.cbo_x)
+            if lbl_x is not None:
+                lbl_x.setText("Data column")
+            lbl_y = form.labelForField(self.lst_y)
+            if lbl_y is not None:
+                lbl_y.hide()
+            self.lst_y.hide()
+            self.chk_sortx.hide()
         return w
 
     # -------------------- Style Tab --------------------
@@ -335,7 +344,10 @@ class ChartOptionsDialogPro(QDialog):
             self.cbo_x.addItem(label, col)
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, col)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            if self.kind != "hist":
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            else:
+                item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Unchecked)
             self.lst_y.addItem(item)
 
@@ -353,22 +365,23 @@ class ChartOptionsDialogPro(QDialog):
                 self.cbo_x.setCurrentIndex(idx)
 
         nums = _numeric_cols(df) if df is not None else []
-        auto_selected = 0
-        for c in nums:
-            if xg is not None and c == xg:
-                continue
-            try:
-                i = cols.index(c)
-            except ValueError:
-                continue
-            item = self.lst_y.item(i)
-            if item is not None:
-                item.setCheckState(Qt.Checked)
-                auto_selected += 1
-                if auto_selected >= 6:
-                    break
+        if self.kind != "hist":
+            auto_selected = 0
+            for c in nums:
+                if xg is not None and c == xg:
+                    continue
+                try:
+                    i = cols.index(c)
+                except ValueError:
+                    continue
+                item = self.lst_y.item(i)
+                if item is not None:
+                    item.setCheckState(Qt.Checked)
+                    auto_selected += 1
+                    if auto_selected >= 6:
+                        break
 
-        if preserve and prev_ys:
+        if preserve and prev_ys and self.kind != "hist":
             for i in range(self.lst_y.count()):
                 item = self.lst_y.item(i)
                 val = item.data(Qt.UserRole)
@@ -433,6 +446,8 @@ class ChartOptionsDialogPro(QDialog):
                 if val is None:
                     val = item.text()
                 ys.append(val)
+        if self.kind == "hist" and len(ys) > 1:
+            ys = ys[:1]
         opts["ys"] = ys
         opts["dropna"] = self.chk_dropna.isChecked()
         opts["sortx"] = self.chk_sortx.isChecked()
@@ -457,9 +472,14 @@ class ChartOptionsDialogPro(QDialog):
         xcol = None if o['x'] in ('<auto>', '') else o['x']
         if xcol is None:
             xcol = _guess_x_col(df)
-        xs = df[xcol].to_numpy() if (xcol and xcol in df.columns) else np.arange(len(df))
-        ycols = o['ys'] or [c for c in _numeric_cols(df) if c != xcol][:1]
         kind = o['kind']
+        if kind == 'hist':
+            ycols = o['ys'][:1] if o['ys'] else []
+        else:
+            ycols = o['ys'] or [c for c in _numeric_cols(df) if c != xcol][:1]
+        xs = df[xcol].to_numpy() if (xcol and xcol in df.columns) else np.arange(len(df))
+        if kind == 'hist' and ycols:
+            xs = np.arange(len(df))
 
         if kind != 'hist' and not ycols:
             raise ValueError('Select at least one numeric Y column on the Data tab.')
