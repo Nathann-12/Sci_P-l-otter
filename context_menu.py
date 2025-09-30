@@ -52,12 +52,46 @@ class ContextMenuManager(QObject):
         self._zoom_hist: List[_ZoomState] = []
         self._overlays: List[Any] = []
         self._box_patch: Optional[Rectangle] = None
+        self._grid_on: bool = False
+        self._legend_visible: bool = False
         self._minor_on: bool = False
+        self._max_zoom_hist: int = 32
+
+        self._adopt_axes(axes)
 
         # mpl event hookup
         self._cid_press = self.canvas.mpl_connect('button_press_event', self._on_mpl_press)
         self._cid_release = self.canvas.mpl_connect('button_release_event', self._on_mpl_release)
         self._cid_motion = self.canvas.mpl_connect('motion_notify_event', self._on_mpl_motion)
+
+    def _adopt_axes(self, axes: Axes) -> None:
+        """Adopt the provided axes and refresh cached state."""
+        self.ax = axes
+        self._zoom_hist = [_ZoomState(self.ax.get_xlim(), self.ax.get_ylim())]
+        self._grid_on = self._compute_grid_state(self.ax)
+        self._legend_visible = self._legend_is_visible(self.ax)
+        self._minor_on = self._minor_ticks_active(self.ax)
+
+    def _compute_grid_state(self, axes: Axes) -> bool:
+        try:
+            return any(line.get_visible() for line in axes.xaxis.get_gridlines()) or any(line.get_visible() for line in axes.yaxis.get_gridlines())
+        except Exception:
+            return False
+
+    def _minor_ticks_active(self, axes: Axes) -> bool:
+        try:
+            return any(line.get_visible() for line in axes.xaxis.get_minorticklines()) or any(line.get_visible() for line in axes.yaxis.get_minorticklines())
+        except Exception:
+            return False
+
+    def _legend_is_visible(self, axes: Axes) -> bool:
+        leg = axes.get_legend()
+        return bool(leg and leg.get_visible())
+
+    def _refresh_axis_state(self) -> None:
+        self._grid_on = self._compute_grid_state(self.ax)
+        self._legend_visible = self._legend_is_visible(self.ax)
+        self._minor_on = self._minor_ticks_active(self.ax)
 
     # ---------- event plumbing ----------
     def _on_mpl_press(self, ev):
@@ -65,7 +99,9 @@ class ContextMenuManager(QObject):
         if ev.inaxes is None:
             return
         if ev.inaxes is not self.ax:
-            self.ax = ev.inaxes
+            self._adopt_axes(ev.inaxes)
+        else:
+            self._refresh_axis_state()
         if ev.button == 3:  # right-click
             self._show_menu(QtGui.QCursor.pos(), ev)
         elif ev.button == 1 and self._box_patch is not None:
@@ -80,7 +116,9 @@ class ContextMenuManager(QObject):
     def _on_mpl_motion(self, ev):
         if self._box_patch is not None and self._press and ev.inaxes is not None:
             if ev.inaxes is not self.ax:
-                self.ax = ev.inaxes
+                self._adopt_axes(ev.inaxes)
+            else:
+                self._refresh_axis_state()
             x0, y0 = self._press; x1, y1 = ev.xdata, ev.ydata
             self._update_box(x0, y0, x1, y1)
             self.canvas.draw_idle()
@@ -88,7 +126,9 @@ class ContextMenuManager(QObject):
     def _on_mpl_release(self, ev):
         if self._box_patch is not None and self._press and ev.inaxes is not None:
             if ev.inaxes is not self.ax:
-                self.ax = ev.inaxes
+                self._adopt_axes(ev.inaxes)
+            else:
+                self._refresh_axis_state()
             x0, y0 = self._press; x1, y1 = ev.xdata, ev.ydata
             self._apply_box_zoom(min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1))
             self._remove_box()
@@ -97,6 +137,7 @@ class ContextMenuManager(QObject):
     # ---------- menu build ----------
     def _show_menu(self, global_pos: QPoint, ev) -> None:
         menu = QMenu()
+        self._refresh_axis_state()
 
         # A) View
         view = menu.addMenu("View")
@@ -193,7 +234,12 @@ class ContextMenuManager(QObject):
 
     # ---------- view handlers ----------
     def _push_state(self):
-        self._zoom_hist.append(_ZoomState(self.ax.get_xlim(), self.ax.get_ylim()))
+        state = _ZoomState(self.ax.get_xlim(), self.ax.get_ylim())
+        if self._zoom_hist and state == self._zoom_hist[-1]:
+            return
+        self._zoom_hist.append(state)
+        if len(self._zoom_hist) > self._max_zoom_hist:
+            self._zoom_hist.pop(0)
 
     def _apply_state(self, st: _ZoomState):
         self.ax.set_xlim(*st.xlim); self.ax.set_ylim(*st.ylim)
@@ -203,30 +249,43 @@ class ContextMenuManager(QObject):
         if self._zoom_hist:
             st = self._zoom_hist[0]
             self._apply_state(st)
+            self._zoom_hist = [st]
 
     def _on_autoscale(self):
         self._push_state(); self.ax.relim(); self.ax.autoscale()
         self.canvas.draw_idle()
 
     def _on_toggle_grid(self):
-        self.ax.grid(not self.ax.xaxis._major_tick_kw.get('gridOn', False), which='major', alpha=0.3)
+        self._grid_on = not self._grid_on
+        if self._grid_on:
+            self.ax.grid(True, which='both', alpha=0.3)
+        else:
+            self.ax.grid(False, which='both')
         self.canvas.draw_idle()
 
     def _on_toggle_minor(self):
         try:
             if not self._minor_on:
-                self.ax.minorticks_on(); self._minor_on = True
+                self.ax.minorticks_on()
             else:
-                self.ax.minorticks_off(); self._minor_on = False
+                self.ax.minorticks_off()
         except Exception:
             pass
-        finally:
-            self.canvas.draw_idle()
+        self._minor_on = self._minor_ticks_active(self.ax)
+        self.canvas.draw_idle()
 
     def _on_toggle_legend(self):
         leg = self.ax.get_legend()
-        if leg and leg.get_visible(): leg.set_visible(False)
-        else: self.ax.legend()
+        if self._legend_visible and leg:
+            leg.set_visible(False)
+            self._legend_visible = False
+        else:
+            leg = self.ax.legend()
+            if leg is not None:
+                leg.set_visible(True)
+                self._legend_visible = True
+            else:
+                self._legend_visible = False
         self.canvas.draw_idle()
 
     # ---------- zoom/pan ----------
@@ -268,9 +327,10 @@ class ContextMenuManager(QObject):
 
     def _on_zoom_back(self):
         if len(self._zoom_hist) >= 2:
-            st = self._zoom_hist.pop()  # current
+            self._zoom_hist.pop()  # drop current
             prev = self._zoom_hist.pop()
             self._apply_state(prev)
+            self._zoom_hist.append(prev)
 
     # ---------- axes/scales ----------
     def _on_set_axis_limits(self):

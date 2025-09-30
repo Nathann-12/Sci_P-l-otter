@@ -5835,3 +5835,38 @@ KeyboardInterrupt
 2025-09-30 11:57:18 | INFO | styles.theme | Font set to: Segoe UI
 2025-09-30 11:57:18 | INFO | styles.theme | Matplotlib settings applied successfully
 2025-09-30 11:57:18 | INFO | __main__ | Settings loaded and applied successfully
+2025-09-30 19:26:08 | INFO | core.logging_setup | Logging initialized. Log file at: Generated Files\logs\app.log
+2025-09-30 19:26:08 | INFO | styles.theme | Applying theme from configuration...
+2025-09-30 19:26:08 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-30 19:26:08 | INFO | styles.theme | SidePanel QSS loaded: D:\Only work\code for lern\SciPlotter\styles\sidepanel.qss (3715 chars)
+2025-09-30 19:26:08 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-30 19:26:08 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-30 19:26:08 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-30 19:26:08 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-30 19:26:08 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-30 19:26:08 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-30 19:26:08 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-30 19:26:08 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-30 19:26:08 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-30 19:26:08 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-30 19:26:08 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-30 19:26:08 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-30 19:26:08 | INFO | __main__ | Settings applied from configuration
+2025-09-30 19:26:09 | INFO | __main__ | Dark style file loaded successfully
+2025-09-30 19:26:09 | INFO | __main__ | Canvas redrawn with new style
+2025-09-30 19:26:09 | INFO | styles.theme | Applying theme from configuration...
+2025-09-30 19:26:09 | INFO | styles.theme | Font set to: Algerian size 10
+2025-09-30 19:26:09 | INFO | styles.theme | SidePanel QSS loaded: D:\Only work\code for lern\SciPlotter\styles\sidepanel.qss (3715 chars)
+2025-09-30 19:26:09 | INFO | styles.theme | QSS loaded: D:\Only work\code for lern\SciPlotter\styles\dark_modern.qss (3667 chars)
+2025-09-30 19:26:09 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-30 19:26:09 | INFO | styles.theme | Matplotlib font.family set from config: Algerian
+2025-09-30 19:26:09 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-30 19:26:09 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-30 19:26:09 | INFO | styles.theme | Applying matplotlib settings from configuration...
+2025-09-30 19:26:09 | INFO | styles.theme | Matplotlib style loaded from: styles/mpl_style_dark_pro.mplstyle
+2025-09-30 19:26:09 | INFO | styles.theme | Grid linestyle set to: -
+2025-09-30 19:26:10 | INFO | styles.theme | Matplotlib font.family set from config: TH Sarabun New
+2025-09-30 19:26:10 | INFO | styles.theme | Color cycle set with 8 colors
+2025-09-30 19:26:10 | INFO | styles.theme | Font set to: Segoe UI
+2025-09-30 19:26:10 | INFO | styles.theme | Matplotlib settings applied successfully
+2025-09-30 19:26:10 | INFO | __main__ | Settings loaded and applied successfully
