@@ -4929,7 +4929,7 @@ class MainWindow(QMainWindow):
             if filename:
                 # Export ข้อมูล
                 T = self._current_spectrogram['T']
-                F = self._current_spectrogram['S']
+                F = self._current_spectrogram['F']
                 S = self._current_spectrogram['S']
                 meta = self._current_spectrogram['meta']
                 
@@ -5134,21 +5134,109 @@ class MainWindow(QMainWindow):
         xser = self._df[xcol]
 
         df_view = None
+        lower = min(xmin, xmax)
+        upper = max(xmin, xmax)
+        use_datetime = False
+        x_dt = None
         try:
-            # datetime
-            if np.issubdtype(np.array(xser)[0].__class__, np.datetime64) or np.issubdtype(xser.dtype, np.datetime64):
-                import matplotlib.dates as mdates
-                xmin_dt = mdates.num2date(xmin); xmax_dt = mdates.num2date(xmax)
-                mask = (pd.to_datetime(xser) >= xmin_dt) & (pd.to_datetime(xser) <= xmax_dt)
-                df_view = self._df.loc[mask].copy()
+            if pd.api.types.is_datetime64_any_dtype(xser):
+                use_datetime = True
+                x_dt = pd.to_datetime(xser, errors="coerce")
             else:
+                if pd.api.types.is_object_dtype(xser) or pd.api.types.is_string_dtype(xser):
+                    candidate = pd.to_datetime(xser, errors="coerce")
+                    if candidate.notna().any():
+                        x_dt = candidate
+                        use_datetime = True
+            if use_datetime and x_dt is not None:
+                import matplotlib.dates as mdates
+                valid = x_dt.notna() if hasattr(x_dt, "notna") else ~pd.isna(x_dt)
+                if np.any(valid):
+                    valid_mask = valid.to_numpy() if hasattr(valid, "to_numpy") else np.asarray(valid)
+                    xnum = np.full(len(xser), np.nan, dtype=float)
+                    dt_values = x_dt[valid] if hasattr(x_dt, "__getitem__") else np.asarray(x_dt)[valid_mask]
+                    dt_series = pd.Series(dt_values)
+                    dt_series = pd.to_datetime(dt_series, errors="coerce")
+                    xnum[valid_mask] = mdates.date2num(dt_series.to_numpy(dtype="datetime64[ns]"))
+                    mask = np.isfinite(xnum) & (xnum >= lower) & (xnum <= upper)
+                    if mask.any():
+                        df_view = self._df.loc[mask].copy()
+                else:
+                    use_datetime = False
+            if df_view is None:
                 xnum = pd.to_numeric(xser, errors="coerce")
-                mask = (xnum >= xmin) & (xnum <= xmax)
-                df_view = self._df.loc[mask].copy()
+                xarr = xnum.to_numpy() if hasattr(xnum, "to_numpy") else np.asarray(xnum)
+                mask = np.isfinite(xarr) & (xarr >= lower) & (xarr <= upper)
+                if mask.any():
+                    df_view = self._df.loc[mask].copy()
         except Exception:
             xnum = pd.to_numeric(xser, errors="coerce")
-            mask = (xnum >= xmin) & (xnum <= xmax)
+            xarr = xnum.to_numpy() if hasattr(xnum, "to_numpy") else np.asarray(xnum)
+            mask = np.isfinite(xarr) & (xarr >= lower) & (xarr <= upper)
             df_view = self._df.loc[mask].copy()
+
+        if df_view is None or df_view.empty:
+            fallback_df = None
+            fallback_use_datetime = use_datetime
+            try:
+                import matplotlib.dates as mdates
+
+                def _line_to_numeric(values):
+                    arr = np.asarray(values)
+                    if arr.size == 0:
+                        return arr.astype(float), False
+                    if np.issubdtype(arr.dtype, np.number):
+                        return arr.astype(float), False
+                    numeric = pd.to_numeric(arr, errors="coerce")
+                    if hasattr(numeric, "to_numpy"):
+                        numeric_arr = numeric.to_numpy()
+                    else:
+                        numeric_arr = np.asarray(numeric, dtype=float)
+                    if numeric_arr.size and np.isfinite(numeric_arr).any():
+                        return numeric_arr, False
+                    dt_series = pd.Series(pd.to_datetime(arr, errors="coerce"))
+                    valid = dt_series.notna()
+                    if not valid.any():
+                        return numeric_arr, False
+                    numeric_arr = np.full(len(dt_series), np.nan, dtype=float)
+                    numeric_arr[valid.to_numpy()] = mdates.date2num(dt_series[valid].to_numpy(dtype="datetime64[ns]"))
+                    return numeric_arr, True
+
+                for i, ln in enumerate(ax.get_lines()):
+                    x_raw = ln.get_xdata(orig=False)
+                    y_raw = ln.get_ydata(orig=False)
+                    x_numeric, line_is_datetime = _line_to_numeric(x_raw)
+                    if x_numeric.size == 0:
+                        continue
+                    y_arr = np.asarray(y_raw)
+                    if y_arr.size == 0:
+                        continue
+                    mask_line = np.isfinite(x_numeric) & (x_numeric >= lower) & (x_numeric <= upper)
+                    if not mask_line.any():
+                        continue
+                    x_filtered = x_numeric[mask_line]
+                    y_filtered = y_arr[mask_line]
+                    label = ln.get_label() if ln.get_label() and not ln.get_label().startswith('_') else f'y{i+1}'
+                    line_df = pd.DataFrame({"__x__": x_filtered, label: y_filtered})
+                    fallback_df = line_df if fallback_df is None else pd.merge(fallback_df, line_df, on="__x__", how="outer")
+                    fallback_use_datetime = fallback_use_datetime or line_is_datetime
+
+                if fallback_df is not None and not fallback_df.empty:
+                    fallback_df.sort_values("__x__", inplace=True)
+                    fallback_df.reset_index(drop=True, inplace=True)
+                    if fallback_use_datetime:
+                        dt_series = pd.Series(pd.to_datetime(mdates.num2date(fallback_df["__x__"].to_numpy())))
+                        try:
+                            dt_series = dt_series.dt.tz_localize(None)
+                        except (TypeError, AttributeError, ValueError):
+                            pass
+                        fallback_df[xcol] = dt_series.to_numpy()
+                    else:
+                        fallback_df[xcol] = fallback_df["__x__"]
+                    ordered_cols = [xcol] + [c for c in fallback_df.columns if c not in {"__x__", xcol}]
+                    df_view = fallback_df[ordered_cols]
+            except Exception:
+                pass
 
         if df_view is None or df_view.empty:
             QMessageBox.information(self, "ไม่มีข้อมูลในช่วงนี้", "ช่วงที่แสดงอยู่ไม่มีข้อมูลให้ส่งออก")
