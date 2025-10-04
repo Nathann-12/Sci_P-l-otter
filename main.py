@@ -96,12 +96,13 @@ from dialogs import MultiDimSliceDialog, ColumnTypeDialog
 from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
 from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
 from dialogs import DerivedColumnDialog  # UI-DERIVED: Derived Column dialog
+from dialogs_fit import NonlinearFitDialog
 from dialogs_spectrogram import SpectrogramDialog  # UI-SPECTROGRAM: Spectrogram dialog
 from dialogs_histogram import HistogramDialog  # NEW: Histogram dialog
 from charts_gallery import ChartGalleryMenu
 from dialogs_units import UnitsDialog  # UI-UNITS: Units and calibration dialog
 from core.units import UNIT_REGISTRY  # UI-UNITS: Unit registry for conversions
-from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
+from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft, FitResult
 from processors import _to_seconds_from_start, fit_poly_datetime, beautify_axes  # CHANGE: datetime fit helpers + plot beautification
 from processors_spectrogram import compute_spectrogram, compute_cwt, export_spectrogram_data  # UI-SPECTROGRAM: spectrogram functions
 from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config, refresh_matplotlib_canvases  # UI-REFINE: ใช้ธีมอ่านง่าย
@@ -1741,6 +1742,11 @@ class MainWindow(QMainWindow):
         df = getattr(self, 'current_df', None)
         if isinstance(df, pd.DataFrame):
             return df
+    def get_current_dataframe(self) -> pd.DataFrame:
+        """คืน DataFrame ปัจจุบัน (ถ้าไม่มีให้ผลลัพธ์ว่าง)."""
+        df = self._resolve_active_dataframe()
+        return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
         datasets = getattr(self, '_datasets', {}) if hasattr(self, '_datasets') else {}
         lst_widget = getattr(self, 'lstFiles', None)
         current_item = None
@@ -2204,8 +2210,13 @@ class MainWindow(QMainWindow):
             analysisMenu.addAction(act)
             act.triggered.connect(lambda _, k=kind: open_overlay(k))
 
+        analysisMenu.addSeparator()
+        fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
+        self.actNonlinearFit = analysisMenu.addAction(fit_icon, "Nonlinear Curve Fit…")
+        self.actNonlinearFit.triggered.connect(self.open_nonlinear_fit_dialog)
+        analysisMenu.addSeparator()
 
-        # Peak Detection submenu
+# Peak Detection submenu
         pkMenu = analysisMenu.addMenu("Peak Detection")
         self.actPkEnable = pkMenu.addAction("Enable Peak Detection"); self.actPkEnable.setCheckable(True); self.actPkEnable.setShortcut("Ctrl+Shift+P")
         self.actPkSettings = pkMenu.addAction("Settings…")
@@ -4304,6 +4315,61 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Aggregate CSV saved: {path}")
         except Exception as e:
             QMessageBox.critical(self, "Save failed", f"Reason: {e}")
+
+    def open_nonlinear_fit_dialog(self):
+        """เปิด NonlinearFitDialog พร้อม DataFrame ปัจจุบัน"""
+        df = self.get_current_dataframe()
+        if df is None or df.empty:
+            QMessageBox.information(self, "ไม่มีข้อมูล", "กรุณาโหลดข้อมูลก่อนทำการฟิต")
+            return
+        try:
+            dlg = NonlinearFitDialog(self, df)
+            dlg.exec()
+        except Exception as exc:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"เปิด Nonlinear Curve Fit ไม่สำเร็จ:\n{exc}")
+
+    def plot_fit_result_on_active_tab(self, x: np.ndarray, res: FitResult):
+        """วาดผลการฟิตและช่วงความเชื่อมั่นลงบนกราฟปัจจุบัน"""
+        tab = self.tabs.currentWidget() if hasattr(self, 'tabs') else None
+        if tab is None or not hasattr(tab, 'get_axes'):
+            return
+        try:
+            ax = tab.get_axes()
+        except Exception:
+            ax = None
+        if ax is None:
+            return
+        x_arr = np.asarray(x, dtype=float)
+        y_fit = np.asarray(res.yfit, dtype=float) if res.yfit is not None else np.array([])
+        if x_arr.size == 0 or y_fit.size == 0:
+            return
+        if x_arr.size != y_fit.size:
+            length = min(x_arr.size, y_fit.size)
+            if length <= 0:
+                return
+            x_arr = x_arr[:length]
+            y_fit = y_fit[:length]
+        order = np.argsort(x_arr)
+        xs = x_arr[order]
+        ys = y_fit[order]
+        line, = ax.plot(xs, ys, linewidth=2.0, label="Fit")
+        band = None
+        if res.ci95_lower is not None and res.ci95_upper is not None:
+            lo = np.asarray(res.ci95_lower, dtype=float)
+            hi = np.asarray(res.ci95_upper, dtype=float)
+            if lo.size == xs.size and hi.size == xs.size:
+                lo_ord = lo[order]
+                hi_ord = hi[order]
+                band = ax.fill_between(xs, lo_ord, hi_ord, alpha=0.2, label="95% CI")
+        ax.legend(loc="best")
+        ax.figure.canvas.draw_idle()
+        try:
+            artists = [line]
+            if band is not None:
+                artists.append(band)
+            tab.register_layer(artists, "Nonlinear Fit", 'line', meta={'kind': 'nonlinear_fit', 'success': res.success, 'message': res.message})
+        except Exception:
+            pass
 
     # UI-FIT: เปิด FitDialog และเตรียมข้อมูลซีรีส์ปัจจุบัน
     def _open_fit_dialog(self):

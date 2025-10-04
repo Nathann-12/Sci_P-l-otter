@@ -3,6 +3,11 @@ import numpy as np
 import pandas as pd
 import re
 import warnings
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
+import numexpr as ne
+from scipy.optimize import curve_fit
+from scipy.stats import t
 
 def add_time_bangkok(df: pd.DataFrame, time_col: str, new_col: str = None):
     """เพิ่มคอลัมน์เวลา +7 ชั่วโมง (Asia/Bangkok)"""
@@ -551,3 +556,400 @@ def evaluate_expression(df: pd.DataFrame, expression: str, engine: str = "auto")
             raise ValueError("นิพจน์มีไวยากรณ์ไม่ถูกต้อง")
         else:
             raise ValueError(f"ไม่สามารถประเมินนิพจน์ได้: {error_msg}")
+
+
+def _coerce_numeric_array(values, *, name: str) -> tuple[np.ndarray, np.ndarray]:
+    series = pd.Series(values)
+    # Try numeric conversion first
+    numeric = pd.to_numeric(series, errors='coerce')
+    numeric_mask = numeric.notna()
+    if numeric_mask.sum() >= max(2, len(series) // 2):
+        arr = numeric.to_numpy(dtype=float)
+        mask = np.isfinite(arr) & numeric_mask.to_numpy()
+        return arr, mask
+    # Try datetime conversion
+    dt = pd.to_datetime(series, errors='coerce')
+    dt_mask = dt.notna()
+    if dt_mask.sum() >= 2:
+        try:
+            t0 = dt[dt_mask].iloc[0]
+            seconds = (dt - t0).dt.total_seconds()
+            arr = seconds.to_numpy(dtype=float)
+            mask = ~np.isnan(arr)
+            return arr, mask
+        except Exception:
+            pass
+    # Fallback to numeric even if few valid points
+    arr = numeric.to_numpy(dtype=float)
+    mask = np.isfinite(arr) & numeric_mask.to_numpy()
+    return arr, mask
+
+# === Nonlinear curve fitting ===
+# หมายเหตุ: เตรียมรองรับ QThread ภายหลัง (TODO)
+
+
+def model_gaussian(x: np.ndarray, A: float, x0: float, sigma: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    sigma_pos = np.clip(np.abs(sigma), 1e-12, None)
+    return A * np.exp(-((x_arr - x0) ** 2) / (2.0 * sigma_pos ** 2)) + C
+
+
+def model_lorentzian(x: np.ndarray, A: float, x0: float, gamma: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    gamma_pos = np.clip(np.abs(gamma), 1e-12, None)
+    return A * (gamma_pos ** 2 / ((x_arr - x0) ** 2 + gamma_pos ** 2)) + C
+
+
+def model_voigt(x: np.ndarray, A: float, x0: float, sigma: float, gamma: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    sigma_pos = np.clip(np.abs(sigma), 1e-12, None)
+    gamma_pos = np.clip(np.abs(gamma), 1e-12, None)
+    gauss = np.exp(-((x_arr - x0) ** 2) / (2.0 * sigma_pos ** 2))
+    lorentz = gamma_pos ** 2 / ((x_arr - x0) ** 2 + gamma_pos ** 2)
+    f_g = 2.0 * sigma_pos * np.sqrt(2.0 * np.log(2.0))
+    f_l = 2.0 * gamma_pos
+    ratio = f_l / (f_g + 1e-12)
+    eta = 1.36603 * ratio - 0.47719 * ratio ** 2 + 0.11116 * ratio ** 3
+    eta = np.clip(eta, 0.0, 1.0)
+    return A * (eta * lorentz + (1.0 - eta) * gauss) + C
+
+
+def model_logistic(x: np.ndarray, L: float, k: float, x0: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    z = np.clip(k * (x_arr - x0), -700.0, 700.0)
+    return L / (1.0 + np.exp(-z)) + C
+
+
+def model_exp1(x: np.ndarray, A: float, tau: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    tau_pos = np.clip(np.abs(tau), 1e-12, None)
+    return A * np.exp(-x_arr / tau_pos) + C
+
+
+def model_exp2(x: np.ndarray, A1: float, tau1: float, A2: float, tau2: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    tau1_pos = np.clip(np.abs(tau1), 1e-12, None)
+    tau2_pos = np.clip(np.abs(tau2), 1e-12, None)
+    return A1 * np.exp(-x_arr / tau1_pos) + A2 * np.exp(-x_arr / tau2_pos) + C
+
+
+def model_power(x: np.ndarray, A: float, n: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
+        result = A * np.power(x_arr, n)
+    return result + C
+
+
+def model_sine(x: np.ndarray, A: float, omega: float, phi: float, C: float) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    return A * np.sin(omega * x_arr + phi) + C
+
+
+_ALLOWED_FUNCS = {
+    'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'sinh', 'cosh', 'tanh',
+    'log', 'log10', 'exp', 'sqrt', 'abs', 'where', 'minimum', 'maximum', 'clip',
+    'sign', 'floor', 'ceil', 'round', 'power', 'arcsin', 'arccos', 'arctan',
+    'arctan2', 'log1p', 'expm1'
+}
+
+
+@dataclass
+class FitResult:
+    params: Dict[str, float]
+    stderr: Dict[str, float]
+    cov: np.ndarray
+    success: bool
+    message: str
+    r2: float
+    rmse: float
+    chi2_red: float
+    aic: float
+    bic: float
+    yfit: np.ndarray
+    ci95_lower: Optional[np.ndarray]
+    ci95_upper: Optional[np.ndarray]
+
+
+def build_custom_callable(expr: str, param_names: List[str]) -> Callable[..., np.ndarray]:
+    if not expr:
+        raise ValueError('นิพจน์ว่างเปล่า')
+    raw = expr.strip()
+    if raw.lower().startswith('y='):
+        raw = raw.split('=', 1)[1].strip()
+    names = [p.strip() for p in (param_names or []) if p.strip()]
+    if not names:
+        raise ValueError('ต้องระบุชื่อพารามิเตอร์อย่างน้อย 1 ตัว')
+    if len(set(names)) != len(names):
+        raise ValueError('ชื่อพารามิเตอร์ซ้ำกัน')
+    tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", raw))
+    allowed = set(names) | _ALLOWED_FUNCS | {'x', 'pi', 'e'}
+    illegal = sorted(token for token in tokens if token not in allowed)
+    if illegal:
+        raise ValueError(f"พบตัวแปรที่ไม่รองรับ: {', '.join(illegal)}")
+
+    def _call(x: np.ndarray, *params: float) -> np.ndarray:
+        if len(params) != len(names):
+            raise ValueError('จำนวนพารามิเตอร์ไม่ตรงกับรายชื่อที่กำหนด')
+        x_arr = np.asarray(x, dtype=float)
+        local = {'x': x_arr, 'pi': np.pi, 'e': np.e}
+        for key, value in zip(names, params):
+            local[key] = value
+        try:
+            result = ne.evaluate(raw, local_dict=local, global_dict={}, truediv=True)
+        except Exception as exc:  # pragma: no cover - ควรแจ้งผู้ใช้
+            raise ValueError(f'คำนวณนิพจน์ไม่สำเร็จ: {exc}') from exc
+        return np.asarray(result, dtype=float)
+
+    return _call
+
+
+def _calc_metrics(y_obs: np.ndarray, y_fit: np.ndarray, param_count: int, sigma: Optional[np.ndarray] = None) -> Tuple[float, float, float, float, float]:
+    y_obs = np.asarray(y_obs, dtype=float)
+    y_fit = np.asarray(y_fit, dtype=float)
+    resid = y_obs - y_fit
+    n = max(1, y_obs.size)
+    k = max(1, int(param_count))
+    rss = float(np.sum(resid ** 2))
+    mean_y = float(np.mean(y_obs))
+    tss = float(np.sum((y_obs - mean_y) ** 2))
+    r2 = 1.0 - rss / tss if tss > 0 else np.nan
+    rmse = np.sqrt(rss / n)
+    if sigma is not None:
+        sigma_arr = np.asarray(sigma, dtype=float)
+        sigma_arr = np.where(sigma_arr > 0, sigma_arr, np.nan)
+        chi_sq = float(np.nansum(((resid) / sigma_arr) ** 2))
+    else:
+        chi_sq = rss
+    dof = max(1, n - k)
+    chi2_red = chi_sq / dof
+    rss_safe = rss if rss > 0 else np.finfo(float).tiny
+    aic = n * np.log(rss_safe / n) + 2 * k
+    bic = n * np.log(rss_safe / n) + k * np.log(n)
+    return r2, rmse, chi2_red, aic, bic
+
+
+def _predict_ci(x: np.ndarray, func: Callable[..., np.ndarray], popt: Sequence[float], pcov: np.ndarray, alpha: float = 0.05) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    if pcov is None:
+        return None, None
+    pcov = np.asarray(pcov, dtype=float)
+    if pcov.ndim != 2 or pcov.shape[0] != pcov.shape[1]:
+        return None, None
+    if not np.all(np.isfinite(pcov)):
+        return None, None
+    if np.any(np.diag(pcov) < 0):
+        return None, None
+    x_arr = np.asarray(x, dtype=float)
+    popt_arr = np.asarray(popt, dtype=float)
+    try:
+        y_pred = func(x_arr, *popt_arr)
+    except Exception:
+        return None, None
+    eps = np.maximum(1e-8, 1e-8 * np.abs(popt_arr))
+    jac_rows: List[np.ndarray] = []
+    for idx, h in enumerate(eps):
+        step = np.zeros_like(popt_arr)
+        step[idx] = h
+        try:
+            y_plus = func(x_arr, *(popt_arr + step))
+            y_minus = func(x_arr, *(popt_arr - step))
+        except Exception:
+            return None, None
+        grad = (y_plus - y_minus) / (2.0 * h)
+        jac_rows.append(np.asarray(grad, dtype=float))
+    jac = np.column_stack(jac_rows)
+    try:
+        pred_var = np.einsum('ij,jk,ik->i', jac, pcov, jac, optimize=True)
+    except Exception:
+        return None, None
+    pred_var = np.maximum(pred_var, 0.0)
+    se = np.sqrt(pred_var)
+    dof = max(1, x_arr.size - popt_arr.size)
+    try:
+        crit = float(t.ppf(1.0 - alpha / 2.0, dof))
+    except Exception:
+        crit = 1.96
+    if not np.isfinite(crit) or crit <= 0:
+        crit = 1.96
+    delta = crit * se
+    return y_pred - delta, y_pred + delta
+
+
+_MODEL_REGISTRY: Dict[str, Tuple[Callable[..., np.ndarray], List[str]]] = {
+    'gaussian': (model_gaussian, ['A', 'x0', 'sigma', 'C']),
+    'lorentzian': (model_lorentzian, ['A', 'x0', 'gamma', 'C']),
+    'voigt': (model_voigt, ['A', 'x0', 'sigma', 'gamma', 'C']),
+    'logistic': (model_logistic, ['L', 'k', 'x0', 'C']),
+    'exp1': (model_exp1, ['A', 'tau', 'C']),
+    'exp2': (model_exp2, ['A1', 'tau1', 'A2', 'tau2', 'C']),
+    'power': (model_power, ['A', 'n', 'C']),
+    'sine': (model_sine, ['A', 'omega', 'phi', 'C'])
+}
+
+
+def nonlinear_fit(
+    x: np.ndarray,
+    y: np.ndarray,
+    model_name: str,
+    init_params: Optional[Dict[str, float]],
+    bounds: Optional[Dict[str, Tuple[float, float]]] = None,
+    sigma: Optional[np.ndarray] = None,
+    weighting: str = 'none',
+    custom_expr: Optional[str] = None,
+    custom_params: Optional[List[str]] = None,
+    calc_ci: bool = True
+) -> FitResult:
+    model_key = (model_name or '').strip().lower()
+    registry = dict(_MODEL_REGISTRY)
+    if model_key == 'custom':
+        if not custom_expr or not custom_params:
+            raise ValueError('ต้องระบุสมการและพารามิเตอร์สำหรับโมเดล Custom')
+        func = build_custom_callable(custom_expr, custom_params)
+        param_names = [p.strip() for p in custom_params if p.strip()]
+    else:
+        if model_key not in registry:
+            raise ValueError(f'ไม่พบโมเดล {model_name}')
+        func, param_names = registry[model_key]
+    init_params = init_params or {}
+    x_raw = np.asarray(x).ravel()
+    y_raw = np.asarray(y).ravel()
+    if x_raw.size != y_raw.size:
+        raise ValueError('ขนาดของ X และ Y ไม่ตรงกัน')
+
+    x_arr, mask_x = _coerce_numeric_array(x_raw, name='X')
+    y_arr, mask_y = _coerce_numeric_array(y_raw, name='Y')
+    if x_arr.size != x_raw.size or y_arr.size != y_raw.size:
+        # Ensure arrays align even if pandas converted internally
+        x_arr = np.asarray(x_arr).reshape(-1)
+        y_arr = np.asarray(y_arr).reshape(-1)
+    mask = mask_x & mask_y
+    sigma_arr = None
+    if sigma is not None:
+        sigma_raw = np.asarray(sigma).ravel()
+        if sigma_raw.size != x_raw.size:
+            raise ValueError('จำนวนค่าความคลาดเคลื่อนไม่ตรงกับข้อมูล')
+        sigma_arr, mask_sigma = _coerce_numeric_array(sigma_raw, name='sigma')
+        mask &= mask_sigma
+    mask &= np.isfinite(x_arr) & np.isfinite(y_arr)
+    if sigma_arr is not None:
+        if weighting in ('sigma', '1/sigma^2'):
+            mask &= sigma_arr > 0
+        mask &= np.isfinite(sigma_arr)
+
+    x_valid = x_arr[mask]
+    y_valid = y_arr[mask]
+    sigma_valid = sigma_arr[mask] if sigma_arr is not None else None
+    if x_valid.size < len(param_names) + 1:
+        raise ValueError('ข้อมูลไม่พอสำหรับการฟิตพารามิเตอร์')
+    default_guess = {
+        'A': float(np.nanmax(y_valid) - np.nanmin(y_valid)) if y_valid.size else 1.0,
+        'A1': 1.0,
+        'A2': 0.5,
+        'x0': float(np.nanmean(x_valid)) if x_valid.size else 0.0,
+        'sigma': max(float(np.nanstd(x_valid)), 1.0),
+        'gamma': 1.0,
+        'tau': 1.0,
+        'tau1': 1.0,
+        'tau2': 5.0,
+        'n': 1.0,
+        'omega': 1.0,
+        'phi': 0.0,
+        'C': float(np.nanmin(y_valid)) if y_valid.size else 0.0,
+        'L': float(np.nanmax(y_valid)) if y_valid.size else 1.0,
+        'k': 1.0
+    }
+    p0: List[float] = []
+    lower_bounds: List[float] = []
+    upper_bounds: List[float] = []
+    for name in param_names:
+        guess = init_params.get(name, default_guess.get(name, 1.0))
+        if not np.isfinite(guess):
+            guess = default_guess.get(name, 1.0)
+        lower, upper = (-np.inf, np.inf)
+        if bounds and name in bounds:
+            lower, upper = bounds[name]
+        if name.lower().startswith(('sigma', 'gamma', 'tau')) or name.lower() in {'tau1', 'tau2'}:
+            lower = max(lower, 1e-12)
+            guess = max(guess, 1e-6)
+        if np.isfinite(lower) and guess < lower:
+            guess = lower + abs(lower) * 0.1 if lower != 0 else 1e-6
+        if np.isfinite(upper) and guess > upper:
+            guess = upper - abs(upper) * 0.1 if upper != 0 else upper - 1e-6
+        p0.append(float(guess))
+        lower_bounds.append(float(lower))
+        upper_bounds.append(float(upper))
+    sigma_curve = None
+    sigma_for_metrics = None
+    absolute_sigma = False
+    if sigma_valid is not None and sigma_valid.size:
+        sigma_for_metrics = sigma_valid
+        if weighting == 'sigma':
+            sigma_curve = sigma_valid
+            absolute_sigma = True
+        elif weighting == '1/sigma^2':
+            sigma_curve = np.sqrt(1.0 / np.clip(sigma_valid, 1e-12, None))
+        else:
+            sigma_curve = None
+    bounds_tuple = (np.array(lower_bounds, dtype=float), np.array(upper_bounds, dtype=float))
+    y_init = func(x_valid, *p0)
+    try:
+        popt, pcov = curve_fit(
+            func,
+            x_valid,
+            y_valid,
+            p0=np.asarray(p0, dtype=float),
+            bounds=bounds_tuple,
+            sigma=sigma_curve,
+            absolute_sigma=absolute_sigma,
+            maxfev=20000
+        )
+        success = True
+        message = 'OK'
+    except Exception as exc:
+        pcov = np.full((len(param_names), len(param_names)), np.nan, dtype=float)
+        params = {name: float(val) for name, val in zip(param_names, p0)}
+        stderr = {name: np.nan for name in param_names}
+        return FitResult(
+            params=params,
+            stderr=stderr,
+            cov=pcov,
+            success=False,
+            message=str(exc),
+            r2=np.nan,
+            rmse=np.nan,
+            chi2_red=np.nan,
+            aic=np.nan,
+            bic=np.nan,
+            yfit=y_init,
+            ci95_lower=None,
+            ci95_upper=None
+        )
+    params = {name: float(val) for name, val in zip(param_names, popt)}
+    if pcov is None:
+        pcov = np.full((len(param_names), len(param_names)), np.nan, dtype=float)
+    stderr = {}
+    diag = np.diag(pcov) if pcov.size else np.array([])
+    for idx, name in enumerate(param_names):
+        if idx < diag.size and diag[idx] >= 0:
+            stderr[name] = float(np.sqrt(diag[idx]))
+        else:
+            stderr[name] = np.nan
+    y_fit = func(x_valid, *popt)
+    metrics = _calc_metrics(y_valid, y_fit, len(param_names), sigma_for_metrics)
+    ci_lower = ci_upper = None
+    if calc_ci:
+        ci_lower, ci_upper = _predict_ci(x_valid, func, popt, pcov)
+    return FitResult(
+        params=params,
+        stderr=stderr,
+        cov=np.asarray(pcov, dtype=float),
+        success=success,
+        message=message,
+        r2=metrics[0],
+        rmse=metrics[1],
+        chi2_red=metrics[2],
+        aic=metrics[3],
+        bic=metrics[4],
+        yfit=y_fit,
+        ci95_lower=ci_lower,
+        ci95_upper=ci_upper
+    )

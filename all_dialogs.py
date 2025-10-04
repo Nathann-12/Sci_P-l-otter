@@ -450,14 +450,20 @@ class FitDialog(QDialog):
         layout.addWidget(self.canvas)
 
         row = QHBoxLayout()
+        self.btnOpenNonlinear = QPushButton("Nonlinear Fit…")
         self.btnPreview = QPushButton("Preview")
         self.btnOk = QPushButton("OK")
         self.btnCancel = QPushButton("Cancel")
-        row.addStretch(1); row.addWidget(self.btnPreview); row.addWidget(self.btnOk); row.addWidget(self.btnCancel)
+        row.addStretch(1)
+        row.addWidget(self.btnOpenNonlinear)
+        row.addWidget(self.btnPreview)
+        row.addWidget(self.btnOk)
+        row.addWidget(self.btnCancel)
         layout.addLayout(row)
 
         # signals
         self.cbModel.currentTextChanged.connect(self._update_degree_visibility)
+        self.btnOpenNonlinear.clicked.connect(self._open_nonlinear_dialog)
         self.btnPreview.clicked.connect(self._preview)
         self.btnOk.clicked.connect(self.accept)
         self.btnCancel.clicked.connect(self.reject)
@@ -483,6 +489,15 @@ class FitDialog(QDialog):
             "show_eq": bool(self.chkEq.isChecked()),
             "show_resid": bool(self.chkResid.isChecked()),
         }
+
+    def _open_nonlinear_dialog(self):
+        parent = self.parent()
+        opener = getattr(parent, "open_nonlinear_fit_dialog", None) if parent else None
+        if callable(opener):
+            self.reject()
+            opener()
+        else:
+            QMessageBox.information(self, "ไม่พร้อมใช้งาน", "ไม่พบ Nonlinear Curve Fit dialog ในหน้าหลัก")
 
     def _preview(self):
         # UI-FIT: แสดงเส้นข้อมูล + ผลฟิตอย่างหยาบด้วย NumPy (ไม่ใช้ SciPy เพื่อรักษา dependency)
