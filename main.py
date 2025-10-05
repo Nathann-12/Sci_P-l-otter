@@ -7,6 +7,8 @@ import logging
 import locale
 import json
 import itertools
+import math
+from datetime import datetime, date
 
 # Set up logging (will be overridden by setup_logging() in main())
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +61,175 @@ matplotlib.rcParams["axes.formatter.use_locale"] = False
 matplotlib.rcParams["axes.formatter.use_mathtext"] = False
 matplotlib.rcParams["axes.unicode_minus"] = False
 
+
+def _to_sequence_for_plot(values):
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        return list(values)
+    try:
+        import numpy as _np
+        if isinstance(values, _np.ndarray):
+            return values.tolist()
+    except Exception:
+        pass
+    try:
+        import pandas as _pd
+        if isinstance(values, (_pd.Series, _pd.Index)):
+            return values.tolist()
+    except Exception:
+        pass
+    try:
+        return list(values)
+    except TypeError:
+        return [values]
+
+
+def _is_invalid_plot_value(value):
+    if value is None:
+        return True
+    try:
+        import pandas as _pd
+        if isinstance(value, _pd.Timestamp):
+            try:
+                if not (1 <= value.year <= 9999):
+                    return True
+            except Exception:
+                return True
+        if _pd.isna(value):
+            return True
+    except Exception:
+        pass
+    try:
+        import numpy as _np
+        if isinstance(value, _np.datetime64):
+            try:
+                import pandas as _pd
+                ts = _pd.Timestamp(value)
+                if not (1 <= ts.year <= 9999):
+                    return True
+                value = ts.to_pydatetime()
+            except Exception:
+                return True
+    except Exception:
+        pass
+    if isinstance(value, (datetime, date)):
+        year = value.year
+        if year < 1 or year > 9999:
+            return True
+        return False
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return True
+        if stripped.lower() in {"nan", "nat", "none"}:
+            return True
+        return False
+    try:
+        import numpy as _np
+        if isinstance(value, (_np.floating, float)):
+            return not math.isfinite(float(value))
+        if isinstance(value, (_np.integer, int)):
+            return False
+        if isinstance(value, (_np.complexfloating, complex)):
+            return not (math.isfinite(value.real) and math.isfinite(value.imag))
+    except Exception:
+        pass
+    return False
+
+
+def _sanitize_plot_xy(x, y):
+    x_seq = _to_sequence_for_plot(x)
+    y_seq = _to_sequence_for_plot(y)
+    if not x_seq or not y_seq:
+        return [], []
+    length = min(len(x_seq), len(y_seq))
+    filtered_x = []
+    filtered_y = []
+    for xv, yv in zip(x_seq[:length], y_seq[:length]):
+        if _is_invalid_plot_value(xv) or _is_invalid_plot_value(yv):
+            continue
+        filtered_x.append(xv)
+        filtered_y.append(yv)
+    return filtered_x, filtered_y
+
+
+
+
+def _prepare_plot_data(x, y):
+    filtered_x, filtered_y = _sanitize_plot_xy(x, y)
+    if not filtered_x or not filtered_y:
+        return [], [], False
+    try:
+        import pandas as _pd
+        ser = _pd.to_datetime(filtered_x, errors='coerce')
+        mask = ser.notna()
+        valid = mask.sum()
+        if valid >= max(2, int(0.6 * len(filtered_x))):
+            filtered_y = [filtered_y[i] for i, ok in enumerate(mask) if ok]
+            filtered_x = ser[mask].to_pydatetime().tolist()
+        else:
+            ser = None
+    except Exception:
+        ser = None
+    x_is_datetime = False
+    if filtered_y:
+        if ser is not None:
+            try:
+                import matplotlib.dates as _mdates
+                filtered_x = _mdates.date2num(filtered_x)
+                x_is_datetime = True
+            except Exception:
+                filtered_x = [fx for fx in filtered_x]
+        elif isinstance(filtered_x[0], (datetime, date)):
+            try:
+                import matplotlib.dates as _mdates
+                filtered_x = _mdates.date2num(filtered_x)
+                x_is_datetime = True
+            except Exception:
+                filtered_x = [fx for fx in filtered_x]
+    return list(filtered_x), list(filtered_y), x_is_datetime
+def _axis_uses_dates(axis):
+    try:
+        import matplotlib.dates as mdates
+        if isinstance(axis.get_major_locator(), mdates.DateLocator):
+            return True
+        converter = getattr(axis, 'converter', None)
+        return isinstance(converter, mdates.DateConverter)
+    except Exception:
+        return False
+
+
+def _clamp_date_limits(ax):
+    import matplotlib.dates as mdates
+    min_ord = mdates.date2num(datetime(1, 1, 1))
+    max_ord = mdates.date2num(datetime(9999, 12, 31))
+    targets = ((ax.get_xlim, ax.set_xlim, ax.xaxis), (ax.get_ylim, ax.set_ylim, ax.yaxis))
+    for getter, setter, axis in targets:
+        try:
+            lo, hi = getter()
+            if not (math.isfinite(lo) and math.isfinite(hi)):
+                continue
+            try:
+                mdates.num2date(lo)
+                mdates.num2date(hi)
+                within_range = True
+            except ValueError:
+                within_range = False
+            if not within_range or _axis_uses_dates(axis):
+                original_lo, original_hi = lo, hi
+                if lo < min_ord:
+                    lo = min_ord
+                if hi > max_ord:
+                    hi = max_ord
+                if lo >= hi:
+                    lo, hi = min_ord, max_ord
+                if lo != original_lo or hi != original_hi:
+                    setter(lo, hi)
+        except Exception:
+            continue
+
+
 # Load custom dark style if available
 try:
     style_path = os.path.join(os.path.dirname(__file__), "styles", "mpl_style_dark_pro.mplstyle")
@@ -90,6 +261,133 @@ except Exception:
     matplotlib.rcParams["font.family"] = "Segoe UI"  # Fallback
 
 matplotlib.rcParams["axes.unicode_minus"] = False
+
+
+def _to_sequence_for_plot(values):
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        return list(values)
+    try:
+        import numpy as _np
+        if isinstance(values, _np.ndarray):
+            return values.tolist()
+    except Exception:
+        pass
+    try:
+        import pandas as _pd
+        if isinstance(values, (_pd.Series, _pd.Index)):
+            return values.tolist()
+    except Exception:
+        pass
+    try:
+        return list(values)
+    except TypeError:
+        return [values]
+
+
+def _is_invalid_plot_value(value):
+    if value is None:
+        return True
+    try:
+        import pandas as _pd
+        if isinstance(value, _pd.Timestamp):
+            try:
+                if not (1 <= value.year <= 9999):
+                    return True
+            except Exception:
+                return True
+        if _pd.isna(value):
+            return True
+    except Exception:
+        pass
+    try:
+        import numpy as _np
+        if isinstance(value, _np.datetime64):
+            try:
+                import pandas as _pd
+                ts = _pd.Timestamp(value)
+                if not (1 <= ts.year <= 9999):
+                    return True
+                value = ts.to_pydatetime()
+            except Exception:
+                return True
+    except Exception:
+        pass
+    if isinstance(value, (datetime, date)):
+        year = value.year
+        if year < 1 or year > 9999:
+            return True
+        return False
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return True
+        if stripped.lower() in {"nan", "nat", "none"}:
+            return True
+        return False
+    try:
+        import numpy as _np
+        if isinstance(value, (_np.floating, float)):
+            return not math.isfinite(float(value))
+        if isinstance(value, (_np.integer, int)):
+            return False
+        if isinstance(value, (_np.complexfloating, complex)):
+            return not (math.isfinite(value.real) and math.isfinite(value.imag))
+    except Exception:
+        pass
+    return False
+
+
+def _sanitize_plot_xy(x, y):
+    x_seq = _to_sequence_for_plot(x)
+    y_seq = _to_sequence_for_plot(y)
+    if not x_seq or not y_seq:
+        return [], []
+    length = min(len(x_seq), len(y_seq))
+    filtered_x = []
+    filtered_y = []
+    for xv, yv in zip(x_seq[:length], y_seq[:length]):
+        if _is_invalid_plot_value(xv) or _is_invalid_plot_value(yv):
+            continue
+        filtered_x.append(xv)
+        filtered_y.append(yv)
+    return filtered_x, filtered_y
+
+
+def _axis_uses_dates(axis):
+    try:
+        import matplotlib.dates as mdates
+        return isinstance(axis.get_major_locator(), mdates.DateLocator)
+    except Exception:
+        return False
+
+
+def _clamp_date_limits(ax):
+    import matplotlib.dates as mdates
+    min_ord = mdates.date2num(datetime(1, 1, 1))
+    max_ord = mdates.date2num(datetime(9999, 12, 31))
+    for getter, setter, axis in ((ax.get_xlim, ax.set_xlim, ax.xaxis), (ax.get_ylim, ax.set_ylim, ax.yaxis)):
+        if not _axis_uses_dates(axis):
+            continue
+        try:
+            lo, hi = getter()
+            if not (math.isfinite(lo) and math.isfinite(hi)):
+                continue
+            changed = False
+            if lo < min_ord:
+                lo = min_ord
+                changed = True
+            if hi > max_ord:
+                hi = max_ord
+                changed = True
+            if changed:
+                if lo >= hi:
+                    lo, hi = min_ord, max_ord
+                setter(lo, hi)
+        except Exception:
+            continue
+
 
 from loaders import load_tabular, load_cdf_nc_on_demand
 from dialogs import MultiDimSliceDialog, ColumnTypeDialog
@@ -173,7 +471,6 @@ class PlotCanvas(FigureCanvas):
             super().draw()
             print(f"Debug: PlotCanvas.draw() completed successfully")
         except Exception as e:
-            print(f"Debug: PlotCanvas.draw() failed: {e}")
             try:
                 self.fig.canvas.draw()
                 print(f"Debug: Fallback fig.canvas.draw() completed successfully")
@@ -303,11 +600,8 @@ class GraphTab(QWidget):
     def draw(self):
         """Draw the canvas with error handling"""
         try:
-            print(f"Debug: GraphTab.draw() called for tab {self.tab_id}")
             self.canvas.draw()
-            print(f"Debug: GraphTab.draw() completed successfully")
         except Exception as e:
-            print(f"Debug: GraphTab.draw() failed: {e}")
             try:
                 self.canvas.fig.canvas.draw()
                 print(f"Debug: Fallback canvas.draw() completed successfully")
@@ -733,151 +1027,214 @@ class TabManager(QTabWidget):
                     break
         return result
         
-    def plot_to_tabs(self, tab_ids, x, y, label="", style="line", meta: Optional[Dict[str, Any]] = None, **kwargs):
-        """
-        Plot data to specified tabs. If the main window is in overlay mode, defer
-        to add_series_to_tabs so existing layers are preserved.
-        """
-        created = []
-        for tab_id in tab_ids:
-            if tab_id not in self.tabs:
-                continue
-            tab = self.tabs[tab_id]
-            ax = tab.get_axes()
-            try:
-                mw = self.parent() if hasattr(self, 'parent') else None
-                mode = getattr(mw, 'plot_mode', None)
-            except Exception:
-                mode = None
-            overlay_mode = mode is not None and not str(mode).endswith('REPLACE')
-            if overlay_mode:
-                created.extend(self.add_series_to_tabs([tab_id], x, y, label=label, style=style, meta=meta, **kwargs))
-                continue
-            tab.clear_layers()
-            ax.clear()
-            local_kwargs = dict(kwargs)
-            artists = []
-            if style == "line":
-                artists = list(ax.plot(x, y, label=label, **local_kwargs))
-            elif style == "scatter":
-                artists = [ax.scatter(x, y, label=label, **local_kwargs)]
-            elif style == "bar":
-                container = ax.bar(range(len(x)), y, label=label, **local_kwargs)
-                artists = list(container)
-                ax.set_xticks(range(len(x)))
-                try:
-                    ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
-                except Exception:
-                    pass
-            elif style == "histogram":
-                hist = ax.hist(y, label=label, **local_kwargs)
-                artists = list(hist[2]) if len(hist) >= 3 else []
-            else:
-                artists = list(ax.plot(x, y, label=label, **local_kwargs))
-            ax.relim(); ax.autoscale_view()
-            ax.grid(True, alpha=0.3)
-            if label:
-                try:
-                    ax.legend(loc="best")
-                except Exception:
-                    pass
-            try:
-                tab.canvas.fig.tight_layout()
-            except Exception:
-                pass
-            try:
-                tab.draw()
-            except Exception:
-                try:
-                    tab.canvas.draw()
-                except Exception:
-                    try:
-                        tab.canvas.fig.canvas.draw_idle()
-                    except Exception:
-                        pass
-            layer_meta = dict(meta or {})
-            layer_meta.setdefault('style', style)
-            if label:
-                layer_meta.setdefault('label', label)
-            layer_id = tab.register_layer(artists, label or "", style, meta=layer_meta, kwargs=local_kwargs)
-            if layer_id:
-                created.append((tab_id, layer_id))
-                if hasattr(tab, '_refresh_legend'):
-                    tab._refresh_legend()
-        return created
 
-    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
-        """Overlay a new series onto existing plots without clearing."""
-        created = []
-        base_kwargs = dict(kwargs)
-        for tab_id in tab_ids:
-            if tab_id not in self.tabs:
-                continue
-            tab = self.tabs[tab_id]
-            ax = tab.get_axes()
-            auto_label = label
-            if not auto_label:
+
+        def plot_to_tabs(self, tab_ids, x, y, label="", style="line", meta: Optional[Dict[str, Any]] = None, **kwargs):
+            """Plot data to specified tabs. If overlay mode is active, defer to add_series."""
+            created = []
+            base_kwargs = dict(kwargs)
+            for tab_id in tab_ids:
+                if tab_id not in self.tabs:
+                    continue
+                tab = self.tabs[tab_id]
+                ax = tab.get_axes()
                 try:
-                    auto_label = f"Series {len([l for l in ax.get_lines() if not l.get_label().startswith('_')]) + 1}"
+                    mw = self.parent() if hasattr(self, 'parent') else None
+                    mode = getattr(mw, 'plot_mode', None)
                 except Exception:
-                    auto_label = "Series"
-            local_kwargs = dict(base_kwargs)
-            artists = []
-            try:
-                if style == "line":
-                    artists = list(ax.plot(x, y, label=auto_label, **local_kwargs))
-                elif style == "scatter":
-                    artists = [ax.scatter(x, y, label=auto_label, **local_kwargs)]
-                elif style == "bar":
-                    container = ax.bar(range(len(x)), y, label=auto_label, **local_kwargs)
-                    artists = list(container)
-                    ax.set_xticks(range(len(x)))
+                    mode = None
+                overlay_mode = mode is not None and not str(mode).endswith('REPLACE')
+                if overlay_mode:
+                    created.extend(self.add_series_to_tabs([tab_id], x, y, label=label, style=style, meta=meta, **kwargs))
+                    continue
+                tab.clear_layers()
+                ax.clear()
+                local_kwargs = dict(base_kwargs)
+                artists = []
+                auto_label = label
+                if not auto_label:
                     try:
-                        ax.set_xticklabels(list(map(str, x)), rotation=45, ha="right")
+                        auto_label = getattr(tab, 'name', 'Series')
                     except Exception:
-                        pass
-                elif style == "histogram":
-                    hist = ax.hist(y, label=auto_label, **local_kwargs)
-                    artists = list(hist[2]) if len(hist) >= 3 else []
-                else:
-                    artists = list(ax.plot(x, y, label=auto_label, **local_kwargs))
-                ax.relim(); ax.autoscale_view()
+                        auto_label = 'Series'
+                x_vals, y_vals, x_is_datetime = _prepare_plot_data(x, y)
                 try:
-                    handles, labels = ax.get_legend_handles_labels()
-                    if any(lbl and not lbl.startswith('_') for lbl in labels):
-                        ax.legend(loc="best")
-                except Exception:
-                    pass
-                try:
-                    from processors import beautify_axes
-                    beautify_axes(ax)
-                except Exception:
-                    pass
-                try:
-                    tab.canvas.fig.tight_layout()
-                except Exception:
-                    pass
-                try:
-                    tab.draw()
-                except Exception:
-                    try:
-                        tab.canvas.draw()
-                    except Exception:
+                    if style == "histogram":
+                        hist_source = []
+                        for val in _to_sequence_for_plot(y):
+                            if _is_invalid_plot_value(val):
+                                continue
+                            try:
+                                hist_source.append(float(val))
+                            except Exception:
+                                continue
+                        if not hist_source:
+                            print(f"Debug: plot_to_tabs skipped tab {tab_id} due to no valid histogram data")
+                            continue
+                        y_vals = hist_source
+                        x_vals = list(range(len(y_vals)))
+                        x_is_datetime = False
+                        hist = ax.hist(y_vals, label=auto_label, **local_kwargs)
+                        artists = list(hist[2]) if len(hist) >= 3 else []
+                    else:
+                        if not x_vals or not y_vals:
+                            print(f"Debug: plot_to_tabs skipped tab {tab_id} due to no valid data")
+                            continue
+                        if style == "line":
+                            artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        elif style == "scatter":
+                            artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        elif style == "bar":
+                            container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
+                            artists = list(container)
+                            ax.set_xticks(range(len(x_vals)))
+                            try:
+                                ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha='right')
+                            except Exception:
+                                pass
+                        else:
+                            artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                    ax.relim(); ax.autoscale_view()
+                    if x_is_datetime and len(x_vals) >= 2:
+                        ax.set_xlim(min(x_vals), max(x_vals))
+                    _clamp_date_limits(ax)
+                    ax.grid(True, alpha=0.3)
+                    if auto_label:
                         try:
-                            tab.canvas.fig.canvas.draw_idle()
+                            ax.legend(loc="best")
                         except Exception:
                             pass
-                layer_meta = dict(meta or {})
-                layer_meta.setdefault('style', style)
-                layer_meta.setdefault('label', auto_label)
-                layer_id = tab.register_layer(artists, auto_label, style, meta=layer_meta, kwargs=local_kwargs)
-                if layer_id:
-                    created.append((tab_id, layer_id))
-                    if hasattr(tab, '_refresh_legend'):
-                        tab._refresh_legend()
-            except Exception as e:
-                print(f"Debug: add_series_to_tabs error on {tab_id}: {e}")
-        return created
+                    try:
+                        from processors import beautify_axes
+                        beautify_axes(ax, x_is_datetime=x_is_datetime)
+                    except Exception:
+                        pass
+                    _clamp_date_limits(ax)
+                    try:
+                        tab.canvas.fig.tight_layout()
+                    except Exception:
+                        pass
+                    _clamp_date_limits(ax)
+                    try:
+                        tab.draw()
+                    except Exception:
+                        try:
+                            tab.canvas.draw()
+                        except Exception:
+                            try:
+                                tab.canvas.fig.canvas.draw_idle()
+                            except Exception:
+                                pass
+                    layer_meta = dict(meta or {})
+                    layer_meta.setdefault('style', style)
+                    if label:
+                        layer_meta.setdefault('label', auto_label)
+                    layer_id = tab.register_layer(artists, auto_label or label or '', style, meta=layer_meta, kwargs=local_kwargs)
+                    if layer_id:
+                        created.append((tab_id, layer_id))
+                        if hasattr(tab, '_refresh_legend'):
+                            tab._refresh_legend()
+                except Exception as e:
+                    print(f"Debug: plot_to_tabs error on {tab_id}: {e}")
+            return created
+
+    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
+            """Overlay a new series onto existing plots without clearing."""
+            created = []
+            base_kwargs = dict(kwargs)
+            for tab_id in tab_ids:
+                if tab_id not in self.tabs:
+                    continue
+                tab = self.tabs[tab_id]
+                ax = tab.get_axes()
+                auto_label = label
+                if not auto_label:
+                    try:
+                        auto_label = f"Series {len([l for l in ax.get_lines() if not l.get_label().startswith('_')]) + 1}"
+                    except Exception:
+                        auto_label = "Series"
+                local_kwargs = dict(base_kwargs)
+                artists = []
+                x_vals, y_vals, x_is_datetime = _prepare_plot_data(x, y)
+                try:
+                    if style == "histogram":
+                        hist_source = []
+                        for val in _to_sequence_for_plot(y):
+                            if _is_invalid_plot_value(val):
+                                continue
+                            try:
+                                hist_source.append(float(val))
+                            except Exception:
+                                continue
+                        if not hist_source:
+                            print(f"Debug: add_series_to_tabs skipped tab {tab_id} due to no valid histogram data")
+                            continue
+                        y_vals = hist_source
+                        x_vals = list(range(len(y_vals)))
+                        x_is_datetime = False
+                        hist = ax.hist(y_vals, label=auto_label, **local_kwargs)
+                        artists = list(hist[2]) if len(hist) >= 3 else []
+                    else:
+                        if not x_vals or not y_vals:
+                            print(f"Debug: add_series_to_tabs skipped tab {tab_id} due to no valid data")
+                            continue
+                        if style == "line":
+                            artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        elif style == "scatter":
+                            artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        elif style == "bar":
+                            container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
+                            artists = list(container)
+                            ax.set_xticks(range(len(x_vals)))
+                            try:
+                                ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha='right')
+                            except Exception:
+                                pass
+                        else:
+                            artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                    ax.relim(); ax.autoscale_view()
+                    if x_is_datetime and len(x_vals) >= 2:
+                        ax.set_xlim(min(x_vals), max(x_vals))
+                    _clamp_date_limits(ax)
+                    try:
+                        handles, labels = ax.get_legend_handles_labels()
+                        if any(lbl and not lbl.startswith('_') for lbl in labels):
+                            ax.legend(loc='best')
+                    except Exception:
+                        pass
+                    _clamp_date_limits(ax)
+                    try:
+                        from processors import beautify_axes
+                        beautify_axes(ax, x_is_datetime=x_is_datetime)
+                    except Exception:
+                        pass
+                    _clamp_date_limits(ax)
+                    try:
+                        tab.canvas.fig.tight_layout()
+                    except Exception:
+                        pass
+                    _clamp_date_limits(ax)
+                    try:
+                        tab.draw()
+                    except Exception:
+                        try:
+                            tab.canvas.draw()
+                        except Exception:
+                            try:
+                                tab.canvas.fig.canvas.draw_idle()
+                            except Exception:
+                                pass
+                    layer_meta = dict(meta or {})
+                    layer_meta.setdefault('style', style)
+                    layer_meta.setdefault('label', auto_label)
+                    layer_id = tab.register_layer(artists, auto_label or label or '', style, meta=layer_meta, kwargs=local_kwargs)
+                    if layer_id:
+                        created.append((tab_id, layer_id))
+                        if hasattr(tab, '_refresh_legend'):
+                            tab._refresh_legend()
+                except Exception as e:
+                    print(f"Debug: add_series_to_tabs error on {tab_id}: {e}")
+            return created
 
     def add_series_to_current_tab(self, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
         """Convenience wrapper to add a series to the currently active tab without clearing."""
@@ -1623,6 +1980,7 @@ class MainWindow(QMainWindow):
                     ax.clear()
                 except Exception:
                     pass
+                _clamp_date_limits(ax)
                 try:
                     tab.clear_layers()
                 except Exception:
@@ -2121,6 +2479,7 @@ class MainWindow(QMainWindow):
                         return self.canvas.fig
                 except Exception:
                     pass
+                _clamp_date_limits(ax)
                 try:
                     tab = self.tabs.currentWidget()
                     return tab.get_figure()
@@ -3890,10 +4249,12 @@ class MainWindow(QMainWindow):
                     tab._refresh_legend()
                 except Exception:
                     pass
+                _clamp_date_limits(ax)
                 try:
                     tab.draw()
                 except Exception:
                     pass
+                _clamp_date_limits(ax)
                 try:
                     self._mount_layer_manager()
                 except Exception:

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from collections import deque
+from typing import Tuple, Dict, Any, List, Optional, Sequence
 import numpy as np
 import pandas as pd
+import warnings
 import cdflib  # pip install cdflib
 
 # นำเข้าตัวอ่าน MMS CDF ที่เราเขียนไว้
@@ -71,6 +73,10 @@ def read_csv(path: Path) -> Tuple[pd.DataFrame, Dict[str, Any]]:
             df = pd.read_csv(path, engine="python", on_bad_lines="skip")
         return df, {"source": "csv", "path": str(path), "encoding": "unknown", "sep": "auto", "file_size_mb": file_size / (1024*1024)}
     except Exception as e:
+        if isinstance(e, pd.errors.EmptyDataError):
+            raise
+        if isinstance(last_err, pd.errors.EmptyDataError):
+            raise last_err
         raise RuntimeError(f"ไม่สามารถอ่านไฟล์ CSV ได้: {e}")
 
 def _read_csv_chunked(path: Path, sep: str = None, encoding: str = "utf-8", chunk_size: int = 10000) -> pd.DataFrame:
@@ -115,12 +121,522 @@ def _read_csv_chunked(path: Path, sep: str = None, encoding: str = "utf-8", chun
 # ===========================
 # Excel
 # ===========================
-def read_excel(path: Path) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+
+# ===========================
+# Excel helpers
+# ===========================
+def _excel_cell_has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
     try:
-        df = pd.read_excel(path, engine="openpyxl")
-    except TypeError:
-        df = pd.read_excel(path)
-    return df, {"source": "xlsx", "path": str(path)}
+        if pd.isna(value):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _normalize_header_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip().lower()
+    return str(value).strip().lower()
+
+
+def _is_numeric_like(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float, np.number)):
+        try:
+            return not pd.isna(value)
+        except Exception:
+            return True
+    if isinstance(value, str):
+        val = value.strip()
+        if not val:
+            return False
+        try:
+            float(val.replace(",", ""))
+            return True
+        except ValueError:
+            return False
+    return False
+
+
+def _score_header_row(row: Sequence[Any], row_offset: int) -> float:
+    non_empty = sum(_excel_cell_has_value(v) for v in row)
+    if non_empty == 0:
+        return float("-inf")
+    string_cells = sum(1 for v in row if isinstance(v, str) and v.strip())
+    unique = len({_normalize_header_value(v) for v in row if _excel_cell_has_value(v)})
+    duplicates = max(non_empty - unique, 0)
+    numeric_like = sum(_is_numeric_like(v) for v in row)
+    return (
+        string_cells * 3.0
+        + unique * 1.5
+        + non_empty * 0.5
+        - duplicates * 1.2
+        - numeric_like * 0.7
+        - row_offset * 0.3
+    )
+
+
+def _sanitize_header(value: Any, index: int) -> str:
+    if value is None:
+        return f"column_{index + 1}"
+    text = _b2s(value).strip()
+    if not text:
+        return f"column_{index + 1}"
+    return text
+
+
+def _deduplicate_headers(headers: List[str]) -> List[str]:
+    seen: Dict[str, int] = {}
+    result: List[str] = []
+    for header in headers:
+        base = header or "column"
+        candidate = base
+        if candidate not in seen:
+            seen[candidate] = 1
+            result.append(candidate)
+            continue
+        counter = seen[candidate]
+        while True:
+            counter += 1
+            candidate = f"{base}_{counter}"
+            if candidate not in seen:
+                seen[candidate] = 1
+                seen[base] = counter
+                result.append(candidate)
+                break
+    return result
+
+
+def _clean_cell_value(value: Any) -> Any:
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return np.nan
+        return value
+    if value is None:
+        return np.nan
+    try:
+        if pd.isna(value):
+            return np.nan
+    except Exception:
+        pass
+    return value
+
+
+def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df = df.apply(lambda col: col.map(_clean_cell_value))
+    df.dropna(how="all", inplace=True)
+    if df.empty:
+        return df
+    columns_norm = [_normalize_header_value(col) for col in df.columns]
+
+    def _row_matches_header(row: pd.Series) -> bool:
+        return [_normalize_header_value(v) for v in row.tolist()] == columns_norm
+
+    mask = df.apply(_row_matches_header, axis=1)
+    if mask.any():
+        df = df.loc[~mask]
+    df.reset_index(drop=True, inplace=True)
+    return df
+
+
+def _coerce_dataframe_types(df: pd.DataFrame) -> pd.DataFrame:
+    for column in df.columns:
+        series = df[column]
+        if series.empty:
+            continue
+        not_null = series.dropna()
+        if not_null.empty:
+            continue
+        if series.dtype == object:
+            series = series.apply(_clean_cell_value)
+            df[column] = series
+            not_null = series.dropna()
+            if not_null.empty:
+                continue
+        processed = not_null.astype(str).str.strip()
+        numeric_try = pd.to_numeric(processed.str.replace(",", ""), errors="coerce")
+        if numeric_try.notna().sum() >= max(1, int(0.8 * len(not_null))):
+            df[column] = pd.to_numeric(series.astype(str).str.replace(",", ""), errors="coerce")
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            datetime_try = pd.to_datetime(processed, errors="coerce")
+        if datetime_try.notna().sum() >= max(1, int(0.8 * len(not_null))):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                df[column] = pd.to_datetime(series, errors="coerce")
+    return df
+
+
+def _format_excel_range(
+    min_row: int,
+    max_row: int,
+    min_col: int,
+    max_col: int,
+    get_column_letter,
+) -> str:
+    start = f"{get_column_letter(min_col)}{min_row}"
+    end = f"{get_column_letter(max_col)}{max_row}"
+    return f"{start}:{end}"
+
+
+def _cluster_cells(cells: Dict[tuple[int, int], Any]) -> List[set[tuple[int, int]]]:
+    clusters: List[set[tuple[int, int]]] = []
+    visited: set[tuple[int, int]] = set()
+    for cell in cells:
+        if cell in visited:
+            continue
+        queue = deque([cell])
+        cluster: set[tuple[int, int]] = set()
+        while queue:
+            row, col = queue.popleft()
+            if (row, col) in visited:
+                continue
+            visited.add((row, col))
+            cluster.add((row, col))
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                neighbor = (row + dr, col + dc)
+                if neighbor in cells and neighbor not in visited:
+                    queue.append(neighbor)
+        clusters.append(cluster)
+    return clusters
+
+
+def _extract_matrix_from_cluster(
+    cluster: set[tuple[int, int]],
+    cells: Dict[tuple[int, int], Any],
+) -> Tuple[List[List[Any]], int, int, int, int]:
+    rows = [r for r, _ in cluster]
+    cols = [c for _, c in cluster]
+    min_row, max_row = min(rows), max(rows)
+    min_col, max_col = min(cols), max(cols)
+    matrix: List[List[Any]] = []
+    for row in range(min_row, max_row + 1):
+        row_values: List[Any] = []
+        for col in range(min_col, max_col + 1):
+            row_values.append(cells.get((row, col)))
+        matrix.append(row_values)
+    return matrix, min_row, max_row, min_col, max_col
+
+
+def _detect_header_index(matrix: List[List[Any]], min_row: int) -> int:
+    if not matrix:
+        return 0
+    limit = min(len(matrix), 20)
+    best_idx = 0
+    best_score = float("-inf")
+    for idx in range(limit):
+        score = _score_header_row(matrix[idx], idx)
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+    return best_idx
+
+
+def _compute_header_stats(row: Sequence[Any]) -> Dict[str, int]:
+    non_empty = 0
+    string_cells = 0
+    numeric_like = 0
+    unique_values = set()
+    for value in row:
+        if not _excel_cell_has_value(value):
+            continue
+        non_empty += 1
+        if isinstance(value, str) and value.strip():
+            string_cells += 1
+        if _is_numeric_like(value):
+            numeric_like += 1
+        unique_values.add(_normalize_header_value(value))
+    return {
+        "non_empty": non_empty,
+        "string_cells": string_cells,
+        "numeric_like": numeric_like,
+        "unique": len(unique_values),
+    }
+
+
+def _score_candidate(
+    df: pd.DataFrame,
+    header_stats: Dict[str, int],
+    header_index: int,
+    blank_rows_removed: int,
+) -> float:
+    rows = len(df)
+    cols = len(df.columns)
+    header_bonus = header_stats.get("string_cells", 0) * 2 + header_stats.get("unique", 0)
+    numeric_penalty = header_stats.get("numeric_like", 0)
+    blank_penalty = blank_rows_removed * (cols + 1)
+    top_bonus = max(0, 5 - header_index) * 0.5
+    return rows * (cols + 2) + header_bonus + top_bonus - numeric_penalty - blank_penalty
+
+
+def _build_dataframe_from_matrix(
+    matrix: List[List[Any]],
+    header_index: int,
+) -> Tuple[pd.DataFrame, List[str], int]:
+    if not matrix:
+        return pd.DataFrame(), [], 0
+    header_row = matrix[header_index]
+    headers = [_sanitize_header(value, idx) for idx, value in enumerate(header_row)]
+    headers = _deduplicate_headers(headers)
+    width = len(headers)
+    data_rows: List[List[Any]] = []
+    for row in matrix[header_index + 1:]:
+        cleaned = [_clean_cell_value(row[col] if col < len(row) else None) for col in range(width)]
+        data_rows.append(cleaned)
+    if data_rows:
+        df = pd.DataFrame(data_rows, columns=headers)
+    else:
+        df = pd.DataFrame(columns=headers)
+    original_len = len(df)
+    df = _clean_dataframe(df)
+    cleaned_len = len(df)
+    df = _coerce_dataframe_types(df)
+    return df, headers, original_len - cleaned_len
+
+
+def _extract_tables_from_sheet(
+    ws,
+    sheet_name: str,
+    header_override: Optional[int],
+    get_column_letter,
+) -> List[Dict[str, Any]]:
+    cells: Dict[tuple[int, int], Any] = {}
+    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        for col_idx, value in enumerate(row, start=1):
+            if _excel_cell_has_value(value):
+                cells[(row_idx, col_idx)] = value
+    if not cells:
+        return []
+    clusters = _cluster_cells(cells)
+    tables: List[Dict[str, Any]] = []
+    for cluster in clusters:
+        matrix, min_row, max_row, min_col, max_col = _extract_matrix_from_cluster(cluster, cells)
+        if not matrix:
+            continue
+        if header_override is not None and min_row <= header_override <= max_row:
+            header_idx = header_override - min_row
+        else:
+            header_idx = _detect_header_index(matrix, min_row)
+        header_idx = max(0, min(header_idx, len(matrix) - 1))
+        df, headers, blank_rows_removed = _build_dataframe_from_matrix(matrix, header_idx)
+        header_stats = _compute_header_stats(matrix[header_idx])
+        table = {
+            "sheet": sheet_name,
+            "range": _format_excel_range(min_row, max_row, min_col, max_col, get_column_letter),
+            "header_row": min_row + header_idx,
+            "data_start_row": min_row + header_idx + 1,
+            "rows": int(len(df)),
+            "cols": int(len(df.columns)),
+            "columns": list(df.columns),
+            "dataframe": df,
+            "blank_rows_removed": int(blank_rows_removed),
+            "header_stats": header_stats,
+            "score": _score_candidate(df, header_stats, header_idx, blank_rows_removed),
+            "cells_span": {
+                "min_row": min_row,
+                "max_row": max_row,
+                "min_col": min_col,
+                "max_col": max_col,
+            },
+        }
+        tables.append(table)
+    return tables
+
+
+def _read_excel_range(
+    ws,
+    sheet_name: str,
+    range_ref: str,
+    header_override: Optional[int],
+    get_column_letter,
+    range_boundaries,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    min_col, min_row, max_col, max_row = range_boundaries(range_ref)
+    matrix: List[List[Any]] = []
+    for row in range(min_row, max_row + 1):
+        row_values: List[Any] = []
+        for col in range(min_col, max_col + 1):
+            row_values.append(ws.cell(row=row, column=col).value)
+        matrix.append(row_values)
+    if not matrix:
+        raise ValueError(f"Range '{range_ref}' resolved to an empty selection on sheet '{sheet_name}'")
+    if header_override is not None:
+        header_idx = header_override - min_row
+        if header_idx < 0 or header_idx >= len(matrix):
+            raise ValueError(f"Header row {header_override} is outside the range {range_ref}")
+    else:
+        header_idx = _detect_header_index(matrix, min_row)
+    header_idx = max(0, min(header_idx, len(matrix) - 1))
+    df, headers, blank_rows_removed = _build_dataframe_from_matrix(matrix, header_idx)
+    header_stats = _compute_header_stats(matrix[header_idx])
+    meta = {
+        "sheet": sheet_name,
+        "range": _format_excel_range(min_row, max_row, min_col, max_col, get_column_letter),
+        "header_row": min_row + header_idx,
+        "data_start_row": min_row + header_idx + 1,
+        "rows": int(len(df)),
+        "cols": int(len(headers)),
+        "columns": list(df.columns),
+        "score": _score_candidate(df, header_stats, header_idx, blank_rows_removed),
+        "blank_rows_removed": int(blank_rows_removed),
+        "header_stats": header_stats,
+        "origin": "range",
+    }
+    return df, meta
+
+
+def read_excel(
+    path: Path | str,
+    *,
+    sheet: Optional[str | int] = None,
+    table_index: int = 0,
+    header_row: Optional[int] = None,
+    data_range: Optional[str] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Excel file not found: {path}")
+    file_size = path.stat().st_size
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter, range_boundaries
+    except ImportError:
+        df = pd.read_excel(path, sheet_name=sheet if sheet is not None else 0)
+        metadata = {
+            "source": "excel",
+            "path": str(path),
+            "engine": "pandas",
+            "note": "openpyxl not available; pandas read_excel fallback used.",
+            "file_size_bytes": file_size,
+            "file_size_mb": file_size / (1024 * 1024),
+            "sheet": sheet if isinstance(sheet, str) else (sheet if sheet is not None else 0),
+            "sheetnames": [],
+            "table_index": 0,
+            "tables": [],
+        }
+        return df, metadata
+
+    wb = load_workbook(filename=str(path), data_only=True, read_only=True)
+    try:
+        sheet_names = wb.sheetnames
+        if not sheet_names:
+            raise RuntimeError("Excel workbook has no sheets.")
+        if sheet is None:
+            target_sheets = list(sheet_names)
+        else:
+            if isinstance(sheet, int):
+                if sheet < 0 or sheet >= len(sheet_names):
+                    raise ValueError(f"Sheet index {sheet} is out of range for workbook with {len(sheet_names)} sheets")
+                target_sheets = [sheet_names[sheet]]
+            else:
+                if sheet not in sheet_names:
+                    raise ValueError(f"Sheet '{sheet}' not found in workbook; available sheets: {sheet_names}")
+                target_sheets = [sheet]
+
+        if data_range:
+            sheet_name = target_sheets[0]
+            ws = wb[sheet_name]
+            df, table_meta = _read_excel_range(ws, sheet_name, data_range, header_row, get_column_letter, range_boundaries)
+            metadata = {
+                "source": "excel",
+                "path": str(path),
+                "engine": "openpyxl",
+                "sheet": sheet_name,
+                "sheetnames": sheet_names,
+                "file_size_bytes": file_size,
+                "file_size_mb": file_size / (1024 * 1024),
+                "table_index": 0,
+                "tables": [table_meta],
+                "note": f"{sheet_name} {table_meta['range']}",
+                "selection": {"sheet": sheet_name, "range": table_meta["range"], "table_index": 0},
+            }
+            return df, metadata
+
+        tables: List[Dict[str, Any]] = []
+        for sheet_name in target_sheets:
+            ws = wb[sheet_name]
+            tables.extend(_extract_tables_from_sheet(ws, sheet_name, header_row, get_column_letter))
+
+        if not tables:
+            fallback_sheet = target_sheets[0] if target_sheets else sheet_names[0]
+            df = pd.read_excel(path, sheet_name=fallback_sheet)
+            metadata = {
+                "source": "excel",
+                "path": str(path),
+                "engine": "pandas",
+                "sheet": fallback_sheet,
+                "sheetnames": sheet_names,
+                "file_size_bytes": file_size,
+                "file_size_mb": file_size / (1024 * 1024),
+                "table_index": 0,
+                "tables": [],
+                "warning": "Heuristics did not detect any tables; pandas read_excel fallback used.",
+            }
+            return df, metadata
+
+        tables.sort(key=lambda t: (t["score"], t["rows"], t["cols"]), reverse=True)
+        for idx, table in enumerate(tables):
+            table["table_index"] = idx
+
+        if table_index < 0 or table_index >= len(tables):
+            raise ValueError(f"table_index {table_index} is out of range for detected tables (found {len(tables)})")
+
+        selected = tables[table_index]
+        df = selected["dataframe"]
+        for table in tables:
+            table.pop("dataframe", None)
+
+        meta_tables: List[Dict[str, Any]] = []
+        for table in tables:
+            meta_tables.append({
+                "sheet": table["sheet"],
+                "range": table["range"],
+                "rows": table["rows"],
+                "cols": table["cols"],
+                "columns": table["columns"],
+                "header_row": table["header_row"],
+                "data_start_row": table["data_start_row"],
+                "score": table["score"],
+                "blank_rows_removed": table["blank_rows_removed"],
+                "header_stats": table["header_stats"],
+                "table_index": table["table_index"],
+            })
+
+        metadata = {
+            "source": "excel",
+            "path": str(path),
+            "engine": "openpyxl",
+            "sheet": selected["sheet"],
+            "sheetnames": sheet_names,
+            "file_size_bytes": file_size,
+            "file_size_mb": file_size / (1024 * 1024),
+            "table_index": selected["table_index"],
+            "tables": meta_tables,
+            "note": f"{selected['sheet']} {selected['range']}",
+            "selection": {
+                "sheet": selected["sheet"],
+                "table_index": selected["table_index"],
+                "range": selected["range"],
+            },
+        }
+        return df, metadata
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
 
 # ===========================
 # NetCDF (quick/inspect/slice)
@@ -726,3 +1242,5 @@ def read_file(path: str | Path) -> Tuple[pd.DataFrame, Dict[str, Any]]:
                         f"- cdflib quick error: {e_quick}\n"
                         f"- xarray error: {e_nc}"
                 )
+    raise ValueError(f"Unsupported file extension: {ext}")
+

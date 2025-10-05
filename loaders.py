@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 
+from file_io import read_excel
+
 # ---------------- Text/Excel ----------------
 def load_tabular(path: str | Path, ext: str | None = None) -> tuple[pd.DataFrame, str]:
     path = str(path); ext = ext or os.path.splitext(path)[1].lower()
@@ -15,14 +17,37 @@ def load_tabular(path: str | Path, ext: str | None = None) -> tuple[pd.DataFrame
     large_file_threshold = 100 * 1024 * 1024  # 100 MB
     
     if ext in (".xlsx", ".xls"):
-        try:
-            if file_size > large_file_threshold:
-                print(f"ไฟล์ Excel ขนาดใหญ่ ({file_size / (1024*1024):.1f} MB) - กำลังอ่าน...")
-            df = pd.read_excel(path, engine="openpyxl")
-        except TypeError:
-            df = pd.read_excel(path)
-        return df, f"excel ({file_size / (1024*1024):.1f} MB)"
-
+        df, meta = read_excel(path)
+        note = meta.get("note")
+        if not note:
+            tables = meta.get("tables") or []
+            idx = meta.get("table_index", 0)
+            table = tables[idx] if tables and 0 <= idx < len(tables) else (tables[0] if tables else None)
+            if table:
+                sheet_name = table.get("sheet") or meta.get("sheet")
+                rng = table.get("range") or ""
+                rows = table.get("rows")
+                cols = table.get("cols")
+                dim = f" ({rows}x{cols})" if rows is not None and cols is not None else ""
+                parts = ["excel"]
+                if sheet_name:
+                    parts.append(str(sheet_name).strip())
+                if rng:
+                    parts.append(rng)
+                note = " ".join(parts).strip() + dim
+            else:
+                sheet_name = meta.get("sheet")
+                if not sheet_name:
+                    sheet_names = meta.get("sheetnames") or []
+                    if sheet_names:
+                        sheet_name = sheet_names[0]
+                part = str(sheet_name).strip() if sheet_name else ""
+                note = f"excel {part}".strip() if part else "excel"
+        size_mb = meta.get("file_size_mb")
+        if size_mb is None:
+            size_mb = file_size / (1024 * 1024)
+        note = f"{note} ({size_mb:.1f} MB)" if note else f"excel ({size_mb:.1f} MB)"
+        return df, note
     seps = [None] if ext != ".tsv" else ["\t", None]
     encs = ("utf-8-sig","utf-8","cp874","latin-1")
     

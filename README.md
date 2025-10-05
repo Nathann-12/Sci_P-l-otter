@@ -112,7 +112,7 @@ python -m pytest tests/
 python tests/test_system.py
 ```
 
-## 🤝 การมีส่วนร่วม
+## 🤝 ถ้าเห็นโค๊ดแล้วหงุดหงิดแล้วอยากมีร่วมร่วมในโปรเจค
 
 1. Fork โปรเจค
 2. สร้าง feature branch (`git checkout -b feature/AmazingFeature`)
