@@ -19,6 +19,15 @@ from main_window_plot_mixin import MainWindowPlotMixin
 from main_window_session_mixin import MainWindowSessionMixin
 from main_window_spectrogram_mixin import MainWindowSpectrogramMixin
 from main_window_view_mixin import MainWindowViewMixin
+from main_window_menu_mixin import MainWindowMenuMixin
+from main_window_toolbar_mixin import MainWindowToolbarMixin
+from main_window_panels_mixin import MainWindowPanelsMixin
+from main_window_plotcore_mixin import MainWindowPlotCoreMixin
+from main_window_analysis_mixin import MainWindowAnalysisMixin
+from main_window_equation_mixin import MainWindowEquationMixin
+from main_window_settings_mixin import MainWindowSettingsMixin
+from main_window_features_mixin import MainWindowFeaturesMixin
+from main_window_actions_mixin import MainWindowActionsMixin
 
 
 def test_mainwindow_inherits_extracted_mixins():
@@ -29,3 +38,18 @@ def test_mainwindow_inherits_extracted_mixins():
     assert issubclass(MainWindow, MainWindowSessionMixin)
     assert issubclass(MainWindow, MainWindowSpectrogramMixin)
     assert issubclass(MainWindow, MainWindowViewMixin)
+
+
+def test_mainwindow_inherits_phase2_mixins():
+    for mixin in (
+        MainWindowMenuMixin,
+        MainWindowToolbarMixin,
+        MainWindowPanelsMixin,
+        MainWindowPlotCoreMixin,
+        MainWindowAnalysisMixin,
+        MainWindowEquationMixin,
+        MainWindowSettingsMixin,
+        MainWindowFeaturesMixin,
+        MainWindowActionsMixin,
+    ):
+        assert issubclass(MainWindow, mixin), mixin.__name__
