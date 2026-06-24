@@ -137,6 +137,11 @@ Generated Files/
 test_*.png
 test_*.jpg
 *_test_output.*
+/test_*.csv
+/large_test.csv
+/small_test.csv
+/DATETIME_TESTING_GUIDE.md
+/PLOT_TESTING_GUIDE.md
 
 # Backup files
 *.bak
