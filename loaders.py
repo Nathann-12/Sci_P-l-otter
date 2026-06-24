@@ -1,4 +1,4 @@
-# loaders.py
+﻿# loaders.py
 from __future__ import annotations
 import os
 from pathlib import Path
@@ -9,6 +9,10 @@ import pandas as pd
 from file_io import read_excel
 
 # ---------------- Text/Excel ----------------
+import logging
+logger = logging.getLogger(__name__)
+
+
 def load_tabular(path: str | Path, ext: str | None = None) -> tuple[pd.DataFrame, str]:
     path = str(path); ext = ext or os.path.splitext(path)[1].lower()
     
@@ -138,7 +142,7 @@ def _labels_from_atts(cdf, atts: Dict[str, Any], names: List[str]) -> Optional[L
                 raw = cdf.varget(ptr)
                 return [_b2s(x).strip() for x in _to_list(raw)]
             except Exception:
-                pass
+                logger.debug("_labels_from_atts: suppressed exception", exc_info=True)
     return None
 
 def _list_cdf_variables(cdf) -> List[str]:
@@ -150,7 +154,7 @@ def _list_cdf_variables(cdf) -> List[str]:
                 s = _b2s(v).strip()
                 if s and s not in names: names.append(s)
     except Exception:
-        pass
+        logger.debug("_list_cdf_variables: suppressed exception", exc_info=True)
     if not names:
         for i in range(0,4096):
             try:
@@ -168,14 +172,14 @@ def _to_datetime_series_if_possible(name: str, arr: np.ndarray) -> Optional[pd.S
         dt = cdflib.cdfepoch.to_datetime(a, to_np=True)
         return pd.Series(pd.to_datetime(dt), name=name)
     except Exception:
-        pass
+        logger.debug("_to_datetime_series_if_possible: suppressed exception", exc_info=True)
     # try pandas parsing
     try:
         s = pd.to_datetime(a, errors="coerce")
         if s.notna().sum() >= max(1, int(0.5*len(s))):
             return pd.Series(s, name=name)
     except Exception:
-        pass
+        logger.debug("_to_datetime_series_if_possible: suppressed exception", exc_info=True)
     return None
 
 # ---------------- CDF Reader (A) Heuristic ----------------
@@ -196,7 +200,7 @@ def _read_cdf_as_dataframe_A(path: str | Path) -> pd.DataFrame:
                 dep0 = _b2s(atts.get("DEPEND_0")).strip() if atts.get("DEPEND_0") is not None else None
                 if dep0: time_cands.append(dep0)
             except Exception:
-                pass
+                logger.debug("_read_cdf_as_dataframe_A: suppressed exception", exc_info=True)
         if not time_cands:
             time_cands = [nm for nm in names if _is_time_like_name(nm)]
         if not time_cands:
@@ -292,7 +296,8 @@ def _read_cdf_as_dataframe_A(path: str | Path) -> pd.DataFrame:
     finally:
         if cdf is not None:
             try: cdf.close()
-            except Exception: pass
+            except Exception:
+                logger.debug("_read_cdf_as_dataframe_A: suppressed exception", exc_info=True)
 
 # ---------------- CDF Reader (B) cdflib → xarray fallback ----------------
 def _read_cdf_as_dataframe_B(path: str | Path) -> pd.DataFrame:
@@ -329,7 +334,8 @@ def _read_cdf_as_dataframe_B(path: str | Path) -> pd.DataFrame:
     finally:
         if ds is not None:
             try: ds.close()
-            except Exception: pass
+            except Exception:
+                logger.debug("_read_cdf_as_dataframe_B: suppressed exception", exc_info=True)
 
 # ---------------- CDF Reader (C) Simple fallback ----------------
 def _read_cdf_as_dataframe_C(path: str | Path) -> pd.DataFrame:
@@ -355,7 +361,7 @@ def _read_cdf_as_dataframe_C(path: str | Path) -> pd.DataFrame:
                             if s and s not in names:
                                 names.append(s)
         except Exception:
-            pass
+            logger.debug("_read_cdf_as_dataframe_C: suppressed exception", exc_info=True)
         
         if not names:
             # ลองไล่หาตัวแปรแบบ index (เผื่อบางไฟล์ไม่รายงานผ่าน cdf_info)
@@ -423,7 +429,8 @@ def _read_cdf_as_dataframe_C(path: str | Path) -> pd.DataFrame:
     finally:
         if cdf is not None:
             try: cdf.close()
-            except Exception: pass
+            except Exception:
+                logger.debug("_read_cdf_as_dataframe_C: suppressed exception", exc_info=True)
 
 # ---------------- NetCDF quick ----------------
 def _read_netcdf_as_dataframe(path: str | Path) -> pd.DataFrame:
@@ -433,7 +440,8 @@ def _read_netcdf_as_dataframe(path: str | Path) -> pd.DataFrame:
         return ds.to_dataframe().reset_index()
     finally:
         try: ds.close()
-        except Exception: pass
+        except Exception:
+            logger.debug("_read_netcdf_as_dataframe: suppressed exception", exc_info=True)
 
 # ---------------- Public API ----------------
 def load_cdf_nc_on_demand(parent, path: str | Path) -> Optional[pd.DataFrame]:
@@ -452,7 +460,7 @@ def load_cdf_nc_on_demand(parent, path: str | Path) -> Optional[pd.DataFrame]:
                 # ผู้ใช้กดยกเลิก → ตกไปใช้วิธีอัตโนมัติ (หรือให้ UI จัดการข้อความต่อ)
             except Exception:
                 # ถ้า Dialog ใช้ไม่ได้ ให้ fallback อัตโนมัติ
-                pass
+                logger.debug("load_cdf_nc_on_demand: suppressed exception", exc_info=True)
 
         if ext == ".cdf":
             # A → B → C fallback (3 วิธี)
