@@ -1,14 +1,8 @@
 ﻿# -*- coding: utf-8 -*-
 # main.py
 import os, sys
-import numpy as np
-import pandas as pd
 import logging
 import locale
-import json
-import itertools
-import math
-from datetime import datetime, date
 
 # Set up logging (will be overridden by setup_logging() in main())
 logging.basicConfig(level=logging.INFO)
@@ -35,32 +29,13 @@ import matplotlib
 matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
-from PySide6 import QtGui
-from PySide6.QtCore import Qt, QSize, QSettings, QTimer
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout,
-    QLabel, QComboBox, QPushButton, QDockWidget, QMessageBox, QSpinBox, QCheckBox, QDialog,
-    QListWidget, QToolBar, QInputDialog, QSplitter, QTabWidget, QSizePolicy,
-    QFrame, QGroupBox, QStyle, QGraphicsDropShadowEffect
-)
-from PySide6.QtGui import QAction, QIcon
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from PySide6.QtCore import Qt, QSize, QSettings
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle
+from PySide6.QtGui import QIcon
+from typing import Any, Dict, Optional
 
-import matplotlib.dates as mdates  # CHANGE: handle datetime axes formatting
-from matplotlib.lines import Line2D
-from matplotlib.collections import PathCollection
 import matplotlib.pyplot as plt
 
-from core.plot_data import (
-    axis_uses_dates as _axis_uses_dates,
-    clamp_date_limits as _clamp_date_limits,
-    is_invalid_plot_value as _is_invalid_plot_value,
-    prepare_plot_data as _prepare_plot_data,
-    reset_numeric_axis as _reset_numeric_axis,
-    sanitize_plot_xy as _sanitize_plot_xy,
-    to_sequence_for_plot as _to_sequence_for_plot,
-)
 
 # บังคับให้ Matplotlib ไม่ใช้ locale และแสดงเลขอารบิก
 matplotlib.rcParams["axes.formatter.use_locale"] = False
@@ -101,17 +76,7 @@ except Exception:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
-from dialogs import MultiDimSliceDialog, ColumnTypeDialog
-from dialogs import AggregateDialog  # UI-REFINE: Aggregate dialog
-from dialogs import FitDialog  # UI-FIT: Curve Fit dialog
-from dialogs import DerivedColumnDialog  # UI-DERIVED: Derived Column dialog
-from dialogs_histogram import HistogramDialog  # NEW: Histogram dialog
-from charts_gallery import ChartGalleryMenu
-from dialogs_units import UnitsDialog  # UI-UNITS: Units and calibration dialog
-from core.units import UNIT_REGISTRY  # UI-UNITS: Unit registry for conversions
-from processors import add_time_bangkok, add_magnitude, add_moving_average, apply_column_types, compute_fft
-from processors import beautify_axes  # CHANGE: plot beautification
-from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config, refresh_matplotlib_canvases  # UI-REFINE: ใช้ธีมอ่านง่าย
+from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config
 from settings import settings_manager
 from main_window_data_mixin import MainWindowDataMixin
 from main_window_menu_mixin import MainWindowMenuMixin
@@ -129,16 +94,8 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
-from dialogs_settings import SettingsDialog
-from report_generator import export_report
-from dialogs_report import ExportReportDialog
-from dialogs_tabs import SelectTabsDialog
 from core.logging_setup import setup_logging
 from UI.widgets.error_panel import ErrorPanel
-from annotations import AnnotationStyleDock, AnnotationListDialog
-from crosscorr import CrossCorrManager, CrossCorrDock
-from peaks import PeakDetectorManager, PeakDetectionDock
-from three_d_view import ThreeDViewDock
 from widgets.plot_tabs import (
     CompactPlotPanel as _PlotTabsCompactPlotPanel,
     GraphTab as _PlotTabsGraphTab,
@@ -147,9 +104,6 @@ from widgets.plot_tabs import (
 )
 from core import session as session_store
 # [Equation Plotter]
-from dialogs_equation import EquationPlotDialog
-from eqplot import plot_equations_on_axes
-from eqplot3d import plot_surfaces_on_axes
 
 APP_TITLE = "SciPlotter (Modular + Features)"
 
