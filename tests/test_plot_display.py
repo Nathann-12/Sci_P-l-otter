@@ -7,7 +7,20 @@
 import pandas as pd
 import numpy as np
 import os
+import pytest
 from pathlib import Path
+from datetime import datetime
+
+
+def _plot_helpers():
+    import sys
+
+    sys.dont_write_bytecode = True
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from core import plot_data
+    return plot_data
 
 def create_plot_test_data():
     """สร้างข้อมูลทดสอบสำหรับการพล็อตกราฟ"""
@@ -86,6 +99,44 @@ def create_simple_test_data():
     print(df)
     
     return test_file, df
+
+def test_prepare_plot_data_filters_nan_pairs_without_gui():
+    helpers = _plot_helpers()
+
+    x_values = [0, 1, np.nan, 3, 4]
+    y_values = [10.0, np.nan, 30.0, 40.0, float("inf")]
+
+    x_prepared, y_prepared, x_is_datetime = helpers.prepare_plot_data(x_values, y_values)
+
+    assert x_is_datetime is False
+    assert x_prepared == [0, 3]
+    assert y_prepared == [10.0, 40.0]
+
+
+def test_reset_numeric_axis_clears_date_axis_state_without_gui():
+    helpers = _plot_helpers()
+    import matplotlib.ticker as mticker
+    from matplotlib.figure import Figure
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot([datetime(2024, 1, 1), datetime(2024, 1, 2)], [1, 2])
+
+    assert helpers.axis_uses_dates(ax.xaxis)
+
+    x_prepared, y_prepared, x_is_datetime = helpers.prepare_plot_data([1, 2, 3], [10, 20, 30])
+    ax.plot(x_prepared, y_prepared)
+    ax.relim()
+    ax.autoscale_view()
+    if not x_is_datetime and helpers.axis_uses_dates(ax.xaxis):
+        helpers.reset_numeric_axis(ax)
+
+    assert x_is_datetime is False
+    assert not helpers.axis_uses_dates(ax.xaxis)
+    assert ax.xaxis.get_converter() is None
+    assert isinstance(ax.xaxis.get_major_locator(), mticker.AutoLocator)
+    assert isinstance(ax.xaxis.get_major_formatter(), mticker.ScalarFormatter)
+
 
 def create_instructions():
     """สร้างคำแนะนำการทดสอบ"""

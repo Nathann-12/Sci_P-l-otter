@@ -62,7 +62,27 @@ def test_expressions():
         "`Mag Field` * 2",
     ]
     
-    return expressions
+    assert expressions
+    assert "sqrt(`Bx`**2 + `By`**2 + `Bz`**2)" in expressions
+    assert "`Mag Field` * 2" in expressions
+
+
+def sample_expressions():
+    return [
+        "`Bx` * `By`",
+        "`Bx` * `By` * `Bz`",
+        "sqrt(`Bx`**2 + `By`**2 + `Bz`**2)",
+        "`Speed` * 3.6",
+        "abs(`Signal`)",
+        "log(`Count` + 1)",
+        "sin(`Bx`)",
+        "cos(`By`)",
+        "maximum(`Bx`, `By`)",
+        "minimum(`Temperature`, `Pressure` / 100)",
+        "sqrt(`Bx`**2 + `By`**2) * `Speed`",
+        "`Temperature` * `Pressure` / 1000",
+        "`Mag Field` * 2",
+    ]
 
 def run_test():
     """รันการทดสอบ"""
@@ -76,7 +96,7 @@ def run_test():
     print()
     
     # ทดสอบนิพจน์ต่างๆ
-    expressions = test_expressions()
+    expressions = sample_expressions()
     print("🔍 ทดสอบนิพจน์ตัวอย่าง:")
     
     from processors import evaluate_expression

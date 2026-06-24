@@ -112,7 +112,7 @@ python -m pytest tests/
 python tests/test_system.py
 ```
 
-## 🤝 ถ้าเห็นโค๊ดแล้วหงุดหงิดแล้วอยากมีร่วมร่วมในโปรเจค
+## 🤝 การมีส่วนร่วม
 
 1. Fork โปรเจค
 2. สร้าง feature branch (`git checkout -b feature/AmazingFeature`)
@@ -131,9 +131,9 @@ python tests/test_system.py
 
 ## 📞 การติดต่อ
 
-- **Email**: [your.email@example.com]
-- **GitHub**: [github.com/yourusername]
-- **Issues**: [GitHub Issues](https://github.com/yourusername/sciplotter/issues)
+- **Email**: [nathanlablue68@gmail.com.com]
+- **GitHub**: [github.com/nathann-12]
+- **Issues**: [GitHub Issues](https://github.com/nathann-12/sciplotter/issues)
 
 ## 🙏 การขอบคุณ
 

@@ -1,0 +1,428 @@
+from __future__ import annotations
+
+import os
+import warnings
+
+import numpy as np
+import pandas as pd
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+from loaders import load_cdf_nc_on_demand, load_tabular
+
+
+class MainWindowDataMixin:
+    def _coerce_datetime(self, values):
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually.*",
+                category=UserWarning,
+            )
+            return pd.to_datetime(values, errors="coerce")
+
+    def _load_dataframe_for_path(self, path: str):
+        ext = os.path.splitext(path)[1].lower()
+        if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
+            df, enc_note = load_tabular(path, ext)
+            if df is None or df.empty:
+                raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
+            return df, "ตาราง", enc_note
+        if ext in [".nc", ".cdf"]:
+            df = load_cdf_nc_on_demand(self, path)
+            if df is None or df.empty:
+                raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
+            return df, "CDF/NetCDF", None
+        raise ValueError("นามสกุลไฟล์ไม่รองรับ")
+
+    def open_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "เลือกไฟล์ข้อมูล",
+            "",
+            "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            try:
+                df, kind, _enc_note = self._load_dataframe_for_path(path)
+            except Exception as e:
+                ext = os.path.splitext(path)[1].lower()
+                if ext in [".nc", ".cdf"]:
+                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
+                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                    return
+                raise
+
+            name = f"{os.path.basename(path)} [{kind}]"
+            self._stage_insert(name, df, path)
+            self.lstFiles.setCurrentRow(self.lstFiles.count() - 1)
+            self.statusBar().showMessage(
+                "เพิ่มไฟล์เข้าสู่รายการแล้ว • เลือกแล้วกด 'ใช้ไฟล์นี้' หรือดับเบิลคลิกชื่อไฟล์"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    def load_data(self, path: str):
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
+                df, enc_note = load_tabular(path, ext)
+                if df is None or df.empty:
+                    raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
+                self._df, self._current_path = df, path
+
+                rows_count = len(df)
+                self.lblFile.setText(
+                    f"ไฟล์: {os.path.basename(path)} (ตาราง) • {enc_note} • {rows_count:,} แถว"
+                )
+                self.statusBar().showMessage(
+                    f"โหลดข้อมูลสำเร็จ (ตาราง) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'"
+                )
+                return
+            if ext in [".nc", ".cdf"]:
+                try:
+                    df = load_cdf_nc_on_demand(self, path)
+                    if df is None or df.empty:
+                        raise ValueError("อ่านไฟล์ CDF/NetCDF ไม่สำเร็จ หรือไม่มีข้อมูล")
+                    self._df, self._current_path = df, path
+
+                    rows_count = len(df)
+                    self.lblFile.setText(
+                        f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF) • {rows_count:,} แถว"
+                    )
+                    self.statusBar().showMessage(
+                        f"โหลดข้อมูลสำเร็จ (On‑Demand) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'"
+                    )
+                    return
+                except Exception as e:
+                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
+                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                    self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์ CDF/NetCDF")
+                    return
+            raise ValueError("นามสกุลไฟล์ไม่รองรับ")
+        except Exception as e:
+            QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์")
+
+    def load_columns_from_df(self):
+        if self._df is None:
+            try:
+                if hasattr(self, "lstFiles") and hasattr(self, "_datasets"):
+                    item = self.lstFiles.currentItem()
+                    if item is not None:
+                        data = self._datasets.get(item.text())
+                        if data and isinstance(data.get("df"), pd.DataFrame):
+                            self._df = data["df"].copy()
+                            self._current_path = data.get("path")
+            except Exception:
+                pass
+        if self._df is None:
+            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
+            return
+
+        rows_count = len(self._df)
+        cols_count = len(self._df.columns)
+
+        cols = [str(c) for c in self._df.columns]
+        self.cbX.clear()
+        self.cbY.clear()
+        self.cbX.addItems(cols)
+        self.cbY.addItems(cols)
+
+        try:
+            self.cbHist.clear()
+            self.cbHist.addItems(cols)
+            try:
+                if hasattr(self, "tbCbHist") and self.tbCbHist is not None:
+                    self.tbCbHist.clear()
+                    self.tbCbHist.addItems(cols)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        self.statusBar().showMessage(
+            f"โหลดคอลัมน์เรียบร้อย • {rows_count:,} แถว, {cols_count} คอลัมน์ • เลือก X/Y แล้วพล็อตได้"
+        )
+
+        try:
+            self._sb_rows.setText(f"rows: {rows_count:,}")
+        except Exception:
+            pass
+
+    def _convert_to_datetime_if_possible(self, col_name):
+        if col_name not in self._df.columns:
+            return False, None
+
+        col_data = self._df[col_name]
+        if pd.api.types.is_datetime64_any_dtype(col_data):
+            return True, col_data
+
+        try:
+            datetime_data = self._coerce_datetime(col_data)
+            valid_count = datetime_data.notna().sum()
+            total_count = len(col_data)
+
+            if valid_count > total_count * 0.5:
+                return True, datetime_data
+            return False, None
+        except Exception:
+            return False, None
+
+    def _check_column_numeric(self, col_name):
+        if col_name not in self._df.columns:
+            return False, f"คอลัมน์ '{col_name}' ไม่มีในข้อมูล"
+
+        col_data = self._df[col_name]
+        if col_data.empty:
+            return False, f"คอลัมน์ '{col_name}' ว่าง"
+        if col_data.isna().all():
+            return False, f"คอลัมน์ '{col_name}' มีแต่ค่า NaN"
+        if pd.api.types.is_datetime64_any_dtype(col_data):
+            return True, f"คอลัมน์ '{col_name}' เป็นข้อมูลเวลา (datetime) - ใช้ได้สำหรับแกน X"
+
+        try:
+            numeric_data = pd.to_numeric(col_data, errors="coerce")
+            valid_count = numeric_data.notna().sum()
+            total_count = len(col_data)
+
+            if valid_count == 0:
+                try:
+                    datetime_data = self._coerce_datetime(col_data)
+                    datetime_valid_count = datetime_data.notna().sum()
+                    if datetime_valid_count > 0:
+                        return True, f"คอลัมน์ '{col_name}' เป็นข้อมูลเวลา (datetime) - ใช้ได้สำหรับแกน X"
+                except Exception:
+                    pass
+
+                return False, f"คอลัมน์ '{col_name}' ไม่สามารถแปลงเป็นตัวเลขหรือเวลาได้"
+            if valid_count < total_count * 0.5:
+                return (
+                    False,
+                    f"คอลัมน์ '{col_name}' มีข้อมูลตัวเลขเพียง {valid_count}/{total_count} ({valid_count/total_count*100:.1f}%)",
+                )
+            return (
+                True,
+                f"คอลัมน์ '{col_name}' มีข้อมูลตัวเลข {valid_count}/{total_count} ({valid_count/total_count*100:.1f}%)",
+            )
+        except Exception as e:
+            return False, f"เกิดข้อผิดพลาดในการตรวจสอบคอลัมน์ '{col_name}': {e}"
+
+    def _get_xy(self):
+        print("Debug: _get_xy() called")
+        if self._df is None:
+            print("Debug: _get_xy() - no DataFrame (_df is None)")
+            QMessageBox.warning(
+                self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์/เลือกตัวแปร แล้วกด 'โหลดคอลัมน์'"
+            )
+            return None, None
+        print(f"Debug: _get_xy() - DataFrame shape: {self._df.shape}")
+
+        if self.cbX.count() == 0 or self.cbY.count() == 0:
+            print(f"Debug: _get_xy() - cbX count: {self.cbX.count()}, cbY count: {self.cbY.count()}")
+            QMessageBox.information(self, "ยังไม่ได้โหลดคอลัมน์", "กดปุ่ม 'โหลดคอลัมน์จากข้อมูล' ก่อน")
+            return None, None
+
+        x_col = self.cbX.currentText()
+        y_col = self.cbY.currentText()
+        if x_col not in self._df.columns or y_col not in self._df.columns:
+            QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่")
+            return None, None
+
+        x_valid, x_msg = self._check_column_numeric(x_col)
+        y_valid, y_msg = self._check_column_numeric(y_col)
+
+        if not x_valid and not y_valid:
+            QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", f"ทั้งสองคอลัมน์มีปัญหา:\n• {x_msg}\n• {y_msg}")
+            return None, None
+        if not x_valid:
+            QMessageBox.warning(self, "คอลัมน์ X มีปัญหา", x_msg)
+            return None, None
+        if not y_valid:
+            QMessageBox.warning(self, "คอลัมน์ Y มีปัญหา", y_msg)
+            return None, None
+
+        try:
+            x = self._df[x_col].values
+            y = self._df[y_col].values
+
+            print(
+                f"Debug: X column '{x_col}' - dtype: {self._df[x_col].dtype}, sample: {x[:3] if len(x) > 0 else 'empty'}"
+            )
+            print(
+                f"Debug: Y column '{y_col}' - dtype: {self._df[y_col].dtype}, sample: {y[:3] if len(y) > 0 else 'empty'}"
+            )
+
+            if len(x) > 0 and len(y) > 0:
+                print(f"Debug: Data range - X: {x.min()} to {x.max()}, Y: {y.min():.6f} to {y.max():.6f}")
+
+                try:
+                    if pd.api.types.is_datetime64_any_dtype(x) or isinstance(x[0], str):
+                        print("Debug: X is datetime/string, skipping range calculation")
+                    else:
+                        print(f"Debug: Data variation - X range: {x.max() - x.min()}, Y range: {y.max() - y.min():.6f}")
+                except Exception as e:
+                    print(f"Debug: Error calculating X range: {e}")
+
+                if len(y) > 1:
+                    y_diff = np.diff(y)
+                    print(
+                        f"Debug: Y variation - min diff: {y_diff.min():.6f}, max diff: {y_diff.max():.6f}, std: {y_diff.std():.6f}"
+                    )
+
+            try:
+                y_original_count = len(y)
+                y = pd.to_numeric(y, errors="coerce")
+                y_nan_count = pd.isna(y).sum()
+                print(
+                    f"Debug: Y conversion - original: {y_original_count}, NaN after conversion: {y_nan_count}, valid: {y_original_count - y_nan_count}"
+                )
+            except Exception as e:
+                print(f"Y column conversion error: {e}")
+                y = pd.to_numeric(y, errors="coerce")
+
+            if len(x) > 0 and (
+                np.issubdtype(type(x[0]), np.datetime64)
+                or pd.api.types.is_datetime64_any_dtype(self._df[x_col])
+            ):
+                print("Debug: X is datetime, filtering by Y NaN only")
+                mask = ~pd.isna(y)
+                x = x[mask]
+                y = y[mask]
+                print(f"Debug: After datetime filtering - X: {len(x)}, Y: {len(y)}")
+
+                try:
+                    x_dt = self._coerce_datetime(x)
+                    x_rel = (x_dt - x_dt[0]).dt.total_seconds()
+                    x = x_rel.values
+                    print(f"Debug: Converted datetime X to relative seconds - range: {x.min():.3f} to {x.max():.3f}")
+                except Exception as e:
+                    print(f"Debug: Failed to convert datetime to relative seconds: {e}")
+                    try:
+                        x = np.arange(len(x))
+                        print(f"Debug: Fallback to array index as X - range: {x.min()} to {x.max()}")
+                    except Exception as e2:
+                        print(f"Debug: All datetime conversion methods failed: {e2}")
+            else:
+                try:
+                    x_dt = self._coerce_datetime(x)
+                    if x_dt.notna().sum() > 0:
+                        print("Debug: X is datetime string, converting to relative seconds")
+                        x_rel = (x_dt - x_dt[0]).total_seconds()
+                        x = x_rel.values
+                        print(
+                            f"Debug: Converted datetime string X to relative seconds - range: {x.min():.3f} to {x.max():.3f}"
+                        )
+                    else:
+                        raise ValueError("Not a valid datetime string")
+                except Exception as e:
+                    print(f"Debug: X is not datetime string, trying numeric conversion: {e}")
+                    try:
+                        x_original_count = len(x)
+                        x = pd.to_numeric(x, errors="coerce")
+                        x_nan_count = pd.isna(x).sum()
+                        print(
+                            f"Debug: X conversion - original: {x_original_count}, NaN after conversion: {x_nan_count}, valid: {x_original_count - x_nan_count}"
+                        )
+                    except Exception as e2:
+                        print(f"X column conversion error: {e2}")
+                        x = pd.to_numeric(x, errors="coerce")
+
+                    mask = ~(pd.isna(x) | pd.isna(y))
+                    x = x[mask]
+                    y = y[mask]
+                    print(f"Debug: After NaN filtering - X: {len(x)}, Y: {len(y)}")
+
+            if len(x) == 0 or len(y) == 0:
+                x_col_info = f"X column '{x_col}' (dtype: {self._df[x_col].dtype})"
+                y_col_info = f"Y column '{y_col}' (dtype: {self._df[y_col].dtype})"
+
+                x_empty = self._df[x_col].isna().all() if len(self._df[x_col]) > 0 else True
+                y_empty = self._df[y_col].isna().all() if len(self._df[y_col]) > 0 else True
+
+                if x_empty and y_empty:
+                    error_msg = f"ทั้งสองคอลัมน์ไม่มีข้อมูล:\n• {x_col_info}\n• {y_col_info}"
+                elif x_empty:
+                    error_msg = f"คอลัมน์ X ไม่มีข้อมูล: {x_col_info}"
+                elif y_empty:
+                    error_msg = f"คอลัมน์ Y ไม่มีข้อมูล: {y_col_info}"
+                else:
+                    x_is_datetime = pd.api.types.is_datetime64_any_dtype(self._df[x_col])
+                    y_is_datetime = pd.api.types.is_datetime64_any_dtype(self._df[y_col])
+
+                    if x_is_datetime and not y_is_datetime:
+                        error_msg = (
+                            f"คอลัมน์ X เป็นข้อมูลเวลา (datetime) ซึ่งใช้ได้สำหรับแกน X:\n• {x_col_info}\n\n"
+                            f"คอลัมน์ Y ไม่สามารถแปลงเป็นตัวเลขได้:\n• {y_col_info}\n\n"
+                            "ลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์ Y เป็น Float"
+                        )
+                    elif not x_is_datetime and y_is_datetime:
+                        error_msg = (
+                            f"คอลัมน์ X ไม่สามารถแปลงเป็นตัวเลขได้:\n• {x_col_info}\n\n"
+                            f"คอลัมน์ Y เป็นข้อมูลเวลา (datetime):\n• {y_col_info}\n\n"
+                            "ลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์ X เป็น Float หรือใช้คอลัมน์ Y เป็นแกน X"
+                        )
+                    elif x_is_datetime and y_is_datetime:
+                        error_msg = (
+                            f"ทั้งสองคอลัมน์เป็นข้อมูลเวลา (datetime):\n• {x_col_info}\n• {y_col_info}\n\n"
+                            "ลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงคอลัมน์หนึ่งเป็น Float"
+                        )
+                    else:
+                        error_msg = (
+                            f"ไม่สามารถแปลงข้อมูลเป็นตัวเลขได้:\n• {x_col_info}\n• {y_col_info}\n\n"
+                            "ลองใช้ 'กำหนดชนิดคอลัมน์' เพื่อแปลงข้อมูลก่อน"
+                        )
+
+                QMessageBox.warning(self, "ไม่มีข้อมูลที่ใช้ได้", error_msg)
+                return None, None
+
+            if len(x) != len(y):
+                QMessageBox.warning(self, "ข้อมูลไม่ตรงกัน", f"จำนวนข้อมูล X ({len(x)}) และ Y ({len(y)}) ไม่เท่ากัน")
+                return None, None
+
+            if len(y) > 0:
+                y_mean = np.mean(y)
+                y_std = np.std(y)
+                y_median = np.median(y)
+
+                print(f"Debug: Y statistics - mean: {y_mean:.6f}, std: {y_std:.6f}, median: {y_median:.6f}")
+
+                q1, q3 = np.percentile(y, [25, 75])
+                iqr = q3 - q1
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+
+                outliers = np.where((y < lower_bound) | (y > upper_bound))[0]
+                if len(outliers) > 0:
+                    print(
+                        f"Debug: Found {len(outliers)} outliers in Y data (indices: {outliers[:10]}{'...' if len(outliers) > 10 else ''})"
+                    )
+                    print(f"Debug: Outlier percentage: {len(outliers)/len(y)*100:.2f}%")
+                    outlier_values = y[outliers[:5]]
+                    print(f"Debug: Sample outlier values: {outlier_values}")
+                else:
+                    print("Debug: No outliers detected in Y data")
+
+            print(f"Debug: Final data ready for plotting - X: {len(x)}, Y: {len(y)}")
+            return x, y
+        except Exception as e:
+            QMessageBox.critical(self, "เกิดข้อผิดพลาดในการประมวลผลข้อมูล", f"สาเหตุ: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return None, None
+
+    def _is_datetime_column(self, col_name):
+        if self._df is None or col_name not in self._df.columns:
+            return False
+        try:
+            if pd.api.types.is_datetime64_any_dtype(self._df[col_name]):
+                return True
+            sample = self._df[col_name].dropna().iloc[:5] if not self._df[col_name].empty else pd.Series()
+            if not sample.empty:
+                self._coerce_datetime(sample)
+                return True
+        except Exception:
+            pass
+        return False

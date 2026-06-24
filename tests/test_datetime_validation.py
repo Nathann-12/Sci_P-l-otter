@@ -7,7 +7,20 @@
 import pandas as pd
 import numpy as np
 import os
+import pytest
 from pathlib import Path
+from datetime import datetime
+
+
+def _plot_helpers():
+    import sys
+
+    sys.dont_write_bytecode = True
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from core import plot_data
+    return plot_data
 
 def create_datetime_test_data():
     """สร้างข้อมูลทดสอบที่มีข้อมูลเวลาหลากหลายรูปแบบ"""
@@ -106,6 +119,7 @@ def create_real_world_datetime_data():
 
 def test_datetime_conversion():
     """ทดสอบการแปลงข้อมูลเวลา"""
+    pytest.skip("Legacy data-generator smoke test writes files; regression coverage below asserts datetime preparation behavior.")
     print("\n=== ทดสอบการแปลงข้อมูลเวลา ===")
     
     # สร้างข้อมูลทดสอบ
@@ -129,6 +143,54 @@ def test_datetime_conversion():
                     
             except Exception as e:
                 print(f"❌ {col}: ไม่สามารถแปลงได้ - {e}")
+
+def test_prepare_plot_data_filters_nat_and_invalid_datetime_strings():
+    helpers = _plot_helpers()
+
+    x_values = [
+        "2024-01-01 00:00:00",
+        "not a datetime",
+        pd.NaT,
+        "2024-01-01 00:03:00",
+        "2024-01-01 00:04:00",
+    ]
+    y_values = [10.0, 20.0, 30.0, np.nan, 50.0]
+
+    x_prepared, y_prepared, x_is_datetime = helpers.prepare_plot_data(x_values, y_values)
+
+    assert x_is_datetime is True
+    assert y_prepared == [10.0, 50.0]
+
+    import matplotlib.dates as mdates
+
+    prepared_dates = mdates.num2date(x_prepared)
+    assert [dt.replace(tzinfo=None) for dt in prepared_dates] == [
+        datetime(2024, 1, 1, 0, 0),
+        datetime(2024, 1, 1, 0, 4),
+    ]
+
+
+def test_clamp_date_limits_rejects_out_of_range_datetime_bounds():
+    helpers = _plot_helpers()
+    import matplotlib.dates as mdates
+    from matplotlib.dates import AutoDateLocator
+    from matplotlib.figure import Figure
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.xaxis.set_major_locator(AutoDateLocator())
+    ax.set_xlim(
+        mdates.date2num(datetime(1, 1, 1)) - 1000,
+        mdates.date2num(datetime(9999, 12, 31)) + 1000,
+    )
+
+    helpers.clamp_date_limits(ax)
+
+    lo, hi = ax.get_xlim()
+    assert lo >= mdates.date2num(datetime(1, 1, 1))
+    assert hi <= mdates.date2num(datetime(9999, 12, 31))
+    assert lo < hi
+
 
 def create_instructions():
     """สร้างคำแนะนำการใช้งาน"""

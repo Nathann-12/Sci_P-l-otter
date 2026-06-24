@@ -79,25 +79,25 @@ def _read_csv_chunked_simple(path: str, sep: str = None, encoding: str = "utf-8"
     """อ่านไฟล์ CSV แบบ chunking สำหรับไฟล์ขนาดใหญ่ (เวอร์ชันง่าย)"""
     chunks = []
     total_rows = 0
+    max_rows = 1_000_000
     
     try:
-        # อ่าน chunk แรกเพื่อดูโครงสร้าง
-        first_chunk = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
-                                nrows=chunk_size, on_bad_lines="skip")
-        chunks.append(first_chunk)
-        total_rows += len(first_chunk)
-        
-        # อ่าน chunks ที่เหลือ
+        # อ่านทุก chunk จาก iterator เดียว เพื่อไม่ให้ chunk แรกถูกอ่านซ้ำ
         chunk_iter = pd.read_csv(path, engine="python", sep=sep, encoding=encoding, 
                                chunksize=chunk_size, on_bad_lines="skip")
         
         for chunk in chunk_iter:
+            remaining_rows = max_rows - total_rows
+            if remaining_rows <= 0:
+                break
+            if len(chunk) > remaining_rows:
+                chunk = chunk.iloc[:remaining_rows].copy()
+
             chunks.append(chunk)
             total_rows += len(chunk)
             print(f"อ่านแล้ว {total_rows:,} แถว...")
             
             # จำกัดจำนวนแถวสูงสุดเพื่อป้องกัน memory overflow
-            max_rows = 1_000_000  # 1 ล้านแถว
             if total_rows >= max_rows:
                 print(f"จำกัดข้อมูลที่ {max_rows:,} แถว เพื่อป้องกันหน่วยความจำเต็ม")
                 break
