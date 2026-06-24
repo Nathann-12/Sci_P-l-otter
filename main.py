@@ -125,6 +125,7 @@ from main_window_session_mixin import MainWindowSessionMixin
 from main_window_spectrogram_mixin import MainWindowSpectrogramMixin
 from main_window_view_mixin import MainWindowViewMixin
 from main_window_analysis_mixin import MainWindowAnalysisMixin
+from main_window_equation_mixin import MainWindowEquationMixin
 from dialogs_settings import SettingsDialog
 from report_generator import export_report
 from dialogs_report import ExportReportDialog
@@ -190,6 +191,7 @@ class MainWindow(
     MainWindowToolbarMixin,
     MainWindowPanelsMixin,
     MainWindowAnalysisMixin,
+    MainWindowEquationMixin,
     QMainWindow,
 ):
     def __init__(self):
@@ -699,140 +701,6 @@ class MainWindow(
         except Exception as e:
             logger.error(f"Error applying settings: {e}")
     
-    def on_plot_from_equation(self):
-        dlg = EquationPlotDialog(self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        vals = dlg.get_values()
-        expressions = vals["expressions"]
-        if not expressions:
-            self._show_status("\u0e01\u0e23\u0e38\u0e13\u0e32\u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e2d\u0e22\u0e48\u0e32\u0e07\u0e19\u0e49\u0e2d\u0e22 1 \u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14", error=True)
-            return
-        mode = vals.get("mode", "2d")
-        try:
-            tab = None
-            current_tab_id = None
-            try:
-                if hasattr(self, "tabs") and hasattr(self.tabs, "get_current_tab_id"):
-                    current_tab_id = self.tabs.get_current_tab_id()
-            except Exception:
-                current_tab_id = None
-            if current_tab_id and hasattr(self.tabs, "tabs"):
-                tab = self.tabs.tabs.get(current_tab_id)
-            overlay_flag = bool(vals.get("overlay", True))
-            tab_cleared = False
-            ax = None
-            if tab is not None:
-                try:
-                    if hasattr(tab, "canvas"):
-                        self.canvas = tab.canvas
-                    if not overlay_flag:
-                        tab.clear()
-                        tab_cleared = True
-                    ax = tab.get_axes()
-                except Exception:
-                    ax = None
-            if ax is None:
-                ax = getattr(self, "axes", None)
-            if ax is None:
-                ax = getattr(self, "ax", None)
-            if ax is None:
-                canvas = getattr(self, "canvas", None)
-                if canvas is not None:
-                    ax = getattr(canvas, "axes", None)
-                    if ax is None:
-                        ax = getattr(canvas, "ax", None)
-                    if ax is None and hasattr(canvas, "fig"):
-                        fig_axes = getattr(canvas.fig, "axes", []) or []
-                        if fig_axes:
-                            ax = fig_axes[0]
-            if ax is None:
-                self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
-                return
-            ax = self._ensure_plot_axes_dimension(ax, mode)
-            if ax is None:
-                self._show_status("\u0e44\u0e21\u0e48\u0e1e\u0e1a\u0e41\u0e01\u0e19 Matplotlib", error=True)
-                return
-
-            eq_overlay = overlay_flag
-            if tab_cleared:
-                eq_overlay = True
-
-            layer_infos = []
-            if mode == "3d_surface":
-                layer_infos = plot_surfaces_on_axes(
-                    ax=ax,
-                    expressions=expressions,
-                    x_min=vals["x_min"],
-                    x_max=vals["x_max"],
-                    n_points=vals["n_points"],
-                    y_min=vals.get("y_min", -10.0),
-                    y_max=vals.get("y_max", 10.0),
-                    n_y_points=vals.get("n_y_points", 200),
-                    params_str=vals["params"],
-                    wireframe=vals["wireframe"],
-                    overlay=eq_overlay,
-                )
-                self._show_status("\u0e27\u0e32\u0e14\u0e1e\u0e37\u0e49\u0e19\u0e1c\u0e34\u0e27 3D \u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
-            else:
-                layer_infos = plot_equations_on_axes(
-                    ax=ax,
-                    expressions=expressions,
-                    x_min=vals["x_min"],
-                    x_max=vals["x_max"],
-                    n_points=vals["n_points"],
-                    params_str=vals["params"],
-                    y_scale=vals["y_scale"],
-                    overlay=eq_overlay,
-                )
-                self._show_status("\u0e27\u0e32\u0e14\u0e01\u0e23\u0e32\u0e1f\u0e08\u0e32\u0e01\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e40\u0e23\u0e35\u0e22\u0e1a\u0e23\u0e49\u0e2d\u0e22")
-
-            if tab is not None:
-                for info in layer_infos:
-                    artists = info.get('artists') or []
-                    if not artists:
-                        continue
-                    label = info.get('label') or 'Equation'
-                    style = info.get('style', 'line')
-                    style_kwargs = info.get('style_kwargs', {})
-                    meta = self._build_layer_meta(style, label, style_kwargs, source='plot_equation')
-                    tab.register_layer(artists, label, style, meta=meta, kwargs=style_kwargs)
-                try:
-                    tab._refresh_legend()
-                except Exception:
-                    pass
-                _clamp_date_limits(ax)
-                try:
-                    tab.draw()
-                except Exception:
-                    pass
-                _clamp_date_limits(ax)
-                try:
-                    self._mount_layer_manager()
-                except Exception:
-                    pass
-
-            self._update_3d_controls_state(ax, tab)
-        except ValueError as exc:
-            self._warn_equation_failure(str(exc))
-        except Exception as exc:
-            self._show_status("\u0e40\u0e01\u0e34\u0e14\u0e02\u0e49\u0e2d\u0e1c\u0e34\u0e14\u0e1e\u0e25\u0e32\u0e14: {}".format(exc), error=True)
-
-
-    # [Equation Plotter]
-    def _warn_equation_failure(self, details: str) -> None:
-        clean = (details or "").strip()
-        if not clean:
-            clean = "unknown error"
-        message = "\u0e44\u0e21\u0e48\u0e2a\u0e32\u0e21\u0e32\u0e23\u0e16\u0e1e\u0e25\u0e47\u0e2d\u0e15\u0e2a\u0e21\u0e01\u0e32\u0e23\u0e44\u0e14\u0e49:\n{}".format(clean)
-        self._show_status(message, error=True)
-        try:
-            QMessageBox.warning(self, "Plot from Equation", message)
-        except Exception:
-            logger.warning("Failed to show equation warning dialog: %s", message, exc_info=True)
-            print(message)
-
-
     def _show_status(self, msg: str, error: bool = False) -> None:
         try:
             bar = self.statusBar()
