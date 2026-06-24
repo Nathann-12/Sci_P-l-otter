@@ -22,7 +22,7 @@ try:
         plt.rcParams['font.sans-serif'] = ['Arial Unicode MS'] + plt.rcParams['font.sans-serif']
     elif 'Tahoma' in [f.name for f in fm.fontManager.ttflist]:
         plt.rcParams['font.sans-serif'] = ['Tahoma'] + plt.rcParams['font.sans-serif']
-except:
+except Exception:
     pass
 
 class MatplotlibPreview(QWidget):

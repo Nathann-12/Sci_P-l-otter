@@ -80,7 +80,7 @@ def _format_number(value):
             else:
                 return f"{value:,.3f}"
         return str(value)
-    except:
+    except Exception:
         return str(value)
 
 def _dedupe_columns(columns):
@@ -117,7 +117,7 @@ def _create_kpi_cards(df, columns_to_analyze):
                     f"{min_val:.2f}",
                     f"{max_val:.2f}"
                 ])
-        except:
+        except Exception:
             continue
     
     if not kpi_data:

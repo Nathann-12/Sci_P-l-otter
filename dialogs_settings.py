@@ -154,7 +154,7 @@ class ColorCycleEditor(QWidget):
         try:
             color = QColor(hex_color)
             return color.lightness() < 128
-        except:
+        except Exception:
             return False
     
     def _emit_colors_changed(self):

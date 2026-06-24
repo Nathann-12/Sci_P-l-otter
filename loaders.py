@@ -395,7 +395,7 @@ def _read_cdf_as_dataframe_C(path: str | Path) -> pd.DataFrame:
                         try:
                             dt = cdflib.cdfepoch.to_datetime(arr, to_np=True)
                             data["time"] = pd.to_datetime(dt)
-                        except:
+                        except Exception:
                             data["time"] = pd.to_datetime(arr, errors="coerce")
                     else:
                         # ตรวจสอบว่าเป็นตัวเลขหรือไม่
