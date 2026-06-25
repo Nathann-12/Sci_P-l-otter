@@ -1,6 +1,8 @@
 # UI/shell/app_shell.py
 from __future__ import annotations
 
+import logging
+import os
 from typing import Dict, Optional
 
 from PySide6.QtCore import Qt
@@ -14,6 +16,14 @@ from PySide6.QtWidgets import (
 )
 
 from widgets.activity_rail import ActivityRail
+
+logger = logging.getLogger(__name__)
+
+# Default sizes for the shell layout (px). Kept here so MainWindow stays thin.
+RAIL_WIDTH = 68
+CONTEXT_WIDTH = 240
+INSPECTOR_WIDTH = 300
+DOCK_HEIGHT = 160
 
 
 class AppShell(QWidget):
@@ -37,11 +47,13 @@ class AppShell(QWidget):
 
         # --- left: activity rail ---
         self.rail = ActivityRail(self)
+        self.rail.setFixedWidth(RAIL_WIDTH)
         self.rail.activity_changed.connect(self._on_activity_changed)
 
         # --- context stack (เปลี่ยนตามกิจกรรมที่เลือกใน rail) ---
         self.context_stack = QStackedWidget(self)
         self.context_stack.setObjectName("ContextStack")
+        self.context_stack.setMinimumWidth(180)
 
         # --- central workspace ---
         self.workspace_container = QWidget(self)
@@ -67,20 +79,28 @@ class AppShell(QWidget):
         # --- vertical splitter: (top row) over (bottom dock) ---
         top_splitter = QSplitter(Qt.Horizontal, self)
         top_splitter.setObjectName("ShellTopSplitter")
+        top_splitter.setHandleWidth(1)
+        top_splitter.setChildrenCollapsible(False)
         top_splitter.addWidget(self.context_stack)
         top_splitter.addWidget(self.workspace_container)
         top_splitter.addWidget(self.inspector_container)
         top_splitter.setStretchFactor(0, 0)
         top_splitter.setStretchFactor(1, 1)
         top_splitter.setStretchFactor(2, 0)
+        # context ~240, workspace stretches, inspector ~300
+        top_splitter.setSizes([CONTEXT_WIDTH, 700, INSPECTOR_WIDTH])
         self._top_splitter = top_splitter
 
         main_splitter = QSplitter(Qt.Vertical, self)
         main_splitter.setObjectName("ShellMainSplitter")
+        main_splitter.setHandleWidth(1)
         main_splitter.addWidget(top_splitter)
         main_splitter.addWidget(self.dock_tabs)
         main_splitter.setStretchFactor(0, 1)
         main_splitter.setStretchFactor(1, 0)
+        # bottom dock starts modest and is collapsible via the splitter
+        main_splitter.setCollapsible(1, True)
+        main_splitter.setSizes([600, DOCK_HEIGHT])
         self._main_splitter = main_splitter
 
         root = QHBoxLayout(self)
@@ -88,6 +108,27 @@ class AppShell(QWidget):
         root.setSpacing(0)
         root.addWidget(self.rail)
         root.addWidget(main_splitter, 1)
+
+        # --- layer the shell stylesheet on top of the app theme ---
+        self._apply_shell_stylesheet()
+
+    def _apply_shell_stylesheet(self) -> None:
+        """Load styles/shell.qss and append it so it layers on top of the
+        existing dark theme without replacing it. Robust if the file is missing."""
+        try:
+            # UI/shell/app_shell.py -> repo root is two levels up
+            repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            qss_path = os.path.join(repo_root, "styles", "shell.qss")
+            if not os.path.isfile(qss_path):
+                logger.debug("shell.qss not found at %s; skipping", qss_path)
+                return
+            with open(qss_path, "r", encoding="utf-8") as f:
+                qss = f.read()
+            existing = self.styleSheet() or ""
+            self.setStyleSheet(existing + "\n" + qss)
+            logger.info("Shell QSS loaded: %s (%d chars)", qss_path, len(qss))
+        except Exception:
+            logger.debug("Shell QSS load skipped", exc_info=True)
 
     # ------------------------------------------------------------------
     # Injection API

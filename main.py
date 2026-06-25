@@ -30,7 +30,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6.QtCore import Qt, QSize, QSettings
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget
 from PySide6.QtGui import QIcon
 from typing import Any, Dict, Optional
 
@@ -97,6 +97,7 @@ from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
+from UI.welcome import WelcomeWidget
 from UI.docks.ai_dock import AiAssistantDock
 from UI.docks.log_dock import OperationLogDock
 from core.logging_setup import setup_logging
@@ -198,7 +199,21 @@ class MainWindow(
         self.tabs = TabManager(self)
         mid_layout.addWidget(self.tabs)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.shell.set_workspace(mid)
+
+        # Workspace = stacked [welcome empty-state, plot tabs]. แสดง welcome ก่อน
+        # แล้วสลับไปหน้าแท็บเมื่อมีข้อมูลโหลดเข้ามา (ดู _maybe_switch_to_workspace)
+        self.welcome = WelcomeWidget(self)
+        self._workspace_stack = QStackedWidget(self)
+        self._workspace_stack.addWidget(self.welcome)   # index 0
+        self._workspace_stack.addWidget(mid)            # index 1
+        self._workspace_stack.setCurrentIndex(0)
+        self.shell.set_workspace(self._workspace_stack)
+
+        # ปุ่ม "เปิดไฟล์" บนหน้า welcome -> เรียก action เปิดไฟล์เดิม (ถ้ามี)
+        try:
+            self.welcome.open_requested.connect(self._on_welcome_open)
+        except Exception:
+            logger.debug("welcome open_requested wiring skipped", exc_info=True)
 
         # Keep reference to current canvas for backward compatibility
         self.canvas = None
@@ -231,7 +246,11 @@ class MainWindow(
         except Exception:
             pass
         self._panel_left.setMinimumWidth(260)
-        self.shell.register_context("data", "Data", self._panel_left)
+        try:
+            _data_icon = self._icon("open", QStyle.SP_DirOpenIcon)
+        except Exception:
+            _data_icon = None
+        self.shell.register_context("data", "Data", self._panel_left, icon=_data_icon)
 
         # ขวา = Inspector Tabs (Plot/Processing/Export)
         self._panel_right = QWidget(self)
@@ -321,6 +340,53 @@ class MainWindow(
                 self.tabs.tabRemoved.connect(lambda _: self._mount_layer_manager())
         except Exception:
             pass
+
+        # Welcome empty-state -> สลับไปหน้าแท็บเมื่อมีข้อมูล (lightweight hook)
+        # เกาะกับสัญญาณที่มีอยู่แล้ว ไม่แตะ logic ใน mixin
+        try:
+            self.tabs.currentChanged.connect(lambda _=None: self._maybe_switch_to_workspace())
+            if hasattr(self.tabs, 'tabCreated'):
+                self.tabs.tabCreated.connect(lambda _=None: self._maybe_switch_to_workspace())
+            if hasattr(self, 'btnLoadCols') and self.btnLoadCols is not None:
+                self.btnLoadCols.clicked.connect(lambda _=False: self._maybe_switch_to_workspace())
+        except Exception:
+            logger.debug("welcome auto-switch wiring skipped", exc_info=True)
+        # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เช็คครั้งแรก
+        self._maybe_switch_to_workspace()
+
+    # UI-REFINE: สลับ workspace ระหว่าง welcome (ไม่มีข้อมูล) กับแท็บกราฟ
+    def _maybe_switch_to_workspace(self) -> None:
+        """แสดงหน้าแท็บกราฟเมื่อมีข้อมูลโหลดแล้ว มิฉะนั้นคงหน้า welcome ไว้
+
+        Lightweight + guarded: เรียกได้บ่อยโดยไม่พัง และไม่แตะ logic ใน mixin
+        """
+        try:
+            stack = getattr(self, "_workspace_stack", None)
+            if stack is None:
+                return
+            has_data = getattr(self, "_df", None) is not None
+            if not has_data:
+                # เผื่อกรณีมีหลาย dataset ใน staging
+                try:
+                    has_data = bool(getattr(self, "_datasets", {}))
+                except Exception:
+                    has_data = False
+            target = 1 if has_data else 0
+            if stack.currentIndex() != target:
+                stack.setCurrentIndex(target)
+        except Exception:
+            logger.debug("workspace switch skipped", exc_info=True)
+
+    def _on_welcome_open(self) -> None:
+        """ปุ่ม 'เปิดไฟล์' บนหน้า welcome — เรียก action เปิดไฟล์เดิม"""
+        try:
+            opener = getattr(self, "open_file", None)
+            if callable(opener):
+                opener()
+        except Exception:
+            logger.debug("welcome open handler failed", exc_info=True)
+        # หลังโหลด ลองสลับหน้าให้ทันที (ถ้ามีข้อมูล)
+        self._maybe_switch_to_workspace()
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _prompt_restore_session(self):

@@ -93,3 +93,41 @@ def test_command_palette_hook(qapp):
 
     shell.open_command_palette()
     assert palette.opened == 1
+
+
+def test_shell_stylesheet_is_loaded(qapp):
+    shell = AppShell()
+    # shell.qss is layered onto the shell's own stylesheet on construction
+    assert "#ActivityRail" in shell.styleSheet()
+    assert "#CommandPalette" in shell.styleSheet()
+
+
+def test_default_layout_sizes(qapp):
+    from UI.shell.app_shell import RAIL_WIDTH
+
+    shell = AppShell()
+    # rail has a fixed, deterministic width
+    assert shell.rail.width() == RAIL_WIDTH
+    assert shell.rail.minimumWidth() == RAIL_WIDTH
+
+    # splitter handles are thin (1px)
+    assert shell._top_splitter.handleWidth() == 1
+    assert shell._main_splitter.handleWidth() == 1
+
+    # bottom dock is collapsible via the splitter; top panes are not
+    assert shell._main_splitter.isCollapsible(1)
+    assert not shell._top_splitter.childrenCollapsible()
+
+
+def test_register_context_passes_icon_to_rail(qapp):
+    from PySide6.QtGui import QIcon
+
+    shell = AppShell()
+    page = QLabel("data context")
+    shell.register_context("data", "Data", page, icon=QIcon())
+
+    btn = shell.rail.button_for("data")
+    assert btn is not None
+    # icon=None path must keep working too
+    shell.register_context("plot", "Plot", QLabel("plot"), icon=None)
+    assert shell.rail.button_for("plot") is not None

@@ -80,3 +80,25 @@ def test_load_csv_columns_and_plot_line_integration(qapp):
         assert len(graph_tab.get_axes().lines) >= 1
     finally:
         win.close()
+
+
+# ------------------------------------------------- welcome empty-state -> workspace switch
+def test_workspace_switches_from_welcome_when_data_loads(qapp):
+    csv_path = PROJECT_ROOT / "small_test.csv"
+    if not csv_path.exists():
+        pytest.skip("small_test.csv fixture not present")
+
+    from main import MainWindow
+
+    win = MainWindow()
+    try:
+        # starts on the welcome empty-state (index 0)
+        assert win._workspace_stack.currentIndex() == 0
+        assert win._workspace_stack.currentWidget() is win.welcome
+
+        win.load_data(str(csv_path))
+        # the lightweight hook flips to the plot-tabs page once data is present
+        win._maybe_switch_to_workspace()
+        assert win._workspace_stack.currentIndex() == 1
+    finally:
+        win.close()

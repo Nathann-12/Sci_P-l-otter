@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -22,6 +22,9 @@ class ActivityRail(QWidget):
     """
 
     activity_changed = Signal(str)
+
+    #: ขนาดไอคอนของปุ่มกิจกรรม (ดูพอดีกับปุ่มสูง ~56px)
+    ICON_SIZE = 24
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,6 +60,7 @@ class ActivityRail(QWidget):
         button.setToolTip(label)
         button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
         if icon is not None:
             button.setIcon(icon if isinstance(icon, QIcon) else QIcon(icon))
 

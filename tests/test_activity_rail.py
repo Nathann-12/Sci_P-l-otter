@@ -16,6 +16,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from widgets.activity_rail import ActivityRail
@@ -85,3 +86,20 @@ def test_unknown_id_and_duplicate_add(qapp):
     # set_active with unknown id is a no-op
     rail.set_active("does-not-exist")
     assert rail.current_activity() == "data"
+
+
+def test_button_has_icon_size(qapp):
+    rail = ActivityRail()
+    btn = rail.add_activity("data", "ข้อมูล")
+    assert btn.iconSize().width() == ActivityRail.ICON_SIZE
+    assert btn.iconSize().height() == ActivityRail.ICON_SIZE
+
+
+def test_add_activity_accepts_icon(qapp):
+    rail = ActivityRail()
+    # passing a QIcon (even empty) keeps the API working and does not crash
+    btn = rail.add_activity("data", "ข้อมูล", icon=QIcon())
+    assert btn.icon() is not None
+    # icon=None path still works
+    btn2 = rail.add_activity("plot", "กราฟ", icon=None)
+    assert btn2 is rail.button_for("plot")

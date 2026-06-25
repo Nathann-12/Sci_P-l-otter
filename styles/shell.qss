@@ -1,0 +1,344 @@
+/* =====================================================================
+   shell.qss — Research OS shell theme for SciPlotter
+   Layers on top of dark_modern.qss + sidepanel.qss.
+   Palette (matches config.json / dark_modern.qss):
+     bg        #1e2126   surface   #23272e   surface-2 #262b33
+     border    #3a3f44   accent    #4F9CF9   text      #e6e6e6
+     muted     #aab0b6
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   Activity rail — a slim, fixed vertical bar slightly darker than bg
+   --------------------------------------------------------------------- */
+#ActivityRail {
+    background-color: #181b20;
+    border-right: 1px solid #2a2f36;
+}
+
+/* Activity buttons: icon above text, comfortable hit area, muted idle */
+QToolButton[objectName^="ActivityButton_"] {
+    background: transparent;
+    color: #8b929c;
+    border: none;
+    border-left: 3px solid transparent;   /* accent rail for active */
+    border-radius: 0px;
+    padding: 8px 2px 6px 2px;
+    margin: 1px 0px;
+    min-height: 56px;
+    font-size: 9pt;
+    font-weight: 500;
+}
+
+QToolButton[objectName^="ActivityButton_"]:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #d7dde4;
+}
+
+QToolButton[objectName^="ActivityButton_"]:checked {
+    background: rgba(79, 156, 249, 0.12);
+    border-left: 3px solid #4F9CF9;
+    color: #4F9CF9;
+    font-weight: 600;
+}
+
+QToolButton[objectName^="ActivityButton_"]:checked:hover {
+    background: rgba(79, 156, 249, 0.18);
+}
+
+QToolButton[objectName^="ActivityButton_"]:focus {
+    outline: none;
+}
+
+/* ---------------------------------------------------------------------
+   Context stack — left panel area; give pages room to breathe
+   --------------------------------------------------------------------- */
+#ContextStack {
+    background-color: #1b1e23;
+    border-right: 1px solid #2a2f36;
+}
+
+#ContextStack > QWidget {
+    background-color: #1b1e23;
+}
+
+/* ---------------------------------------------------------------------
+   Workspace + Inspector containers — clean, separated surfaces
+   --------------------------------------------------------------------- */
+#WorkspaceContainer {
+    background-color: #1e2126;
+}
+
+#InspectorContainer {
+    background-color: #1b1e23;
+    border-left: 1px solid #2a2f36;
+}
+
+/* ---------------------------------------------------------------------
+   Bottom dock tabs (South-positioned QTabWidget)
+   --------------------------------------------------------------------- */
+#DockTabs {
+    background-color: #1b1e23;
+}
+
+#DockTabs::pane {
+    border: 1px solid #2a2f36;
+    border-radius: 0px;
+    background: #1b1e23;
+    top: 0px;
+}
+
+#DockTabs QTabBar::tab {
+    background: transparent;
+    color: #8b929c;
+    border: none;
+    border-top: 2px solid transparent;     /* South tabs sit under the pane */
+    border-radius: 0px;
+    padding: 6px 16px;
+    margin: 0px;
+    min-width: 60px;
+    font-size: 9.5pt;
+}
+
+#DockTabs QTabBar::tab:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #d7dde4;
+}
+
+#DockTabs QTabBar::tab:selected {
+    background: #23272e;
+    color: #4F9CF9;
+    border-top: 2px solid #4F9CF9;
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------
+   Splitter handles — subtle, thin
+   --------------------------------------------------------------------- */
+QSplitter#ShellTopSplitter::handle,
+QSplitter#ShellMainSplitter::handle {
+    background-color: #2a2f36;
+}
+
+QSplitter#ShellTopSplitter::handle:horizontal,
+QSplitter#ShellMainSplitter::handle:horizontal {
+    width: 1px;
+}
+
+QSplitter#ShellTopSplitter::handle:vertical,
+QSplitter#ShellMainSplitter::handle:vertical {
+    height: 1px;
+}
+
+QSplitter#ShellTopSplitter::handle:hover,
+QSplitter#ShellMainSplitter::handle:hover {
+    background-color: #4F9CF9;
+}
+
+/* ---------------------------------------------------------------------
+   Command palette — centered modern command bar
+   --------------------------------------------------------------------- */
+#CommandPalette {
+    background-color: #23272e;
+    border: 1px solid #3a3f44;
+    border-radius: 12px;
+}
+
+#CommandPalette QLineEdit#CommandPaletteSearch {
+    background-color: #1b1e23;
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12pt;
+    color: #e6e6e6;
+    selection-background-color: #4F9CF9;
+    selection-color: #ffffff;
+}
+
+#CommandPalette QLineEdit#CommandPaletteSearch:focus {
+    border: 1px solid #4F9CF9;
+}
+
+#CommandPalette QListWidget#CommandPaletteList {
+    background-color: transparent;
+    border: none;
+    border-top: 1px solid #2a2f36;
+    border-radius: 0px;
+    padding: 6px 2px 2px 2px;
+    outline: none;
+}
+
+#CommandPalette QListWidget#CommandPaletteList::item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: #cfd3d6;
+    margin: 1px 0px;
+}
+
+#CommandPalette QListWidget#CommandPaletteList::item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e6e6e6;
+}
+
+#CommandPalette QListWidget#CommandPaletteList::item:selected {
+    background: rgba(79, 156, 249, 0.22);
+    color: #ffffff;
+}
+
+/* ---------------------------------------------------------------------
+   AI assistant dock — transcript + prominent input row
+   --------------------------------------------------------------------- */
+#AiAssistantDock {
+    background-color: #1b1e23;
+}
+
+QTextEdit#AiTranscript {
+    background-color: #17191c;
+    border: 1px solid #2a2f36;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #d7dde4;
+    selection-background-color: #4F9CF9;
+    selection-color: #ffffff;
+}
+
+QLineEdit#AiInput {
+    background-color: #262b33;
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+
+QLineEdit#AiInput:focus {
+    border: 1px solid #4F9CF9;
+}
+
+QPushButton#AiSendButton {
+    background: #4F9CF9;
+    color: #ffffff;
+    border: 1px solid #4F9CF9;
+    border-radius: 8px;
+    padding: 6px 16px;
+    min-width: 64px;
+    font-weight: 600;
+}
+
+QPushButton#AiSendButton:hover {
+    background: #5fa8fb;
+    border-color: #5fa8fb;
+}
+
+QPushButton#AiSendButton:pressed {
+    background: #3f86e0;
+    border-color: #3f86e0;
+}
+
+/* ---------------------------------------------------------------------
+   Operation log dock — tidy list + rerun button
+   --------------------------------------------------------------------- */
+#OperationLogDock {
+    background-color: #1b1e23;
+}
+
+QListWidget#OperationLogList {
+    background-color: #17191c;
+    border: 1px solid #2a2f36;
+    border-radius: 8px;
+    padding: 4px;
+    color: #d7dde4;
+    outline: none;
+}
+
+QListWidget#OperationLogList::item {
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+QListWidget#OperationLogList::item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+QListWidget#OperationLogList::item:selected {
+    background: rgba(79, 156, 249, 0.20);
+    color: #ffffff;
+}
+
+QPushButton#RerunButton {
+    background: #2b2f36;
+    border: 1px solid #3a3f44;
+    border-radius: 8px;
+    padding: 6px 14px;
+    color: #e6e6e6;
+}
+
+QPushButton#RerunButton:hover {
+    background: #323844;
+    border-color: #4F9CF9;
+}
+
+/* ---------------------------------------------------------------------
+   Welcome empty-state — friendly, centered
+   --------------------------------------------------------------------- */
+#WelcomeWidget {
+    background-color: #1e2126;
+}
+
+QLabel#WelcomeTitle {
+    color: #e6e6e6;
+}
+
+QLabel#WelcomeSubtitle {
+    color: #8b929c;
+    font-size: 11pt;
+}
+
+QLabel#WelcomeRecentLabel {
+    color: #aab0b6;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+QPushButton#WelcomeOpenButton {
+    background: #4F9CF9;
+    color: #ffffff;
+    border: 1px solid #4F9CF9;
+    border-radius: 10px;
+    padding: 10px 28px;
+    min-height: 40px;
+    font-size: 11.5pt;
+    font-weight: 600;
+}
+
+QPushButton#WelcomeOpenButton:hover {
+    background: #5fa8fb;
+    border-color: #5fa8fb;
+}
+
+QPushButton#WelcomeOpenButton:pressed {
+    background: #3f86e0;
+    border-color: #3f86e0;
+}
+
+QListWidget#WelcomeRecentList {
+    background-color: #1b1e23;
+    border: 1px solid #2a2f36;
+    border-radius: 10px;
+    padding: 4px;
+    color: #cfd3d6;
+    outline: none;
+    max-width: 520px;
+}
+
+QListWidget#WelcomeRecentList::item {
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+QListWidget#WelcomeRecentList::item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e6e6e6;
+}
+
+QListWidget#WelcomeRecentList::item:selected {
+    background: rgba(79, 156, 249, 0.22);
+    color: #ffffff;
+}
