@@ -192,7 +192,7 @@ QSplitter#ShellMainSplitter::handle:hover {
 }
 
 QTextEdit#AiTranscript {
-    background-color: #17191c;
+    background-color: #1b1e23;
     border: 1px solid #2a2f36;
     border-radius: 8px;
     padding: 8px 10px;
@@ -240,7 +240,7 @@ QPushButton#AiSendButton:pressed {
 }
 
 QListWidget#OperationLogList {
-    background-color: #17191c;
+    background-color: #1b1e23;
     border: 1px solid #2a2f36;
     border-radius: 8px;
     padding: 4px;
@@ -283,12 +283,19 @@ QPushButton#RerunButton:hover {
 }
 
 QLabel#WelcomeTitle {
-    color: #e6e6e6;
+    color: #f0f2f4;
+    font-size: 18pt;
+    font-weight: 600;
 }
 
 QLabel#WelcomeSubtitle {
     color: #8b929c;
     font-size: 11pt;
+}
+
+QLabel#WelcomeRecentEmpty {
+    color: #6b7178;
+    font-size: 10.5pt;
 }
 
 QLabel#WelcomeRecentLabel {
@@ -325,7 +332,10 @@ QListWidget#WelcomeRecentList {
     padding: 4px;
     color: #cfd3d6;
     outline: none;
+    min-width: 360px;
     max-width: 520px;
+    min-height: 120px;
+    max-height: 220px;
 }
 
 QListWidget#WelcomeRecentList::item {

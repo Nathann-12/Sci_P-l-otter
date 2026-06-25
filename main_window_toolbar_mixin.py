@@ -14,11 +14,13 @@ class MainWindowToolbarMixin:
     def build_toolbar(self):
         """Build the main toolbar with organized groups"""
         self.tb = QToolBar("Main Toolbar", self)
-        self.tb.setIconSize(QSize(24, 24))
-        # Show icon + text on toolbar buttons for clarity
+        self.tb.setIconSize(QSize(22, 22))
+        self.tb.setMovable(False)
+        # Icon-only toolbar: full labels live in tooltips so nothing gets
+        # elided into unreadable garbage when the window is narrow.
         try:
             from PySide6.QtCore import Qt
-            self.tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            self.tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
         except Exception:
             pass
         self.addToolBar(self.tb)
@@ -26,8 +28,32 @@ class MainWindowToolbarMixin:
         # Create toolbar actions
         self._create_toolbar_actions()
 
+        # Every action's text becomes its tooltip so icon-only stays discoverable
+        self._sync_toolbar_tooltips()
+
         # Apply styling
         self._apply_toolbar_styling()
+
+    def _sync_toolbar_tooltips(self):
+        """Make each toolbar action's tooltip = its label (icon-only mode).
+
+        Strips trailing ellipsis from labels for cleaner tooltips and leaves
+        any action that already has a richer tooltip untouched.
+        """
+        try:
+            for action in self.tb.actions():
+                if action.isSeparator():
+                    continue
+                text = (action.text() or "").replace("&", "").strip()
+                if not text:
+                    continue
+                clean = text.rstrip(".").rstrip("…").strip() or text
+                if not action.toolTip() or action.toolTip() == action.text():
+                    action.setToolTip(clean)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "Failed to sync toolbar tooltips", exc_info=True
+            )
 
     def _create_toolbar_actions(self):
         """Create all toolbar actions with proper grouping"""
@@ -56,6 +82,10 @@ class MainWindowToolbarMixin:
         if not hasattr(self, 'actSettings'):
             self.actSettings = QAction("Settings", self)
             self.actSettings.triggered.connect(self.show_settings)
+            try:
+                self.actSettings.setIcon(self._icon("settings", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+            except Exception:
+                pass
         if not hasattr(self, 'actPlotEquation'):
             self.actPlotEquation = QAction('Plot from Equation...', self)
             self.actPlotEquation.triggered.connect(self.on_plot_from_equation)
@@ -129,123 +159,76 @@ class MainWindowToolbarMixin:
         self.tb.addAction(self.actSettings)
 
     def _apply_toolbar_styling(self):
-        """Apply QSS styling to toolbar"""
+        """Apply calm, flat icon-button styling to the toolbar.
+
+        Icon-only buttons with a subtle hover, hairline separators and the
+        blue accent reserved for the active (checked) state only.
+        """
         try:
-            # Try to load from styles/toolbar.qss
+            # Allow an external override file to win if present
             qss_path = os.path.join("styles", "toolbar.qss")
             if os.path.exists(qss_path):
                 with open(qss_path, 'r', encoding='utf-8') as f:
                     self.tb.setStyleSheet(f.read())
-            else:
-                # Enhanced toolbar styling
-                self.tb.setStyleSheet("""
-                    QToolBar {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                   stop:0 #3a3a3a, stop:1 #2b2b2b);
-                        border: none;
-                        border-bottom: 1px solid #404040;
-                        spacing: 6px;
-                        padding: 4px 8px;
-                        font-size: 11px;
-                        font-weight: 500;
-                    }
+                return
 
-                    QToolBar::separator {
-                        background-color: #555555;
-                        width: 1px;
-                        margin: 6px 4px;
-                        border-radius: 1px;
-                    }
+            self.tb.setStyleSheet("""
+                QToolBar {
+                    background: #1b1e23;
+                    border: none;
+                    border-bottom: 1px solid #2a2f36;
+                    spacing: 2px;
+                    padding: 5px 8px;
+                }
 
-                    QToolButton {
-                        background-color: transparent;
-                        border: 1px solid transparent;
-                        border-radius: 6px;
-                        padding: 6px 10px;
-                        margin: 1px;
-                        color: #e0e0e0;
-                        font-size: 11px;
-                        font-weight: 500;
-                        min-width: 60px;
-                        text-align: center;
-                    }
+                QToolBar::separator {
+                    background-color: #2f343b;
+                    width: 1px;
+                    margin: 6px 6px;
+                }
 
-                    QToolButton:hover {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                   stop:0 #4a4a4a, stop:1 #3a3a3a);
-                        border: 1px solid #666666;
-                        color: #ffffff;
-                    }
+                QToolBar QToolButton {
+                    background-color: transparent;
+                    border: 1px solid transparent;
+                    border-radius: 8px;
+                    padding: 6px;
+                    margin: 0px;
+                    color: #cfd3d6;
+                }
 
-                    QToolButton:pressed {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                   stop:0 #0078d4, stop:1 #106ebe);
-                        border: 1px solid #106ebe;
-                        color: #ffffff;
-                    }
+                QToolBar QToolButton:hover {
+                    background-color: rgba(255, 255, 255, 0.06);
+                    border: 1px solid transparent;
+                    color: #ffffff;
+                }
 
-                    QToolButton:checked {
-                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                   stop:0 #0078d4, stop:1 #106ebe);
-                        border: 1px solid #106ebe;
-                        color: #ffffff;
-                    }
+                QToolBar QToolButton:pressed {
+                    background-color: rgba(255, 255, 255, 0.10);
+                }
 
-                    /* Special styling for different groups */
-                    QToolButton[text="Open"] {
-                        background-color: #28a745;
-                        color: #ffffff;
-                        font-weight: bold;
-                    }
-                    QToolButton[text="Open"]:hover {
-                        background-color: #218838;
-                    }
+                QToolBar QToolButton:checked {
+                    background-color: rgba(79, 156, 249, 0.16);
+                    border: 1px solid rgba(79, 156, 249, 0.45);
+                    color: #4F9CF9;
+                }
 
-                    QToolButton[text="Plot"] {
-                        background-color: #007bff;
-                        color: #ffffff;
-                        font-weight: bold;
-                    }
-                    QToolButton[text="Plot"]:hover {
-                        background-color: #0056b3;
-                    }
-
-                    QToolButton[text="Export Figure"],
-                    QToolButton[text="Export Data"] {
-                        background-color: #17a2b8;
-                        color: #ffffff;
-                        font-weight: bold;
-                    }
-                    QToolButton[text="Export Figure"]:hover,
-                    QToolButton[text="Export Data"]:hover {
-                        background-color: #138496;
-                    }
-
-                    QToolButton[text="Settings"] {
-                        background-color: #6c757d;
-                        color: #ffffff;
-                        font-weight: bold;
-                    }
-                    QToolButton[text="Settings"]:hover {
-                        background-color: #545b62;
-                    }
-                """)
+                QToolBar QToolButton:checked:hover {
+                    background-color: rgba(79, 156, 249, 0.24);
+                }
+            """)
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to apply toolbar styling: {e}")
 
     # --- Responsive UI helpers ---
     def _update_compact_ui(self):
-        """Switch toolbar density/icon mode based on window width.
-        Keep icons-only when narrow to avoid ugly elided labels."""
+        """Keep the main toolbar icon-only at every width.
+
+        Labels are surfaced through tooltips, so we never elide text into
+        unreadable fragments. This intentionally no longer switches button
+        styles by width.
+        """
         try:
             from PySide6.QtCore import Qt
-            w = self.width()
-            # Wide: text beside icon; Medium: text under icon; Narrow: icon only
-            if w < 900:
-                self.tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
-            elif w < 1200:
-                self.tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            else:
-                self.tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            self.tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
         except Exception:
             pass
