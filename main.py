@@ -95,6 +95,10 @@ from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
+from widgets.command_palette import CommandPalette
+from UI.shell.app_shell import AppShell
+from UI.docks.ai_dock import AiAssistantDock
+from UI.docks.log_dock import OperationLogDock
 from core.logging_setup import setup_logging
 from UI.widgets.error_panel import ErrorPanel
 from widgets.plot_tabs import (
@@ -174,18 +178,6 @@ class MainWindow(
         self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
         self.current_aggregated_df = None  # UI-REFINE: เก็บผล aggregate ล่าสุดสำหรับ export
 
-        # UI-REFINE: โครงสร้างหลักด้วย QSplitter (ซ้าย/กลาง/ขวา)
-        central = QWidget(); self.setCentralWidget(central)
-        v = QVBoxLayout(central)
-        # CHANGE: ครอบด้วย QFrame + margins/spacing เพื่อพื้นที่หายใจ
-        outer = QFrame(self)
-        outer.setFrameShape(QFrame.NoFrame)
-        ov = QVBoxLayout(outer)
-        ov.setContentsMargins(12, 12, 12, 12)  # CHANGE: margins 12
-        ov.setSpacing(10)  # CHANGE: spacing readable
-        # UI-REFINE: ใช้ QSplitter แนวนอน
-        self.splitter = QSplitter(Qt.Horizontal, self)
-
         # Plotting settings/state (Overlay vs Replace)
         try:
             self.settings = getattr(self, "settings", QSettings("SciPlotter", "SciPlotter"))
@@ -193,29 +185,26 @@ class MainWindow(
             self.plot_mode = PlotMode(val) if isinstance(val, str) else PlotMode.OVERLAY
         except Exception:
             self.plot_mode = PlotMode.OVERLAY
-        ov.addWidget(self.splitter)
-        v.addWidget(outer)
 
-        # กลาง = TabManager สำหรับกราฟหลายแท็บ
+        # === Research OS shell: activity rail | context | workspace | inspector + bottom docks ===
+        self.shell = AppShell(self)
+        self.setCentralWidget(self.shell)
+
+        # กลาง = TabManager
         mid = QWidget(self)
         mid_layout = QVBoxLayout(mid)
-        mid_layout.setContentsMargins(0, 0, 0, 0)  # CHANGE: tight inner
+        mid_layout.setContentsMargins(0, 0, 0, 0)
         mid_layout.setSpacing(8)
-        
-        # สร้าง TabManager แทน canvas เดี่ยว
         self.tabs = TabManager(self)
         mid_layout.addWidget(self.tabs)
-        
-        # UI-REFINE: tabs ขยายเต็มที่
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.splitter.addWidget(mid)
-        
+        self.shell.set_workspace(mid)
+
         # Keep reference to current canvas for backward compatibility
-        self.canvas = None  # Will be set by _update_canvas_reference
+        self.canvas = None
         try:
             self._update_canvas_reference()
         except Exception:
-            # Fallback: try to grab first tab's canvas if method not yet available
             try:
                 if self.tabs.count() > 0:
                     first_tab_widget = self.tabs.widget(0)
@@ -225,50 +214,46 @@ class MainWindow(
                             break
             except Exception:
                 pass
-        
+
         # Error Panel (hidden by default)
         self.error_panel = ErrorPanel(self)
-        self.error_panel.hide()  # ซ่อนไว้ก่อน
+        self.error_panel.hide()
 
-        # ซ้าย = File/Staging
+        # ซ้าย = File/Staging -> context "Data"
         self._panel_left = QWidget(self)
         self._panel_left.setObjectName("SidePanel")
         self._left_layout = QVBoxLayout(self._panel_left)
         self._left_layout.setContentsMargins(12, 12, 12, 12)
         self._left_layout.setSpacing(10)
-        self._build_left_panel()  # UI-REFINE
-        # Apply sidepanel styles and classes after building
+        self._build_left_panel()
         try:
             self.apply_sidepanel_style()
         except Exception:
             pass
-        # UI-REFINE: sidebar ซ้ายมีความกว้างขั้นต่ำ
-        # Ensure side panel is wide enough so Thai labels on buttons don't clip
         self._panel_left.setMinimumWidth(260)
-        self.splitter.insertWidget(0, self._panel_left)
+        self.shell.register_context("data", "Data", self._panel_left)
 
         # ขวา = Inspector Tabs (Plot/Processing/Export)
         self._panel_right = QWidget(self)
         self._right_layout = QVBoxLayout(self._panel_right)
-        self._right_layout.setContentsMargins(8, 8, 8, 8)  # CHANGE: panel margins
+        self._right_layout.setContentsMargins(8, 8, 8, 8)
         self._right_layout.setSpacing(8)
-        self._build_inspector_tabs()  # UI-REFINE
-        # UI-REFINE: inspector ขวามีความกว้างขั้นต่ำ
+        self._build_inspector_tabs()
         self._panel_right.setMinimumWidth(220)
         try:
-            # Limit right inspector panel so it doesn't get too wide on large windows
             self._panel_right.setMaximumWidth(420)
         except Exception:
             pass
-        self.splitter.addWidget(self._panel_right)
+        self.shell.set_inspector(self._panel_right)
 
-        # UI-REFINE: ขนาดสัดส่วนเริ่มต้น (ซ้าย=200, กลาง=600, ขวา=200)
-        self.splitter.setSizes([260, 600, 200])
-        self.splitter.setHandleWidth(8)  # CHANGE: wider handle for usability
-        # UI-REFINE: กลางต้องขยายเมื่อหน้าต่างกว้างขึ้น
-        self.splitter.setStretchFactor(0, 0)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setStretchFactor(2, 0)
+        # Bottom docks: AI assistant + operation log
+        try:
+            self.ai_dock = AiAssistantDock(self)
+            self.op_log_dock = OperationLogDock(self)
+            self.shell.add_dock("AI", self.ai_dock)
+            self.shell.add_dock("Log", self.op_log_dock)
+        except Exception:
+            pass
 
         # Build toolbar with organized groups first (to create actions)
         try:
@@ -288,6 +273,22 @@ class MainWindow(
         
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
+
+        # Command palette (Ctrl+K) - searchable list of all menu/toolbar actions
+        try:
+            from PySide6.QtGui import QAction, QShortcut, QKeySequence
+            self._command_palette = CommandPalette(self)
+            _cmds = []
+            for _act in self.findChildren(QAction):
+                _txt = _act.text().replace("&", "").strip()
+                if _txt:
+                    _cmds.append((_txt, _act.trigger))
+            self._command_palette.set_commands(_cmds)
+            self.shell.set_command_palette(self._command_palette)
+            _sc = QShortcut(QKeySequence("Ctrl+K"), self)
+            _sc.activated.connect(self.shell.open_command_palette)
+        except Exception:
+            pass
         
         # UI-REFINE: สถานะถาวรใน StatusBar
         self._sb_rows = QLabel("rows: -")
