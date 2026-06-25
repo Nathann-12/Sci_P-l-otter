@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PySide6.QtWidgets import QMessageBox
 
 if TYPE_CHECKING:  # shared MainWindow state this mixin relies on (set in MainWindow.__init__)
     _df: object
@@ -40,13 +39,13 @@ class MainWindowAnalysisMixin:
             if is_dt:
                 x_num = _to_posix_seconds(x_raw)
                 import matplotlib.dates as _mdates
-                ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+                ax = self.active_axes(); lim0, lim1 = ax.get_xlim()
                 v0 = _mdates.num2date(lim0).timestamp(); v1 = _mdates.num2date(lim1).timestamp()
                 lo, hi = (min(v0, v1), max(v0, v1))
                 m1 = (x_num >= lo) & (x_num <= hi)
                 xr = x_num[m1]
             else:
-                ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+                ax = self.active_axes(); lim0, lim1 = ax.get_xlim()
                 lo, hi = (min(lim0, lim1), max(lim0, lim1))
                 m1 = (x_raw >= lo) & (x_raw <= hi)
                 xr = x_raw[m1].astype(float)
@@ -83,7 +82,7 @@ class MainWindowAnalysisMixin:
             if df is None: return
             x_raw = df[opts['x']].to_numpy() if opts['x'] in df.columns else np.arange(len(df))
             y = df[opts['y']].to_numpy()
-            ax = self.tabs.currentWidget().get_axes(); lim0, lim1 = ax.get_xlim()
+            ax = self.active_axes(); lim0, lim1 = ax.get_xlim()
             lo, hi = (min(lim0, lim1), max(lim0, lim1))
             # Convert datetime x to Matplotlib date numbers for consistent comparison
             try:
@@ -176,8 +175,7 @@ class MainWindowAnalysisMixin:
         except Exception:
             pd = None
         try:
-            from PySide6.QtWidgets import QFileDialog
-            fn, _ = QFileDialog.getSaveFileName(self, "Export Peaks", "peaks.csv", "CSV (*.csv);;Excel (*.xlsx)")
+            fn = self.ask_save_path("Export Peaks", "peaks.csv", "CSV (*.csv);;Excel (*.xlsx)")
             if not fn:
                 return
             table = self.pkDock.table
@@ -192,7 +190,7 @@ class MainWindowAnalysisMixin:
             col_idx = header_map.get('index')
             col_kind = header_map.get('type', header_map.get('kind'))
             if col_x is None or col_y is None or col_idx is None:
-                QMessageBox.warning(self, "Export", "Peak table is missing required columns.")
+                self.warn("Export", "Peak table is missing required columns.")
                 return
             def _cell_text(row, col):
                 item = table.item(row, col)
@@ -219,6 +217,6 @@ class MainWindowAnalysisMixin:
                         if col_kind is not None:
                             row.append(kinds[row_idx])
                         writer.writerow(row)
-            QMessageBox.information(self, "Export", f"Saved: {fn}")
+            self.inform("Export", f"Saved: {fn}")
         except Exception as e:
             logging.getLogger(__name__).warning(f"Export failed: {e}")

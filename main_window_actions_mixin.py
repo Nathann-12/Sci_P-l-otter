@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 from PySide6 import QtGui
-from PySide6.QtWidgets import QMessageBox
 
 from dialogs_histogram import HistogramDialog
 
@@ -79,7 +78,7 @@ class MainWindowActionsMixin:
         if hasattr(self, 'current_file_path') and self.current_file_path:
             self.open_file(self.current_file_path)
         else:
-            QMessageBox.information(self, "Reload", "No file loaded to reload.")
+            self.inform("Reload", "No file loaded to reload.")
 
     def on_action_plot(self):
         """Plot action handler - opens plot dialog"""

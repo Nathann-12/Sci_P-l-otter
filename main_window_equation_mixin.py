@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog
 
 from core.plot_data import clamp_date_limits as _clamp_date_limits
 from dialogs_equation import EquationPlotDialog
@@ -147,7 +147,7 @@ class MainWindowEquationMixin:
         message = "ไม่สามารถพล็อตสมการได้:\n{}".format(clean)
         self._show_status(message, error=True)
         try:
-            QMessageBox.warning(self, "Plot from Equation", message)
+            self.warn("Plot from Equation", message)
         except Exception:
             logger.warning("Failed to show equation warning dialog: %s", message, exc_info=True)
             print(message)
