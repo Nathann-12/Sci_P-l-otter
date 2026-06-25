@@ -15,6 +15,14 @@ QFrame, QGroupBox {
     border-radius: 8px;
 }
 
+/* QLabel inherits from QFrame, so the rule above was boxing every label.
+   Keep plain labels borderless/transparent so headings/text read as text. */
+QLabel {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
