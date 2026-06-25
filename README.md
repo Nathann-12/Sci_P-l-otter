@@ -1,10 +1,25 @@
 # 📊 SciPlotter - Scientific Data Visualization Tool
 
-![SciPlotter Logo](assets/icons/Plot.png)
+![SciPlotter Logo](assets/icons/icon_app.png)
 
 ## 🎯 เกี่ยวกับโปรเจค
 
 **SciPlotter** เป็นเครื่องมือสำหรับการวิเคราะห์และแสดงผลข้อมูลทางวิทยาศาสตร์ที่พัฒนาด้วย Python, PySide6 และ Matplotlib โดยออกแบบมาให้ใช้งานง่ายและมีประสิทธิภาพสูง
+
+
+###  🚀การติดตั้ง
+```bash
+# Clone repository
+git clone https://github.com/Nathann-12/Sci_P-l-otter.git
+cd SciPlotter
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run application
+python main.py
+```
+
 
 ## ✨ ฟีเจอร์หลัก
 
@@ -13,14 +28,21 @@
 - **Scatter Plot** - กราฟกระจายสำหรับข้อมูลจุด
 - **Histogram** - กราฟแท่งสำหรับการแจกแจงข้อมูล
 - **Spectrogram** - การวิเคราะห์ความถี่-เวลา
+- **Box plot** - การสร้างกราฟแท่งแบบกล่อง
+- **3D Plot** - รองรับกราฟ 3 มิติ 
+- **Area** - กราฟพื้นที่
+- **Pie Chart** - กราฟแท่งแบบวงกลม
+- **Bar** -กราฟแท่ง
 - **FFT Analysis** - การวิเคราะห์ฟูริเยร์
 
 ### 🔧 **การประมวลผลข้อมูล**
-- **Derived Columns** - สร้างคอลัมน์ใหม่ด้วยนิพจน์ทางคณิตศาสตร์
+- **Derived Columns** - สร้างคอลัมน์ใหม่ด้วยนิพจน์ทางคณิตศาสตร์ รองรับการใช้ฟังก์ชันอินทริเกรตและดิฟเฟอเรนเชี่ยล์
 - **Aggregation Functions** - mean, sum, std, var, min, max
 - **Data Filtering** - กรองข้อมูลตามเงื่อนไข
 - **Unit Conversion** - แปลงหน่วยการวัด
 - **Calibration** - การสอบเทียบข้อมูล
+- **กำหนดชนิดคอลัม** -สามารถเปลี่ยนแปลงชนิดคอลัมน์ได้ตามต้องการ
+- **Curve Fit** -ฟังชั่นการฟิตกราฟ
 
 ### 📁 **การจัดการไฟล์**
 - **CSV/TSV** - ไฟล์ข้อมูลแยกด้วยจุลภาค/แท็บ
@@ -35,7 +57,7 @@
 - **Export Options** - ส่งออกเป็น PNG, PDF
 - **Report Generation** - สร้างรายงาน PDF อัตโนมัติ
 
-## 🚀 การติดตั้ง
+
 
 ### ข้อกำหนดระบบ
 - Python 3.8+
@@ -44,18 +66,6 @@
 - Pandas
 - NumPy
 
-### การติดตั้ง
-```bash
-# Clone repository
-git clone <repository-url>
-cd SciPlotter
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run application
-python main.py
-```
 
 ## 📖 การใช้งาน
 
@@ -82,6 +92,7 @@ python main.py
 - พื้นหลังสีเข้ม
 - ข้อความสีขาว
 - เหมาะสำหรับการใช้งานในที่มืด
+(แนะนำว่าให้ใช้ค่าเริ่มต้นของโปรแกรม)
 
 ### Light Theme
 - พื้นหลังสีสว่าง
@@ -98,9 +109,7 @@ python main.py
 
 - [คู่มือการใช้งาน Derived Column](docs/README_DERIVED_COLUMN.md)
 - [คู่มือการใช้งาน Spectrogram](docs/README_SPECTROGRAM.md)
-- [โครงสร้างโปรเจค](docs/PROJECT_STRUCTURE.md)
-- [คู่มือการมีส่วนร่วม](docs/CONTRIBUTING.md)
-- [สรุปการจัดระเบียบ](docs/ORGANIZATION_SUMMARY.md)
+- [โครงสร้างโปรเจค](PROJECT_STRUCTURE.md)
 
 ## 🧪 การทดสอบ
 
@@ -122,18 +131,18 @@ python tests/test_system.py
 
 ## 📄 License
 
-โปรเจคนี้อยู่ภายใต้ MIT License - ดูรายละเอียดใน [LICENSE](docs/LICENSE) file
+โปรเจคนี้อยู่ภายใต้ MIT License - ดูรายละเอียดใน [LICENSE](LICENSE) file
 
 ## 👥 ผู้พัฒนา
 
-- **Main Developer**: [Your Name]
-- **Contributors**: [Contributor List]
+- **Main Developer**: [Gu3t]
+- **Advisor**: [Yanapat_Kitbuntem]
 
 ## 📞 การติดต่อ
 
-- **Email**: [nathanlablue68@gmail.com.com]
-- **GitHub**: [github.com/nathann-12]
-- **Issues**: [GitHub Issues](https://github.com/nathann-12/sciplotter/issues)
+- **Email**: [nathanlablue68@gmail.com]
+- **GitHub**: [github.com/Nathann-12]
+- **Issues**: [GitHub Issues](https://github.com/Nathann-12/sciplotter/issues)
 
 ## 🙏 การขอบคุณ
 
