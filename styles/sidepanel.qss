@@ -50,8 +50,9 @@ QPushButton[class="btn-secondary"] {
     min-height: 34px;
     min-width: 0px; /* allow squeeze in narrow columns */
     border-radius: 8px;
-    padding: 6px 10px;
+    padding: 6px 6px;
     font-weight: 600;
+    font-size: 11.5px;
 }
 
 QPushButton[class="btn-primary"] {

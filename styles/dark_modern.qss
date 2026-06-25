@@ -11,8 +11,8 @@ QWidget {
 /* Panels / Frames */
 QFrame, QGroupBox {
     background-color: #23272e;
-    border: 1px solid #3a3f44;
-    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
 }
 
 /* QLabel inherits from QFrame, so the rule above was boxing every label.
@@ -35,8 +35,8 @@ QGroupBox::title {
 /* Inputs */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit, QListWidget, QTreeWidget, QTableWidget {
     background-color: #262b33;
-    border: 1px solid #3a3f44;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
     padding: 6px 8px;
     selection-background-color: #2d3642;
     selection-color: #ffffff;
