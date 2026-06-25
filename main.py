@@ -30,7 +30,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6.QtCore import Qt, QSize, QSettings
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget, QTabWidget
 from PySide6.QtGui import QIcon
 from typing import Any, Dict, Optional
 
@@ -98,6 +98,7 @@ from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
 from UI.welcome import WelcomeWidget
+from widgets.workbook import WorkbookWidget
 from UI.docks.ai_dock import AiAssistantDock
 from UI.docks.log_dock import OperationLogDock
 from core.logging_setup import setup_logging
@@ -200,20 +201,15 @@ class MainWindow(
         mid_layout.addWidget(self.tabs)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Workspace = stacked [welcome empty-state, plot tabs]. แสดง welcome ก่อน
-        # แล้วสลับไปหน้าแท็บเมื่อมีข้อมูลโหลดเข้ามา (ดู _maybe_switch_to_workspace)
-        self.welcome = WelcomeWidget(self)
-        self._workspace_stack = QStackedWidget(self)
-        self._workspace_stack.addWidget(self.welcome)   # index 0
-        self._workspace_stack.addWidget(mid)            # index 1
-        self._workspace_stack.setCurrentIndex(0)
-        self.shell.set_workspace(self._workspace_stack)
-
-        # ปุ่ม "เปิดไฟล์" บนหน้า welcome -> เรียก action เปิดไฟล์เดิม (ถ้ามี)
-        try:
-            self.welcome.open_requested.connect(self._on_welcome_open)
-        except Exception:
-            logger.debug("welcome open_requested wiring skipped", exc_info=True)
+        # Workspace = tabbed [Data worksheet (Origin-style) | Plot graphs].
+        # เปิดมาเจอ worksheet ว่าง (Book1) เป็นค่าเริ่มต้น เหมือน Origin
+        self.workbook = WorkbookWidget(self)
+        self._workspace_tabs = QTabWidget(self)
+        self._workspace_tabs.setObjectName("WorkspaceTabs")
+        self._workspace_tabs.addTab(self.workbook, "ข้อมูล")   # index 0
+        self._workspace_tabs.addTab(mid, "กราฟ")               # index 1
+        self._workspace_tabs.setCurrentIndex(0)
+        self.shell.set_workspace(self._workspace_tabs)
 
         # Keep reference to current canvas for backward compatibility
         self.canvas = None
@@ -341,52 +337,49 @@ class MainWindow(
         except Exception:
             pass
 
-        # Welcome empty-state -> สลับไปหน้าแท็บเมื่อมีข้อมูล (lightweight hook)
-        # เกาะกับสัญญาณที่มีอยู่แล้ว ไม่แตะ logic ใน mixin
+        # Origin-style worksheet: fill it when data is loaded, and jump to the
+        # graph tab when the user actually plots. Hooks ride existing signals /
+        # aliased buttons — no logic in the mixins is touched.
         try:
-            self.tabs.currentChanged.connect(lambda _=None: self._maybe_switch_to_workspace())
-            if hasattr(self.tabs, 'tabCreated'):
-                self.tabs.tabCreated.connect(lambda _=None: self._maybe_switch_to_workspace())
             if hasattr(self, 'btnLoadCols') and self.btnLoadCols is not None:
-                self.btnLoadCols.clicked.connect(lambda _=False: self._maybe_switch_to_workspace())
+                self.btnLoadCols.clicked.connect(lambda _=False: self._refresh_workbook())
+            for _btn_name in ('btnLine', 'btnScatter', 'btnCurveFit'):
+                _btn = getattr(self, _btn_name, None)
+                if _btn is not None:
+                    _btn.clicked.connect(lambda _=False: self._show_plot_view())
         except Exception:
-            logger.debug("welcome auto-switch wiring skipped", exc_info=True)
-        # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เช็คครั้งแรก
-        self._maybe_switch_to_workspace()
+            logger.debug("workbook wiring skipped", exc_info=True)
+        # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เติมตารางครั้งแรก
+        self._refresh_workbook()
 
-    # UI-REFINE: สลับ workspace ระหว่าง welcome (ไม่มีข้อมูล) กับแท็บกราฟ
-    def _maybe_switch_to_workspace(self) -> None:
-        """แสดงหน้าแท็บกราฟเมื่อมีข้อมูลโหลดแล้ว มิฉะนั้นคงหน้า welcome ไว้
+    # UI-REFINE: มิเรอร์ DataFrame ปัจจุบันลง worksheet แบบ Origin
+    def _refresh_workbook(self) -> None:
+        """Mirror the active DataFrame into the Origin-style worksheet and show it.
 
         Lightweight + guarded: เรียกได้บ่อยโดยไม่พัง และไม่แตะ logic ใน mixin
         """
         try:
-            stack = getattr(self, "_workspace_stack", None)
-            if stack is None:
+            wb = getattr(self, "workbook", None)
+            if wb is None:
                 return
-            has_data = getattr(self, "_df", None) is not None
-            if not has_data:
-                # เผื่อกรณีมีหลาย dataset ใน staging
-                try:
-                    has_data = bool(getattr(self, "_datasets", {}))
-                except Exception:
-                    has_data = False
-            target = 1 if has_data else 0
-            if stack.currentIndex() != target:
-                stack.setCurrentIndex(target)
+            df = getattr(self, "_df", None)
+            if df is not None and not df.empty:
+                wb.set_dataframe(df)
+                self._show_data_view()
         except Exception:
-            logger.debug("workspace switch skipped", exc_info=True)
+            logger.debug("workbook refresh skipped", exc_info=True)
 
-    def _on_welcome_open(self) -> None:
-        """ปุ่ม 'เปิดไฟล์' บนหน้า welcome — เรียก action เปิดไฟล์เดิม"""
+    def _show_data_view(self) -> None:
         try:
-            opener = getattr(self, "open_file", None)
-            if callable(opener):
-                opener()
+            self._workspace_tabs.setCurrentIndex(0)
         except Exception:
-            logger.debug("welcome open handler failed", exc_info=True)
-        # หลังโหลด ลองสลับหน้าให้ทันที (ถ้ามีข้อมูล)
-        self._maybe_switch_to_workspace()
+            logger.debug("show data view skipped", exc_info=True)
+
+    def _show_plot_view(self) -> None:
+        try:
+            self._workspace_tabs.setCurrentIndex(1)
+        except Exception:
+            logger.debug("show plot view skipped", exc_info=True)
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _prompt_restore_session(self):
