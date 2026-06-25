@@ -94,6 +94,7 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
+from main_window_view_access_mixin import MainWindowViewAccessMixin
 from core.logging_setup import setup_logging
 from UI.widgets.error_panel import ErrorPanel
 from widgets.plot_tabs import (
@@ -152,6 +153,7 @@ class MainWindow(
     MainWindowSettingsMixin,
     MainWindowFeaturesMixin,
     MainWindowActionsMixin,
+    MainWindowViewAccessMixin,
     QMainWindow,
 ):
     def __init__(self):

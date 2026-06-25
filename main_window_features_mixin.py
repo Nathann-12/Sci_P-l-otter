@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import QMessageBox, QInputDialog, QDialog, QFileDialog
+from PySide6.QtWidgets import QDialog
 
 from dialogs import AggregateDialog, ColumnTypeDialog, DerivedColumnDialog
 from dialogs_units import UnitsDialog
@@ -27,11 +27,15 @@ if TYPE_CHECKING:  # shared MainWindow state this mixin relies on (set in MainWi
 
 
 class MainWindowFeaturesMixin:
-    """Data feature/processor actions and report/units/derived dialogs extracted from MainWindow."""
+    """Data feature/processor actions and report/units/derived dialogs extracted from MainWindow.
+
+    Talks to the UI through the view-accessor seam (notify / inform / ask_choice /
+    selected_*_column / add_*_column_option) rather than touching widgets directly.
+    """
 
     def run_aggregate_dialog(self):
         if self._df is None or self._df.empty:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
         cols = [str(c) for c in self._df.columns]
         dlg = AggregateDialog(self, self._df, cols)
         if dlg.exec() != QDialog.Accepted:
@@ -41,51 +45,51 @@ class MainWindowFeaturesMixin:
         try:
             self._aggregate_and_plot(self._df, id_col=id_col, value_cols=value_cols, agg=agg, stacked=stacked)
         except Exception as e:
-            QMessageBox.critical(self, "Aggregate failed", f"Reason: {e}")
+            self.error_box("Aggregate failed", f"Reason: {e}")
 
     # ---------- Features ----------
     def feature_add_bkk_time(self):
-        if self._df is None or self.cbX.count() == 0:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
-        x_col = self.cbX.currentText()
+        if self._df is None or self.x_column_count() == 0:
+            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+        x_col = self.selected_x_column()
         try:
             new_col = add_time_bangkok(self._df, x_col)
-            self.cbX.addItem(new_col)
-            self.statusBar().showMessage(f"เพิ่มคอลัมน์เวลา (Bangkok) แล้ว: {new_col}")
+            self.add_x_column_option(new_col)
+            self.notify(f"เพิ่มคอลัมน์เวลา (Bangkok) แล้ว: {new_col}")
         except Exception as e:
-            QMessageBox.critical(self, "ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def feature_add_magnitude(self):
-        if self._df is None or self.cbY.count() == 0:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+        if self._df is None or self.y_column_count() == 0:
+            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
         cols = [str(c) for c in self._df.columns]
-        bx, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ Bx", "Bx:", cols, 0, False)
+        bx, ok = self.ask_choice("เลือกคอลัมน์ Bx", "Bx:", cols, 0)
         if not ok: return
-        by, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ By", "By:", cols, 0, False)
+        by, ok = self.ask_choice("เลือกคอลัมน์ By", "By:", cols, 0)
         if not ok: return
-        bz, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ Bz", "Bz:", cols, 0, False)
+        bz, ok = self.ask_choice("เลือกคอลัมน์ Bz", "Bz:", cols, 0)
         if not ok: return
         try:
             new_col = add_magnitude(self._df, bx, by, bz, new_col="B_mag")
-            self.cbY.addItem(new_col)
-            self.statusBar().showMessage(f"เพิ่มคอลัมน์ |B| แล้ว: {new_col}")
+            self.add_y_column_option(new_col)
+            self.notify(f"เพิ่มคอลัมน์ |B| แล้ว: {new_col}")
         except Exception as e:
-            QMessageBox.critical(self, "ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def feature_add_moving_average(self):
-        if self._df is None or self.cbY.count() == 0:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
-        y_col = self.cbY.currentText()
+        if self._df is None or self.y_column_count() == 0:
+            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+        y_col = self.selected_y_column()
         try:
             new_col = add_moving_average(self._df, y_col, window=25)
-            self.cbY.addItem(new_col)
-            self.statusBar().showMessage(f"เพิ่มคอลัมน์ Moving Average แล้ว: {new_col}")
+            self.add_y_column_option(new_col)
+            self.notify(f"เพิ่มคอลัมน์ Moving Average แล้ว: {new_col}")
         except Exception as e:
-            QMessageBox.critical(self, "ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def feature_set_column_types(self):
         if self._df is None or len(self._df.columns) == 0:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
         dlg = ColumnTypeDialog(self, self._df.columns)
         if dlg.exec() != QDialog.Accepted:
             return
@@ -95,27 +99,27 @@ class MainWindowFeaturesMixin:
             self.load_columns_from_df()
             # รีเฟรชกราฟหลังจากแปลงชนิดข้อมูล
             self.refresh_plot()
-            self.statusBar().showMessage("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
+            self.notify("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
         except Exception as e:
-            QMessageBox.critical(self, "แปลงไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("แปลงไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def run_fft_dialog(self):
-        if self._df is None or self.cbX.count() == 0 or self.cbY.count() == 0:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์และกด 'โหลดคอลัมน์จากข้อมูล' ก่อน")
+        if self._df is None or self.x_column_count() == 0 or self.y_column_count() == 0:
+            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์และกด 'โหลดคอลัมน์จากข้อมูล' ก่อน")
             return
 
         cols = [str(c) for c in self._df.columns]
-        y_default = max(0, self.cbY.currentIndex())
-        y_col, ok = QInputDialog.getItem(self, "เลือกคอลัมน์ Y สำหรับ FFT", "Y:", cols, y_default, False)
+        y_default = max(0, self.selected_y_index())
+        y_col, ok = self.ask_choice("เลือกคอลัมน์ Y สำหรับ FFT", "Y:", cols, y_default)
         if not ok: return
 
-        window, ok = QInputDialog.getItem(self, "หน้าต่าง (window)", "ชนิด:", ["hanning", "hamming", "none"], 0, False)
+        window, ok = self.ask_choice("หน้าต่าง (window)", "ชนิด:", ["hanning", "hamming", "none"], 0)
         if not ok: return
-        detrend_choice, ok = QInputDialog.getItem(self, "ลบค่าเฉลี่ยก่อนคำนวณ?", "detrend:", ["True", "False"], 0, False)
+        detrend_choice, ok = self.ask_choice("ลบค่าเฉลี่ยก่อนคำนวณ?", "detrend:", ["True", "False"], 0)
         if not ok: return
         detrend = (detrend_choice == "True")
 
-        x_col = self.cbX.currentText()
+        x_col = self.selected_x_column()
 
         try:
             df_fft, fs = compute_fft(self._df, x_col=x_col, y_col=y_col, detrend=detrend, window=window)
@@ -131,19 +135,19 @@ class MainWindowFeaturesMixin:
             self.canvas.ax.set_xlabel("Frequency (Hz)")
             self.canvas.ax.set_ylabel("Amplitude")
             beautify_axes(self.canvas.ax, title=f"FFT of {y_col} (fs≈{fs:.3f} Hz, window={window}, detrend={detrend})")
-            self.statusBar().showMessage("คำนวณ FFT เสร็จแล้ว • ใช้ Export FFT เพื่อบันทึกผลได้")
+            self.notify("คำนวณ FFT เสร็จแล้ว • ใช้ Export FFT เพื่อบันทึกผลได้")
 
         except Exception as e:
-            QMessageBox.critical(self, "FFT ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("FFT ไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def on_export_report(self):
         """Export a comprehensive report to PDF containing data analysis and plots"""
         if self._df is None:
-            QMessageBox.warning(self, "ไม่มีข้อมูล", "โปรดเปิดไฟล์ข้อมูลก่อน")
+            self.warn("ไม่มีข้อมูล", "โปรดเปิดไฟล์ข้อมูลก่อน")
             return
 
         if not hasattr(self.canvas, 'fig') or not self.canvas.fig:
-            QMessageBox.warning(self, "ไม่มีกราฟ", "โปรดสร้างกราฟก่อน")
+            self.warn("ไม่มีกราฟ", "โปรดสร้างกราฟก่อน")
             return
 
         # Show Export Report Dialog
@@ -156,16 +160,11 @@ class MainWindowFeaturesMixin:
 
         # Validate options
         if not options["include_meta"] and not options["include_stats"] and not options["include_fig"]:
-            QMessageBox.warning(self, "ไม่มีการเลือกเนื้อหา", "โปรดเลือกเนื้อหาอย่างน้อยหนึ่งอย่าง")
+            self.warn("ไม่มีการเลือกเนื้อหา", "โปรดเลือกเนื้อหาอย่างน้อยหนึ่งอย่าง")
             return
 
         # Get save path from user
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "บันทึกรายงานเป็น PDF",
-            "sciplotter_report.pdf",
-            "PDF Document (*.pdf)"
-        )
+        path = self.ask_save_path("บันทึกรายงานเป็น PDF", "sciplotter_report.pdf", "PDF Document (*.pdf)")
 
         if not path:
             return
@@ -178,10 +177,10 @@ class MainWindowFeaturesMixin:
             }
 
             # Get columns used for plotting if available
-            if hasattr(self, 'cbX') and self.cbX.currentText():
-                meta['columns_used'].append(self.cbX.currentText())
-            if hasattr(self, 'cbY') and self.cbY.currentText():
-                meta['columns_used'].append(self.cbY.currentText())
+            if self.selected_x_column():
+                meta['columns_used'].append(self.selected_x_column())
+            if self.selected_y_column():
+                meta['columns_used'].append(self.selected_y_column())
 
             # Add more metadata if available
             if hasattr(self, '_datasets') and self._current_path:
@@ -200,18 +199,18 @@ class MainWindowFeaturesMixin:
             )
 
             if success:
-                self.statusBar().showMessage(f"บันทึกรายงานแล้ว: {path}")
-                QMessageBox.information(self, "สำเร็จ", f"บันทึกรายงานแล้ว:\n{path}")
+                self.notify(f"บันทึกรายงานแล้ว: {path}")
+                self.inform("สำเร็จ", f"บันทึกรายงานแล้ว:\n{path}")
             else:
-                QMessageBox.critical(self, "บันทึกไม่สำเร็จ", "เกิดข้อผิดพลาดในการสร้างรายงาน")
+                self.error_box("บันทึกไม่สำเร็จ", "เกิดข้อผิดพลาดในการสร้างรายงาน")
 
         except Exception as e:
-                            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def open_units_dialog(self):
         """Open units and calibration dialog"""
         if self._df is None or self._df.empty:
-            QMessageBox.warning(self, "No Data", "ยังไม่มีข้อมูล")
+            self.warn("No Data", "ยังไม่มีข้อมูล")
             return
 
         try:
@@ -255,16 +254,16 @@ class MainWindowFeaturesMixin:
                 if hasattr(self, "refresh_stats"):
                     self.refresh_stats()
 
-                QMessageBox.information(self, "Done", "แปลงหน่วยและสอบเทียบเรียบร้อย (สร้างคอลัมน์ใหม่)")
+                self.inform("Done", "แปลงหน่วยและสอบเทียบเรียบร้อย (สร้างคอลัมน์ใหม่)")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"เกิดข้อผิดพลาด: {str(e)}")
+            self.error_box("Error", f"เกิดข้อผิดพลาด: {str(e)}")
 
     def open_derived_column_dialog(self):
         """เปิด dialog สำหรับสร้างคอลัมน์ใหม่จากนิพจน์ทางคณิตศาสตร์"""
         # ตรวจสอบว่ามีข้อมูลหรือไม่
         if self._df is None or self._df.empty:
-            QMessageBox.warning(self, "ไม่มีข้อมูล", "กรุณาโหลดข้อมูลก่อนสร้างคอลัมน์ใหม่")
+            self.warn("ไม่มีข้อมูล", "กรุณาโหลดข้อมูลก่อนสร้างคอลัมน์ใหม่")
             return
 
         try:
@@ -284,14 +283,14 @@ class MainWindowFeaturesMixin:
                     self.refresh_stats()
 
                 # แสดงข้อความสำเร็จ
-                QMessageBox.information(
-                    self, "สำเร็จ",
+                self.inform(
+                    "สำเร็จ",
                     "สร้างคอลัมน์ใหม่เรียบร้อยแล้ว\nกราฟจะอัปเดตอัตโนมัติ"
                 )
 
         except Exception as e:
             # แสดงข้อผิดพลาดถ้าเกิดปัญหา
-            QMessageBox.critical(
-                self, "ข้อผิดพลาด",
+            self.error_box(
+                "ข้อผิดพลาด",
                 f"ไม่สามารถเปิด dialog สร้างคอลัมน์ใหม่ได้:\n{str(e)}"
             )
