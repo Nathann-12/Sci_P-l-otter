@@ -150,12 +150,7 @@ class MainWindowToolbarMixin:
             pass
         self.tb.addSeparator()
 
-        # === กลุ่มที่ 7: การตั้งค่า (ขวาสุด) ===
-        # Spacer เพื่อผลักปุ่ม Settings ไปขวาสุด
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.tb.addWidget(spacer)
-
+        # === กลุ่มที่ 7: การตั้งค่า ===
         self.tb.addAction(self.actSettings)
 
     def _apply_toolbar_styling(self):
