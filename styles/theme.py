@@ -88,33 +88,59 @@ def _convert_linestyle_from_thai(thai_text: str) -> str:
     else:
         return "-"
 
+def _read_override_qss():
+    """Read our component-specific QSS (rail/workbook/docks/sidepanel) to layer
+    on top of the base theme. Returns the concatenated stylesheet string."""
+    base_dir = os.path.dirname(__file__)
+    parts = []
+    for name in ("sidepanel.qss", "shell.qss"):
+        p = os.path.join(base_dir, name)
+        if os.path.isfile(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    parts.append(f.read())
+            except Exception as e:
+                logger.warning(f"Override QSS skipped ({name}): {e}")
+    return "\n".join(parts)
+
+
 def apply_qss(app: QApplication, qss_path: str = None):
-    """Apply QSS styling to application (prefers modern dark if available)"""
+    """Apply the app theme.
+
+    Prefers qdarktheme (modern flat dark, with a proper QPalette) as the base
+    and layers our component overrides (sidepanel/shell) on top. Falls back to
+    the legacy dark_modern.qss if qdarktheme is unavailable.
+    """
+    extra_qss = _read_override_qss()
+
+    # Base theme: qdarktheme if installed
+    try:
+        import qdarktheme
+        try:
+            qdarktheme.setup_theme("dark", additional_qss=extra_qss)
+        except TypeError:
+            # signature without additional_qss — apply then append
+            qdarktheme.setup_theme("dark")
+            app.setStyleSheet((app.styleSheet() or "") + "\n" + extra_qss)
+        logger.info(f"Theme: qdarktheme dark + overrides ({len(extra_qss)} chars)")
+        return
+    except Exception as e:
+        logger.warning(f"qdarktheme unavailable, using dark_modern.qss: {e}")
+
+    # Fallback: legacy hand-rolled dark theme
     try:
         base_dir = os.path.dirname(__file__)
         if qss_path and os.path.isfile(qss_path):
             path = qss_path
         else:
-            # Prefer modern dark style if present; fallback to legacy qdark.qss
             modern = os.path.join(base_dir, "dark_modern.qss")
             legacy = os.path.join(base_dir, "qdark.qss")
             path = modern if os.path.isfile(modern) else legacy
-
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as f:
                 qss_content = f.read()
-            app.setStyleSheet(qss_content)
-            # Load sidepanel overrides after main theme
-            try:
-                sidepanel = os.path.join(base_dir, "sidepanel.qss")
-                if os.path.isfile(sidepanel):
-                    with open(sidepanel, "r", encoding="utf-8") as sf:
-                        sp_qss = sf.read()
-                    app.setStyleSheet(app.styleSheet() + "\n" + sp_qss)
-                    logger.info(f"SidePanel QSS loaded: {sidepanel} ({len(sp_qss)} chars)")
-            except Exception as e:
-                logger.warning(f"SidePanel QSS load skipped: {e}")
-            logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
+            app.setStyleSheet(qss_content + "\n" + extra_qss)
+            logger.info(f"QSS loaded: {path} (+overrides)")
         else:
             logger.warning("No QSS file found; skipping stylesheet application")
     except Exception as e:
@@ -378,24 +404,29 @@ def apply_theme_from_config(app: QApplication, config):
             legacy = os.path.join(base, "qdark.qss")
             path = modern if os.path.isfile(modern) else legacy
 
-        if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
-                qss_content = f.read()
-            app.setStyleSheet(qss_content)
-            # Load sidepanel overrides after main theme
+        # Base theme: qdarktheme (modern flat dark + QPalette) if available,
+        # with our component overrides (sidepanel/shell) layered on top.
+        extra_qss = _read_override_qss()
+        applied = False
+        try:
+            import qdarktheme
             try:
-                base = os.path.dirname(__file__)
-                sidepanel = os.path.join(base, "sidepanel.qss")
-                if os.path.isfile(sidepanel):
-                    with open(sidepanel, "r", encoding="utf-8") as sf:
-                        sp_qss = sf.read()
-                    app.setStyleSheet(app.styleSheet() + "\n" + sp_qss)
-                    logger.info(f"SidePanel QSS loaded: {sidepanel} ({len(sp_qss)} chars)")
-            except Exception as e:
-                logger.warning(f"SidePanel QSS load skipped: {e}")
-            logger.info(f"QSS loaded: {path} ({len(qss_content)} chars)")
-        else:
-            logger.warning("No QSS file found; skipping stylesheet application")
+                qdarktheme.setup_theme("dark", additional_qss=extra_qss)
+            except TypeError:
+                qdarktheme.setup_theme("dark")
+                app.setStyleSheet((app.styleSheet() or "") + "\n" + extra_qss)
+            logger.info(f"Theme: qdarktheme dark + overrides ({len(extra_qss)} chars)")
+            applied = True
+        except Exception as e:
+            logger.warning(f"qdarktheme unavailable, using {os.path.basename(path)}: {e}")
+        if not applied:
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    qss_content = f.read()
+                app.setStyleSheet(qss_content + "\n" + extra_qss)
+                logger.info(f"QSS loaded: {path} (+overrides)")
+            else:
+                logger.warning("No QSS file found; skipping stylesheet application")
     except Exception as e:
         logger.error(f"Error loading QSS: {e}")
     

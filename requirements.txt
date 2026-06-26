@@ -13,3 +13,5 @@ scipy>=1.11
 PyWavelets>=1.5.0
 numexpr>=2.9
 sympy>=1.12  # เผื่ออนาคตใช้ Jacobian อัตโนมัติ
+pyqtdarktheme>=2.1  # modern flat dark base theme
+qtawesome>=1.3      # vector icon fonts (Material/FontAwesome)
