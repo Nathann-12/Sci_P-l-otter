@@ -477,7 +477,11 @@ class MainWindow(
 
     def _wire_load_button(self):
         try:
-            self.btnLoadCols.clicked.disconnect()
+            # disconnect() warns (not raises) when nothing is connected — silence it
+            import warnings as _w
+            with _w.catch_warnings():
+                _w.simplefilter("ignore")
+                self.btnLoadCols.clicked.disconnect()
         except Exception:
             pass
         # Assign stable object names and deduplicate if multiple exist

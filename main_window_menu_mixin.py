@@ -172,7 +172,6 @@ class MainWindowMenuMixin:
                         return self.canvas.fig
                 except Exception:
                     pass
-                _clamp_date_limits(ax)
                 try:
                     tab = self.tabs.currentWidget()
                     return tab.get_figure()
