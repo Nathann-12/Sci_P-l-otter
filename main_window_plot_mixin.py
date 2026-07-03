@@ -255,7 +255,9 @@ class MainWindowPlotMixin:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
             return
 
-        col = self.cbHist.currentText()
+        # cbHist lived in legacy inspector code; fall back to the selected Y column
+        cb_hist = getattr(self, "cbHist", None)
+        col = cb_hist.currentText() if cb_hist is not None else self.selected_y_column()
         if not col or col not in self._df.columns:
             QMessageBox.information(self, "เลือกคอลัมน์", "โปรดเลือกคอลัมน์ข้อมูลสำหรับฮิสโตแกรม")
             return
@@ -270,7 +272,8 @@ class MainWindowPlotMixin:
                 QMessageBox.information(self, "ไม่มีข้อมูล", "คอลัมน์ที่เลือกไม่มีค่าตัวเลข")
                 return
 
-            bins = int(self.spHistBins.value())
+            sp_bins = getattr(self, "spHistBins", None)
+            bins = int(sp_bins.value()) if sp_bins is not None else 20
             if bins <= 0:
                 bins = 20
 
@@ -291,7 +294,8 @@ class MainWindowPlotMixin:
                     ax.set_ylabel("Count")
                     ax.set_title(f"Histogram of {col} (bins={bins})")
 
-                    if self.chkHistFit.isChecked():
+                    _chk_fit = getattr(self, "chkHistFit", None)
+                    if _chk_fit is not None and _chk_fit.isChecked():
                         mu = float(np.mean(vals))
                         sigma = float(np.std(vals, ddof=0)) if vals.size > 0 else 0.0
                         if sigma > 0:
