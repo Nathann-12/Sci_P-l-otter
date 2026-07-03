@@ -262,3 +262,15 @@ def test_closing_a_graph_syncs_registry_and_keeps_last(qapp):
     qapp.processEvents()
     assert ws.count() == 1
     assert last_id in ws.tabs
+
+
+def test_tabtext_matches_widget_order(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.add_tab("Graph 2")
+    # tabText(index) must return each graph's title (used by session save)
+    assert ws.tabText(0) == "Graph 1"
+    assert ws.tabText(1) == "Graph 2"
+    assert ws.tabText(99) == ""
+    ws.setTabText(1, "Renamed")
+    assert ws.tabText(1) == "Renamed"

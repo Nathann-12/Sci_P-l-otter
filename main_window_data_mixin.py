@@ -306,6 +306,10 @@ class MainWindowDataMixin:
                         print(f"Debug: All datetime conversion methods failed: {e2}")
             else:
                 try:
+                    # Numeric X (float/int) must NOT be coerced to datetime — pandas
+                    # reads large numbers as epochs and collapses the axis to ~0.
+                    if pd.api.types.is_numeric_dtype(x):
+                        raise ValueError("X is numeric; skip datetime coercion")
                     x_dt = self._coerce_datetime(x)
                     if x_dt.notna().sum() > 0:
                         print("Debug: X is datetime string, converting to relative seconds")

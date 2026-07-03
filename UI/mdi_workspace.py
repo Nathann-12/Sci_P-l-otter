@@ -342,6 +342,19 @@ class MdiWorkspace(QWidget):
             return graphs[index]
         return None
 
+    def tabText(self, index: int) -> str:
+        """QTabWidget-compat: title of the i-th graph (used by session save)."""
+        subs = list(self._graph_subs.values())
+        if 0 <= index < len(subs):
+            return subs[index].windowTitle()
+        return ""
+
+    def setTabText(self, index: int, text: str) -> None:
+        """QTabWidget-compat: rename the i-th graph's sub-window."""
+        ids = list(self._graph_subs.keys())
+        if 0 <= index < len(ids):
+            self.rename_tab(ids[index], text)
+
     def addTab(self, widget: QWidget, label: str = "") -> int:
         """QTabWidget-style compat: host ``widget`` in a new sub-window.
 
