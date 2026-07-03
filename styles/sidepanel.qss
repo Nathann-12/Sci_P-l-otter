@@ -106,11 +106,13 @@ QPushButton[class="btn-secondary"]:pressed {
 
 /* Staging list */
 QListWidget#StagingList {
-    background: #17191c;
-    border: 1px solid rgba(255,255,255,0.08);
+    background: #1b1e23;
+    border: 1px solid rgba(255,255,255,0.06);
     border-radius: 10px;
-    padding: 2px; /* keep slim padding */
+    padding: 4px;
     color: #e6e6e6;
+    min-height: 84px;
+    max-height: 150px;
 }
 
 QListWidget#StagingList::item {

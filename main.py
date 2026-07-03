@@ -229,7 +229,13 @@ class MainWindow(
         # shell stays; this is the extra Origin panel the user asked for.
         try:
             self.project_explorer = ProjectExplorer(self, workspace=self.mdi)
+            self.project_explorer.setMinimumWidth(130)
             self.addDockWidget(Qt.LeftDockWidgetArea, self.project_explorer)
+            # keep the Project Explorer slim so the MDI workspace gets the room
+            try:
+                self.resizeDocks([self.project_explorer], [180], Qt.Horizontal)
+            except Exception:
+                logger.debug("resizeDocks skipped", exc_info=True)
         except Exception:
             logger.debug("Project Explorer dock init skipped", exc_info=True)
 
@@ -263,7 +269,7 @@ class MainWindow(
             self.apply_sidepanel_style()
         except Exception:
             pass
-        self._panel_left.setMinimumWidth(260)
+        self._panel_left.setMinimumWidth(190)
         try:
             _data_icon = self._icon("open", QStyle.SP_DirOpenIcon)
         except Exception:

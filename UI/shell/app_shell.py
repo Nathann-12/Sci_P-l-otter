@@ -20,9 +20,9 @@ from widgets.activity_rail import ActivityRail
 logger = logging.getLogger(__name__)
 
 # Default sizes for the shell layout (px). Kept here so MainWindow stays thin.
-RAIL_WIDTH = 68
-CONTEXT_WIDTH = 240
-INSPECTOR_WIDTH = 300
+RAIL_WIDTH = 60
+CONTEXT_WIDTH = 200
+INSPECTOR_WIDTH = 280
 DOCK_HEIGHT = 160
 
 
@@ -87,8 +87,8 @@ class AppShell(QWidget):
         top_splitter.setStretchFactor(0, 0)
         top_splitter.setStretchFactor(1, 1)
         top_splitter.setStretchFactor(2, 0)
-        # context ~240, workspace stretches, inspector ~300
-        top_splitter.setSizes([CONTEXT_WIDTH, 700, INSPECTOR_WIDTH])
+        # workspace dominates on startup so graphs/sheets get the room
+        top_splitter.setSizes([CONTEXT_WIDTH, 1200, INSPECTOR_WIDTH])
         self._top_splitter = top_splitter
 
         main_splitter = QSplitter(Qt.Vertical, self)
