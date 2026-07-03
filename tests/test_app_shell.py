@@ -119,6 +119,18 @@ def test_default_layout_sizes(qapp):
     assert not shell._top_splitter.childrenCollapsible()
 
 
+def test_set_inspector_visible_collapses_the_column(qapp):
+    shell = AppShell()
+
+    # visible by default; hiding must hide the *container* so the splitter
+    # reclaims the inspector column instead of leaving a dead strip
+    assert not shell.inspector_container.isHidden()
+    shell.set_inspector_visible(False)
+    assert shell.inspector_container.isHidden()
+    shell.set_inspector_visible(True)
+    assert not shell.inspector_container.isHidden()
+
+
 def test_register_context_passes_icon_to_rail(qapp):
     from PySide6.QtGui import QIcon
 

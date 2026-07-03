@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 RAIL_WIDTH = 60
 CONTEXT_WIDTH = 200
 INSPECTOR_WIDTH = 280
-DOCK_HEIGHT = 160
+DOCK_HEIGHT = 110
 
 
 class AppShell(QWidget):
@@ -75,6 +75,10 @@ class AppShell(QWidget):
         self.dock_tabs = QTabWidget(self)
         self.dock_tabs.setObjectName("DockTabs")
         self.dock_tabs.setTabPosition(QTabWidget.South)
+        # Explicit minimum so the splitter can actually shrink the dock to
+        # DOCK_HEIGHT — otherwise the pages' minimumSizeHint (text edits/lists)
+        # pins the dock at ~180px and steals workspace height.
+        self.dock_tabs.setMinimumHeight(64)
 
         # --- vertical splitter: (top row) over (bottom dock) ---
         top_splitter = QSplitter(Qt.Horizontal, self)
@@ -100,7 +104,7 @@ class AppShell(QWidget):
         main_splitter.setStretchFactor(1, 0)
         # bottom dock starts modest and is collapsible via the splitter
         main_splitter.setCollapsible(1, True)
-        main_splitter.setSizes([600, DOCK_HEIGHT])
+        main_splitter.setSizes([700, DOCK_HEIGHT])
         self._main_splitter = main_splitter
 
         root = QHBoxLayout(self)
@@ -168,6 +172,14 @@ class AppShell(QWidget):
         self._inspector_widget = widget
         if widget is not None:
             self._inspector_layout.addWidget(widget)
+
+    def set_inspector_visible(self, visible: bool) -> None:
+        """ซ่อน/แสดง "ทั้งคอลัมน์" inspector ใน splitter
+
+        ต้องซ่อนที่ container ไม่ใช่แค่ widget ข้างใน — ไม่งั้น splitter ยังกัน
+        พื้นที่ INSPECTOR_WIDTH ไว้เป็นแถบว่างทางขวาของ workspace
+        """
+        self.inspector_container.setVisible(bool(visible))
 
     def add_dock(self, title: str, widget: QWidget) -> int:
         """เพิ่ม tab ใหม่ในพื้นที่ dock ด้านล่าง คืน index ของ tab"""

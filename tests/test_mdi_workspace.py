@@ -47,6 +47,19 @@ def test_starts_with_one_graph(qapp):
     assert ws.tabs[tab_id] is ws.currentWidget()
 
 
+def test_sub_windows_get_themed_icons(qapp):
+    pytest.importorskip("qtawesome")
+    host = _Host()
+    ws = MdiWorkspace(host)
+
+    kind, _title, graph_sub = ws.sub_windows()[0]
+    assert kind == "graph"
+    assert not graph_sub.windowIcon().isNull()
+
+    book_sub = ws.add_book(QWidget(), "Book1")
+    assert not book_sub.windowIcon().isNull()
+
+
 def test_widget_and_indexof_insertion_order(qapp):
     host = _Host()
     ws = MdiWorkspace(host)

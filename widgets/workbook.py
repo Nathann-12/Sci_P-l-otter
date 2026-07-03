@@ -72,6 +72,13 @@ _WORKBOOK_QSS = f"""
     color: #ffffff;
 }}
 
+/* Header strip itself (the empty area beyond the last column/row would
+   otherwise paint near-black and clash with the dark surface) */
+#WorkbookTable QHeaderView {{
+    background-color: {_SURFACE};
+    border: none;
+}}
+
 /* Column headers: blue-tinted, bold */
 #WorkbookTable QHeaderView::section:horizontal {{
     background-color: {_HEADER_BG};

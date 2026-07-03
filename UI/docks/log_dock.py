@@ -30,6 +30,8 @@ class OperationLogDock(QWidget):
 
         self.log_list = QListWidget(self)
         self.log_list.setObjectName("OperationLogList")
+        # Low minimum so the bottom dock can stay compact; the list scrolls.
+        self.log_list.setMinimumHeight(36)
         layout.addWidget(self.log_list, 1)
 
         button_row = QHBoxLayout()

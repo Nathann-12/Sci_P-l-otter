@@ -32,6 +32,8 @@ class AiAssistantDock(QWidget):
         self.transcript = QTextEdit(self)
         self.transcript.setObjectName("AiTranscript")
         self.transcript.setReadOnly(True)
+        # Low minimum so the bottom dock can stay compact; content scrolls.
+        self.transcript.setMinimumHeight(36)
         layout.addWidget(self.transcript, 1)
 
         input_row = QHBoxLayout()

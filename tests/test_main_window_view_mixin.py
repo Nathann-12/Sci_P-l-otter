@@ -282,6 +282,25 @@ def test_toggle_panels_changes_visibility():
     ]
 
 
+class _ShellStub:
+    def __init__(self):
+        self.calls = []
+
+    def set_inspector_visible(self, visible):
+        self.calls.append(bool(visible))
+
+
+def test_toggle_inspector_collapses_shell_column_too():
+    window = DummyWindow()
+    window.shell = _ShellStub()
+
+    window.toggle_inspector(False)
+    window.toggle_inspector(True)
+
+    assert window._panel_right.visible is True
+    assert window.shell.calls == [False, True]
+
+
 def test_start_box_zoom_replaces_existing_selector_and_applies_selected_bounds(monkeypatch):
     window = DummyWindow()
     previous_selector = _SelectorStub()

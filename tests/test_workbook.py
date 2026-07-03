@@ -62,6 +62,13 @@ def test_empty_defaults(qapp):
     assert wb.table.verticalHeaderItem(META_ROW_COUNT).text() == "1"
 
 
+def test_header_strip_background_is_styled(qapp):
+    # The bare QHeaderView area beyond the last column must carry the dark
+    # surface color, otherwise it paints near-black against the themed table.
+    wb = WorkbookWidget()
+    assert "#WorkbookTable QHeaderView {" in wb.styleSheet()
+
+
 def test_set_dataframe_fills_grid_and_meta(qapp):
     wb = WorkbookWidget()
     df = pd.DataFrame({"time": [1, 2, 3], "value": [10, 20, 30]})

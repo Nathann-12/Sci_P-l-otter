@@ -99,6 +99,22 @@ QMdiSubWindow > QWidget {
 """
 
 
+def _sub_window_icon(kind: str):
+    """qtawesome icon for a sub-window title bar (graph/book), or None.
+
+    Replaces the default Qt logo icon; matches main.py's _QTA_ICON_MAP style
+    (fa5s set, light gray so it reads on the dark title bar).
+    """
+    try:
+        import qtawesome as qta
+
+        name = "fa5s.chart-line" if kind == "graph" else "fa5s.table"
+        return qta.icon(name, color="#cfd3d6")
+    except Exception:
+        logger.debug("qtawesome sub-window icon unavailable", exc_info=True)
+        return None
+
+
 class _GraphSubWindow(QMdiSubWindow):
     """A graph sub-window that keeps the workspace registry in sync when the
     user closes it via the title-bar button (so ``self.tabs`` never goes stale)."""
@@ -200,6 +216,9 @@ class MdiWorkspace(QWidget):
         sub = _GraphSubWindow(self, tab_id)
         sub.setWidget(graph_tab)
         sub.setWindowTitle(name)
+        icon = _sub_window_icon("graph")
+        if icon is not None:
+            sub.setWindowIcon(icon)
         # Origin-like default geometry; cascading offsets keep new graphs visible.
         offset = 24 * (len(self._graph_subs) % 6)
         self.mdi.addSubWindow(sub)
@@ -244,6 +263,9 @@ class MdiWorkspace(QWidget):
         sub.setWidget(widget)
         sub.setWindowTitle(title)
         sub.setAttribute(Qt.WA_DeleteOnClose, False)
+        icon = _sub_window_icon("book")
+        if icon is not None:
+            sub.setWindowIcon(icon)
         offset = 24 * (len(self._books) % 6)
         self.mdi.addSubWindow(sub)
         sub.resize(620, 440)
@@ -372,6 +394,9 @@ class MdiWorkspace(QWidget):
             sub.setWidget(widget)
             sub.setWindowTitle(label or getattr(widget, "name", "") or tab_id)
             sub.setAttribute(Qt.WA_DeleteOnClose, False)
+            icon = _sub_window_icon("graph")
+            if icon is not None:
+                sub.setWindowIcon(icon)
             self.mdi.addSubWindow(sub)
             sub.show()
             self.tabs[tab_id] = widget

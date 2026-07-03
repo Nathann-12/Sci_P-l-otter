@@ -241,10 +241,13 @@ def load_session(window: Any) -> None:
             except Exception:
                 pass
 
-        # Restore inspector visibility state
+        # Restore inspector visibility state (toggle_inspector also collapses
+        # the shell's inspector column, not just the inner panel)
         try:
             inspector_visible = bool(data.get('inspector_visible'))
-            if hasattr(window, '_panel_right'):
+            if hasattr(window, 'toggle_inspector'):
+                window.toggle_inspector(inspector_visible)
+            elif hasattr(window, '_panel_right'):
                 window._panel_right.setVisible(inspector_visible)
             if hasattr(window, 'actToggleInspector'):
                 window.actToggleInspector.setChecked(inspector_visible)

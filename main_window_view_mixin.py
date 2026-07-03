@@ -99,6 +99,14 @@ class MainWindowViewMixin:
             self._panel_right.setVisible(bool(checked))
         except Exception:
             pass
+        # Collapse the whole inspector column in the shell splitter too —
+        # hiding only the inner panel leaves a dead strip on the right.
+        try:
+            shell = getattr(self, "shell", None)
+            if shell is not None and hasattr(shell, "set_inspector_visible"):
+                shell.set_inspector_visible(bool(checked))
+        except Exception:
+            logging.getLogger(__name__).debug("shell inspector toggle skipped", exc_info=True)
 
     def toggle_error_panel(self, checked: bool):
         """Open or close the error panel."""

@@ -331,11 +331,12 @@ class MainWindowPlotCoreMixin:
                 except Exception as e:
                     logger.error(f"Canvas redraw error: {e}")
 
-            # Save preference if requested
+            # Save preference + status message only for user-initiated changes
+            # (startup restore passes save_config=False and must stay silent,
+            # or it stomps the "ready" message in the status bar)
             if save_config:
                 self._save_plot_style_config(style)
-
-            self.statusBar().showMessage(f"Plot style changed to: {style.title()}")
+                self.statusBar().showMessage(f"Plot style changed to: {style.title()}")
 
         except Exception as e:
             QMessageBox.critical(self, "Style Change Failed", f"Failed to change plot style: {str(e)}")
