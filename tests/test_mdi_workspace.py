@@ -209,6 +209,22 @@ def test_addtab_compat_with_graphtab(qapp):
     assert "tab_external" in ws.tabs
 
 
+def test_all_windows_matches_sub_windows(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)  # starts with one graph
+    ws.add_book(QWidget(), "Book1")
+    ws.add_tab("Graph 2")
+
+    # all_windows() is the Project Explorer alias of sub_windows().
+    assert ws.all_windows() == ws.sub_windows()
+
+    kinds = [k for k, _t, _s in ws.all_windows()]
+    titles = [t for _k, t, _s in ws.all_windows()]
+    assert kinds.count("graph") == 2
+    assert kinds.count("book") == 1
+    assert "Graph 1" in titles and "Graph 2" in titles and "Book1" in titles
+
+
 def test_rename_tab_updates_title(qapp):
     host = _Host()
     ws = MdiWorkspace(host)

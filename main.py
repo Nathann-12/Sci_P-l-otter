@@ -100,6 +100,7 @@ from UI.shell.app_shell import AppShell
 from UI.welcome import WelcomeWidget
 from widgets.workbook import WorkbookWidget
 from UI.mdi_workspace import MdiWorkspace
+from UI.project_explorer import ProjectExplorer
 from UI.docks.ai_dock import AiAssistantDock
 from UI.docks.log_dock import OperationLogDock
 from core.logging_setup import setup_logging
@@ -206,6 +207,16 @@ class MainWindow(
         except Exception:
             logger.debug("activate Book1 skipped", exc_info=True)
         self.shell.set_workspace(self.mdi)
+
+        # Origin-style Project Explorer: a left dock that lists every MDI window
+        # (Books + Graphs) and activates one on double-click, kept in sync via
+        # the workspace's add/remove/rename signals. Additive — the activity-rail
+        # shell stays; this is the extra Origin panel the user asked for.
+        try:
+            self.project_explorer = ProjectExplorer(self, workspace=self.mdi)
+            self.addDockWidget(Qt.LeftDockWidgetArea, self.project_explorer)
+        except Exception:
+            logger.debug("Project Explorer dock init skipped", exc_info=True)
 
         # Keep reference to current canvas for backward compatibility
         self.canvas = None

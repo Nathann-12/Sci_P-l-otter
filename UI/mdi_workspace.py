@@ -414,6 +414,15 @@ class MdiWorkspace(QWidget):
             items.append(("book", sub.windowTitle() or title, sub))
         return items
 
+    def all_windows(self) -> List[Tuple[str, str, QMdiSubWindow]]:
+        """Alias of :meth:`sub_windows` — every window (graphs then books).
+
+        Provided for the Project Explorer, which enumerates the whole project
+        via ``all_windows()``. Books are listed after graphs so the tree reads
+        in a stable, Origin-like order.
+        """
+        return self.sub_windows()
+
     # Convenience layout actions (Origin-style window arrangement).
     def tile(self) -> None:
         self.mdi.tileSubWindows()
