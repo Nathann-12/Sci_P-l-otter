@@ -112,6 +112,19 @@ class MainWindowMenuMixin:
         toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
         toolsMenu.addAction(self.actSettings)
 
+        # Window menu (Origin-style): arrange MDI sub-windows
+        try:
+            windowMenu = m.addMenu("&Window")
+            windowMenu.addAction("จัดเรียงซ้อน (Cascade)").triggered.connect(
+                lambda: getattr(self, "mdi", None) and self.mdi.cascade())
+            windowMenu.addAction("จัดเรียงเรียง (Tile)").triggered.connect(
+                lambda: getattr(self, "mdi", None) and self.mdi.tile())
+            windowMenu.addSeparator()
+            windowMenu.addAction("เพิ่มกราฟใหม่ (New Graph)").triggered.connect(
+                lambda: getattr(self, "mdi", None) and self.mdi.add_tab())
+        except Exception:
+            logging.getLogger(__name__).debug("Window menu setup skipped", exc_info=True)
+
         # Settings menu for plotting mode
         try:
             from PySide6.QtGui import QActionGroup
