@@ -99,6 +99,25 @@ QMdiSubWindow > QWidget {
 """
 
 
+class _GraphSubWindow(QMdiSubWindow):
+    """A graph sub-window that keeps the workspace registry in sync when the
+    user closes it via the title-bar button (so ``self.tabs`` never goes stale)."""
+
+    def __init__(self, workspace, tab_id):
+        super().__init__()
+        self._workspace = workspace
+        self._tab_id = tab_id
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+
+    def closeEvent(self, event):
+        try:
+            proceed = self._workspace._detach_graph(self._tab_id, self, event)
+        except Exception:
+            proceed = True
+        if proceed:
+            super().closeEvent(event)
+
+
 class MdiWorkspace(QWidget):
     """OriginPro-style MDI workspace exposing a TabManager-compatible surface.
 
@@ -178,10 +197,9 @@ class MdiWorkspace(QWidget):
         tab_id = f"tab_{self._tab_counter}"
 
         graph_tab = GraphTab(tab_id, name, self)
-        sub = QMdiSubWindow()
+        sub = _GraphSubWindow(self, tab_id)
         sub.setWidget(graph_tab)
         sub.setWindowTitle(name)
-        sub.setAttribute(Qt.WA_DeleteOnClose, False)
         # Origin-like default geometry; cascading offsets keep new graphs visible.
         offset = 24 * (len(self._graph_subs) % 6)
         self.mdi.addSubWindow(sub)
@@ -282,6 +300,34 @@ class MdiWorkspace(QWidget):
             self.currentChanged.emit(self.currentIndex())
         except Exception:
             logger.debug("currentChanged emit failed", exc_info=True)
+
+    def _detach_graph(self, tab_id: str, sub: QMdiSubWindow, event) -> bool:
+        """Sync registries when a graph sub-window is closed interactively.
+
+        Keeps at least one graph (matching TabManager's last-tab guard): vetoes
+        the close and returns False when this is the last graph; otherwise pops
+        it from the registries, emits removal signals, and returns True so the
+        window may close (WA_DeleteOnClose then deletes it).
+        """
+        if len(self._graph_subs) <= 1 and tab_id in self._graph_subs:
+            try:
+                event.ignore()
+            except Exception:
+                logger.debug("close ignore failed", exc_info=True)
+            return False
+        self._graph_subs.pop(tab_id, None)
+        self.tabs.pop(tab_id, None)
+        title = sub.windowTitle() if sub is not None else ""
+        for _sig, _args in (
+            (self.tabRemoved, (tab_id,)),
+            (self.subWindowRemoved, ("graph", title)),
+            (self.currentChanged, (self.currentIndex(),)),
+        ):
+            try:
+                _sig.emit(*_args)
+            except Exception:
+                logger.debug("signal emit failed on graph close", exc_info=True)
+        return True
 
     # ======================================================================
     # QTabWidget-compatible surface

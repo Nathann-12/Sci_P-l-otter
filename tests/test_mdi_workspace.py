@@ -238,3 +238,27 @@ def test_rename_tab_updates_title(qapp):
     assert ws.tabs[tab_id].name == "Renamed Graph"
     assert ws.get_open_tabs()[0][1] == "Renamed Graph"
     assert ("graph", "Renamed Graph") in renamed
+
+
+def test_closing_a_graph_syncs_registry_and_keeps_last(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    id2 = ws.add_tab("Graph 2")
+    assert ws.count() == 2
+
+    removed = []
+    ws.tabRemoved.connect(lambda tid: removed.append(tid))
+
+    # close the second graph like the title-bar X → registry must drop it
+    ws._graph_subs[id2].close()
+    qapp.processEvents()
+    assert ws.count() == 1
+    assert id2 not in ws.tabs
+    assert id2 in removed
+
+    # closing the LAST graph is vetoed (keep at least one, like TabManager)
+    last_id = ws.get_current_tab_id()
+    ws._graph_subs[last_id].close()
+    qapp.processEvents()
+    assert ws.count() == 1
+    assert last_id in ws.tabs
