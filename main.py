@@ -120,6 +120,21 @@ APP_ICON_FILENAME = "icon_app.png"
 APP_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icons", APP_ICON_FILENAME)
 APP_USER_MODEL_ID = "SciPlotter.SciPlotterApp"
 
+# Map the app's icon names to crisp vector icons (qtawesome / FontAwesome 5).
+# _icon() prefers these when qtawesome is available, else falls back to files.
+_QTA_ICON_MAP = {
+    "open": "fa5s.folder-open",
+    "inspector": "fa5s.columns",
+    "Plot_from_Equation": "fa5s.square-root-alt",
+    "plot": "fa5s.chart-line",
+    "fft": "fa5s.wave-square",
+    "addtab": "fa5s.plus",
+    "settings": "fa5s.cog",
+    "export": "fa5s.file-export",
+    "clear": "fa5s.exclamation-triangle",
+    "fit": "fa5s.chart-area",
+}
+
 from core.plot_mode import PlotMode  # re-exported here for backward compatibility
 
 class PlotCanvas(_PlotTabsPlotCanvas):
@@ -543,6 +558,14 @@ class MainWindow(
             logging.getLogger(__name__).debug("Status error: %s", msg)
 
     def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
+        # 0) prefer crisp themed vector icons (qtawesome) when this name is mapped
+        try:
+            qta_id = _QTA_ICON_MAP.get(name)
+            if qta_id:
+                import qtawesome as qta
+                return qta.icon(qta_id, color="#cfd3d6")
+        except Exception:
+            pass
         try:
             base = os.path.dirname(__file__)
             # 1) ตรงตัวก่อน
