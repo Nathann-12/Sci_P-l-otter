@@ -92,14 +92,15 @@ def test_workbook_fills_from_loaded_data(qapp):
 
     win = MainWindow()
     try:
-        # starts on the Data worksheet tab (Origin-style empty Book1)
-        assert win._workspace_tabs.currentIndex() == 0
+        # MDI workspace: the TabManager adapter is the MDI, with an initial graph
+        assert win.tabs is win.mdi
+        assert win.mdi.count() >= 1              # Graph1 exists so canvas works
 
         win.load_data(str(csv_path))
         win.load_columns_from_df()
         win._refresh_workbook()
 
-        # the worksheet now mirrors the loaded columns/values
+        # the Origin-style worksheet now mirrors the loaded columns/values
         wb_df = win.workbook.dataframe()
         assert len(wb_df.columns) >= 2
         assert len(wb_df) >= 1

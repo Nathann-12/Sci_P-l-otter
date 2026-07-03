@@ -99,6 +99,7 @@ from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
 from UI.welcome import WelcomeWidget
 from widgets.workbook import WorkbookWidget
+from UI.mdi_workspace import MdiWorkspace
 from UI.docks.ai_dock import AiAssistantDock
 from UI.docks.log_dock import OperationLogDock
 from core.logging_setup import setup_logging
@@ -192,24 +193,19 @@ class MainWindow(
         self.shell = AppShell(self)
         self.setCentralWidget(self.shell)
 
-        # กลาง = TabManager
-        mid = QWidget(self)
-        mid_layout = QVBoxLayout(mid)
-        mid_layout.setContentsMargins(0, 0, 0, 0)
-        mid_layout.setSpacing(8)
-        self.tabs = TabManager(self)
-        mid_layout.addWidget(self.tabs)
-        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Workspace = tabbed [Data worksheet (Origin-style) | Plot graphs].
-        # เปิดมาเจอ worksheet ว่าง (Book1) เป็นค่าเริ่มต้น เหมือน Origin
+        # กลาง = MDI workspace แบบ Origin (Book/Graph เป็นหน้าต่างลูกลอยได้)
+        # MdiWorkspace เลียนแบบ API ของ TabManager → โค้ดพล็อตเดิม reuse ได้ทั้งหมด
         self.workbook = WorkbookWidget(self)
-        self._workspace_tabs = QTabWidget(self)
-        self._workspace_tabs.setObjectName("WorkspaceTabs")
-        self._workspace_tabs.addTab(self.workbook, "ข้อมูล")   # index 0
-        self._workspace_tabs.addTab(mid, "กราฟ")               # index 1
-        self._workspace_tabs.setCurrentIndex(0)
-        self.shell.set_workspace(self._workspace_tabs)
+        self.mdi = MdiWorkspace(self)
+        self.mdi.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.tabs = self.mdi
+        # MdiWorkspace สร้าง "Graph 1" ให้เองแล้ว (canvas พร้อมใช้) — เพิ่มแค่ Book1
+        self._book_sub = self.mdi.add_book(self.workbook, "Book1")   # worksheet แบบ Origin
+        try:
+            self.mdi.mdi.setActiveSubWindow(self._book_sub)          # โชว์ Book1 หน้าสุดตอนเปิด
+        except Exception:
+            logger.debug("activate Book1 skipped", exc_info=True)
+        self.shell.set_workspace(self.mdi)
 
         # Keep reference to current canvas for backward compatibility
         self.canvas = None
@@ -370,14 +366,22 @@ class MainWindow(
             logger.debug("workbook refresh skipped", exc_info=True)
 
     def _show_data_view(self) -> None:
+        """Raise the Book (worksheet) sub-window in the MDI area."""
         try:
-            self._workspace_tabs.setCurrentIndex(0)
+            book_sub = getattr(self, "_book_sub", None)
+            if book_sub is not None:
+                self.mdi.mdi.setActiveSubWindow(book_sub)
         except Exception:
             logger.debug("show data view skipped", exc_info=True)
 
     def _show_plot_view(self) -> None:
+        """Raise a Graph sub-window in the MDI area (so a new plot is visible)."""
         try:
-            self._workspace_tabs.setCurrentIndex(1)
+            from widgets.plot_tabs import GraphTab as _GT
+            for sub in self.mdi.mdi.subWindowList():
+                if isinstance(sub.widget(), _GT):
+                    self.mdi.mdi.setActiveSubWindow(sub)
+                    break
         except Exception:
             logger.debug("show plot view skipped", exc_info=True)
 
