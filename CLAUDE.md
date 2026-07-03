@@ -13,14 +13,14 @@
   ```bash
   QT_QPA_PLATFORM=offscreen .venv/Scripts/python.exe -m pytest tests/ -q
   ```
-  Baseline ปัจจุบัน: **97 passed, 3 skipped**
+  Baseline ปัจจุบัน: **159 passed, 3 skipped**
 - **เปิดแอป (GUI):** `.venv/Scripts/pythonw.exe main.py` (หรือ `python main.py`)
 - **smoke import:** `QT_QPA_PLATFORM=offscreen .venv/Scripts/python.exe -c "import main; main.MainWindow"`
 - ถ้า dependency หาย: `.venv/Scripts/python.exe -m pip install -r requirements.txt`
 
 ## สถาปัตยกรรม
-`main.py` (~570 บรรทัด) เป็น **thin shell** เท่านั้น: imports/setup, `MainWindow.__init__`, การ wire สัญญาณ, helper เล็ก (`_show_status`/`_icon`/`show_about`/`resizeEvent`), `main()`
-`MainWindow` ประกอบจาก **mixin 16 ตัว** (logic อยู่ใน mixin ไม่ใช่ใน main.py):
+`main.py` (~675 บรรทัด) เป็น **thin shell**: imports/setup, `MainWindow.__init__` (ประกอบ UI: shell + MDI workspace + Project Explorer + docks), การ wire สัญญาณ, helper เล็ก (`_show_status`/`_icon`/`show_about`/`resizeEvent`/`_refresh_workbook`), `main()`
+`MainWindow` ประกอบจาก **mixin 17 ตัว** (logic อยู่ใน mixin ไม่ใช่ใน main.py) — รวม `main_window_view_access_mixin` (view seam: `notify`/`ask_choice`/`selected_x_column`/`active_axes`):
 
 | Mixin | หน้าที่ |
 |---|---|
@@ -41,9 +41,17 @@
 | `main_window_features_mixin` | feature_add_*, FFT, report, units, derived column |
 | `main_window_actions_mixin` | dispatcher (on_action_*), dataframe accessors, drag&drop |
 
+**ชั้น UI (แบบ OriginPro — สำคัญ)**
+- **workspace กลาง = MDI** ([UI/mdi_workspace.py](UI/mdi_workspace.py) `MdiWorkspace`) — Book/Graph เป็น QMdiSubWindow ลอยได้แบบ Origin. `MdiWorkspace` **เลียนแบบ API ของ TabManager** และถูกตั้งเป็น `self.tabs` → โค้ดพล็อต (plot/plotcore/view mixin) reuse ได้โดยไม่ต้องแก้. กราฟใหม่ = `self.tabs.add_tab()`; worksheet = `add_book()`. **อย่าเขียนโค้ดพล็อตให้ผูกกับ QTabWidget** — ใช้ API ของ `self.tabs`
+- **worksheet แบบ Excel** ([widgets/workbook.py](widgets/workbook.py) `WorkbookWidget`) — คอลัมน์ A(X)/B(Y), แถว Long Name/Units/Comments/F(x)=; `self.workbook` มิเรอร์ `self._df` (ดู `_refresh_workbook`)
+- **Project Explorer** ([UI/project_explorer.py](UI/project_explorer.py)) — dock ซ้าย ต้นไม้ Book/Graph, sync ผ่าน signal `subWindowAdded/Removed/Renamed` ของ `MdiWorkspace`
+- **shell/docks** — `UI/shell/app_shell.py` (activity rail + command palette Ctrl+K), `UI/docks/` (AI/Log), `UI/welcome.py`, `widgets/activity_rail.py`, `widgets/command_palette.py`
+- **ธีม** — ฐานคือ **qdarktheme** (ตั้งใน `styles/theme.py::apply_theme_from_config`) + override `shell.qss`/`sidepanel.qss`/`toolbar.qss`; ไอคอนใช้ **qtawesome** ผ่าน `_icon()` (map ที่ `_QTA_ICON_MAP` ใน main.py)
+- **view-access seam** ([main_window_view_access_mixin.py](main_window_view_access_mixin.py)) — logic เรียก `self.notify/ask_choice/selected_x_column/active_axes` แทนแตะ widget ตรง (ทำให้สลับ UI ได้)
+
 **โมดูล/แพ็กเกจอื่น**
 - `core/` — `plot_data` (เตรียมข้อมูลพล็อต), `plot_mode` (enum PlotMode), `session`, `units`, `logging_setup`
-- `widgets/` — `plot_tabs` (PlotCanvas/GraphTab/TabManager/CompactPlotPanel), `layer_manager`, `color_button`, `mpl_preview`
+- `widgets/` — `plot_tabs` (PlotCanvas/GraphTab/TabManager/CompactPlotPanel), `workbook`, `layer_manager`, `color_button`, `mpl_preview`, `activity_rail`, `command_palette`
 - `dialogs/` + `dialogs_*.py` — กล่องโต้ตอบต่าง ๆ
 - `processors.py` (สัญญาณ/feature), `loaders.py` + `file_io.py` (อ่านไฟล์), `analysis/fitting.py` (โมเดล fit)
 - `read_mms_cdf.py` (อวกาศ/CDF), `peaks.py`, `crosscorr.py`, `eqplot.py`/`eqplot3d.py`, `annotations.py`, `report_generator.py`, `three_d_view.py`, `charts_gallery.py`
