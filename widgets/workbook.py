@@ -16,11 +16,15 @@ from __future__ import annotations
 from typing import List, Optional
 
 import pandas as pd
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHBoxLayout,
     QHeaderView,
+    QLabel,
+    QMenu,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -106,6 +110,43 @@ _WORKBOOK_QSS = f"""
     border-right: 1px solid {_BORDER};
     border-bottom: 1px solid {_BORDER};
 }}
+
+/* Action bar above the sheet (type data -> plot, Origin-style) */
+#WorkbookBar {{
+    background-color: {_SURFACE_2};
+    border-bottom: 1px solid {_BORDER};
+}}
+
+#WorkbookBar QLabel {{
+    color: {_MUTED};
+    font-size: 11px;
+}}
+
+#WorkbookBar QPushButton {{
+    background: transparent;
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    padding: 3px 10px;
+    min-height: 22px;
+}}
+
+#WorkbookBar QPushButton:hover {{
+    background: rgba(255, 255, 255, 0.06);
+    border-color: {_ACCENT};
+}}
+
+#WorkbookBar QPushButton#WorkbookPlotButton {{
+    background: {_ACCENT};
+    color: #ffffff;
+    border-color: {_ACCENT};
+    font-weight: 600;
+}}
+
+#WorkbookBar QPushButton#WorkbookPlotButton:hover {{
+    background: #5fa8fb;
+    border-color: #5fa8fb;
+}}
 """
 
 
@@ -137,8 +178,17 @@ class WorkbookWidget(QWidget):
         - ``dataframe()``              — read the data rows back into a DataFrame.
         - ``clear_to_empty(rows, cols)`` — reset to the empty ``Book1`` state.
         - ``set_meta(col_index, long_name=, units=, comments=)`` — set column meta.
+        - ``add_data_row()`` / ``add_data_column()`` — grow the sheet.
+        - ``selected_column_indexes()`` — worksheet columns touched by selection.
         - ``table``                    — the underlying QTableWidget (for tests).
+
+    Signals (the workflow: type data → use it → plot it):
+        - ``use_data_requested()``          — adopt the sheet as the active data.
+        - ``plot_requested(str)``           — plot selected columns ("line"/"scatter").
     """
+
+    use_data_requested = Signal()
+    plot_requested = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -147,6 +197,41 @@ class WorkbookWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # --- action bar: makes the sheet self-explanatory (type -> plot) ---
+        bar = QWidget(self)
+        bar.setObjectName("WorkbookBar")
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(8, 4, 8, 4)
+        bar_layout.setSpacing(6)
+
+        self.btn_add_row = QPushButton("+ แถว", bar)
+        self.btn_add_col = QPushButton("+ คอลัมน์", bar)
+        self.btn_use_data = QPushButton("ใช้ข้อมูลนี้", bar)
+        self.btn_use_data.setToolTip("นำข้อมูลในตารางไปเป็นข้อมูลหลัก (พร้อมพล็อต/วิเคราะห์)")
+        self.btn_plot_line = QPushButton("พล็อตเส้น", bar)
+        self.btn_plot_line.setObjectName("WorkbookPlotButton")
+        self.btn_plot_line.setToolTip("พล็อตจากคอลัมน์ที่เลือก (คอลัมน์แรก = X)")
+        self.btn_plot_scatter = QPushButton("พล็อตจุด", bar)
+        self.btn_plot_scatter.setToolTip("พล็อต scatter จากคอลัมน์ที่เลือก (คอลัมน์แรก = X)")
+
+        hint = QLabel("พิมพ์ข้อมูลลงตาราง → เลือกคอลัมน์ → กดพล็อต", bar)
+
+        bar_layout.addWidget(self.btn_add_row)
+        bar_layout.addWidget(self.btn_add_col)
+        bar_layout.addSpacing(8)
+        bar_layout.addWidget(self.btn_use_data)
+        bar_layout.addWidget(self.btn_plot_line)
+        bar_layout.addWidget(self.btn_plot_scatter)
+        bar_layout.addStretch(1)
+        bar_layout.addWidget(hint)
+        layout.addWidget(bar)
+
+        self.btn_add_row.clicked.connect(self.add_data_row)
+        self.btn_add_col.clicked.connect(self.add_data_column)
+        self.btn_use_data.clicked.connect(self.use_data_requested.emit)
+        self.btn_plot_line.clicked.connect(lambda: self.plot_requested.emit("line"))
+        self.btn_plot_scatter.clicked.connect(lambda: self.plot_requested.emit("scatter"))
 
         self.table = QTableWidget(self)
         self.table.setObjectName("WorkbookTable")
@@ -165,9 +250,27 @@ class WorkbookWidget(QWidget):
         self.table.horizontalHeader().setHighlightSections(False)
         layout.addWidget(self.table)
 
+        # Origin-style right-click: plot straight from the selection.
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
         self.setStyleSheet(_WORKBOOK_QSS)
 
         self.clear_to_empty()
+
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self.table)
+        menu.addAction("พล็อตเส้นจากคอลัมน์ที่เลือก").triggered.connect(
+            lambda: self.plot_requested.emit("line"))
+        menu.addAction("พล็อตจุดจากคอลัมน์ที่เลือก").triggered.connect(
+            lambda: self.plot_requested.emit("scatter"))
+        menu.addSeparator()
+        menu.addAction("ใช้ข้อมูลนี้เป็นข้อมูลหลัก").triggered.connect(
+            self.use_data_requested.emit)
+        menu.addSeparator()
+        menu.addAction("เพิ่มแถว").triggered.connect(self.add_data_row)
+        menu.addAction("เพิ่มคอลัมน์").triggered.connect(self.add_data_column)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ helpers
     def _meta_brush(self) -> QBrush:
@@ -212,6 +315,35 @@ class WorkbookWidget(QWidget):
         return max(0, self.table.rowCount() - META_ROW_COUNT)
 
     # -------------------------------------------------------------------- API
+    def add_data_row(self) -> None:
+        """Append one empty data row (keeps meta rows and styling intact)."""
+        row = self.table.rowCount()
+        self.table.setRowCount(row + 1)
+        for c in range(self.table.columnCount()):
+            self.table.setItem(row, c, self._make_item("", False))
+        self._apply_row_headers(self.data_row_count)
+
+    def add_data_column(self) -> None:
+        """Append one empty column labelled with the next spreadsheet letter."""
+        col = self.table.columnCount()
+        self.table.setColumnCount(col + 1)
+        for r in range(self.table.rowCount()):
+            self.table.setItem(r, col, self._make_item("", r < META_ROW_COUNT))
+        self._apply_column_headers(col + 1)
+
+    def selected_column_indexes(self) -> List[int]:
+        """Worksheet columns touched by the current selection, in order."""
+        cols = sorted({index.column() for index in self.table.selectedIndexes()})
+        return cols
+
+    def selected_column_names(self) -> List[str]:
+        """Names (Long Name meta, else letter) of the selected columns."""
+        names = []
+        for c in self.selected_column_indexes():
+            long_name = self._meta_text(0, c)
+            names.append(long_name if long_name else column_label(c))
+        return names
+
     def clear_to_empty(self, rows: int = 32, cols: int = 2) -> None:
         """Reset to an empty ``Book1``-like sheet: ``cols`` columns, ``rows`` data rows."""
         cols = max(1, int(cols))
@@ -318,4 +450,10 @@ class WorkbookWidget(QWidget):
             non_empty = frame[name].astype(str).str.strip() != ""
             if non_empty.any() and converted[non_empty].notna().all():
                 frame[name] = converted
+        # Drop rows that are entirely empty, so a half-filled sheet (the
+        # type-your-own-data flow) comes back as just the typed rows.
+        empty_mask = frame.apply(
+            lambda col: col.isna() | (col.astype(str).str.strip() == ""), axis=0
+        )
+        frame = frame.loc[~empty_mask.all(axis=1)].reset_index(drop=True)
         return frame

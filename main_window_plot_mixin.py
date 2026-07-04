@@ -113,6 +113,45 @@ class MainWindowPlotMixin:
                 logger.debug("Failed to beautify axes", exc_info=True)
             self._draw_tab(tab, attempts=draw_attempts)
 
+    def plot_from_workbook(self, style: str = "line"):
+        """Origin-style: พล็อตจากคอลัมน์ที่เลือกใน Book1 (คอลัมน์แรกที่เลือก = X)
+
+        กติกา: เลือก ≥2 คอลัมน์ → คอลัมน์แรก = X ที่เหลือ = Y (ซ้อนเป็น overlay);
+        เลือก 1 คอลัมน์ (ไม่ใช่ A) → X = คอลัมน์แรกของตาราง, Y = ที่เลือก;
+        ไม่ได้เลือกเลย → X = คอลัมน์แรก, Y = คอลัมน์ที่สอง
+        """
+        wb = getattr(self, "workbook", None)
+        if wb is None:
+            return
+        # sync ข้อมูลที่พิมพ์ไว้ก่อนเสมอ — นี่คือคำตอบของ "พิมพ์แล้วพล็อตตรงไหน"
+        if not self.adopt_workbook_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        sel = [i for i in wb.selected_column_indexes() if i < len(cols)]
+        if len(sel) >= 2:
+            x_name, y_names = cols[sel[0]], [cols[i] for i in sel[1:]]
+        elif len(sel) == 1 and sel[0] != 0 and len(cols) >= 2:
+            x_name, y_names = cols[0], [cols[sel[0]]]
+        elif len(cols) >= 2:
+            x_name, y_names = cols[0], [cols[1]]
+        else:
+            QMessageBox.information(
+                self, "ข้อมูลไม่พอ", "ต้องมีอย่างน้อย 2 คอลัมน์ (X และ Y) ถึงจะพล็อตได้")
+            return
+
+        # ขับผ่าน combo X/Y เพื่อ reuse เส้นทางพล็อตเดิมทั้งหมด (validation/label/meta)
+        self.cbX.setCurrentText(x_name)
+        self.cbY.setCurrentText(y_names[0])
+        (self.plot_line if style == "line" else self.plot_scatter)()
+        for extra in y_names[1:]:
+            self.cbY.setCurrentText(extra)
+            (self.add_line_overlay if style == "line" else self.add_scatter_overlay)()
+        self.cbY.setCurrentText(y_names[0])
+        try:
+            self._show_plot_view()
+        except Exception:
+            logger.debug("show plot view skipped", exc_info=True)
+
     def plot_line(self):
         x, y = self._get_xy()
         if x is None:

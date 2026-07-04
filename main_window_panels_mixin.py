@@ -23,42 +23,72 @@ class MainWindowPanelsMixin:
     """Left panel, right Inspector tabs, layer manager and sidepanel styling extracted from MainWindow."""
 
     def _build_left_panel(self):
+        """Workflow spine — 3 numbered steps so the app explains itself:
+        ① เปิด/พิมพ์ข้อมูล → ② เลือกคอลัมน์แล้วพล็อต → ③ เครื่องมือกราฟ"""
         l = self._left_layout
-        self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True); l.addWidget(self.lblFile)
 
-        # CHANGE: กล่อง "ไฟล์ที่เตรียมไว้"
-        gb_files = QGroupBox("ไฟล์ที่เตรียมไว้")
-        gbf = QVBoxLayout(gb_files); gbf.setContentsMargins(8, 8, 8, 8); gbf.setSpacing(8)
-        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection); gbf.addWidget(self.lstFiles)
+        # ── ① ข้อมูล ────────────────────────────────────────────────
+        gb_data = QGroupBox("① ข้อมูล")
+        gbd = QVBoxLayout(gb_data); gbd.setContentsMargins(8, 8, 8, 8); gbd.setSpacing(8)
+        self.btnOpenData = QPushButton("เปิดไฟล์ข้อมูล…")
+        self.btnOpenData.setToolTip("CSV / TSV / TXT / Excel / NetCDF / CDF")
+        gbd.addWidget(self.btnOpenData)
+        self.btnUseSheet = QPushButton("ใช้ข้อมูลจากตาราง (Book1)")
+        self.btnUseSheet.setToolTip("พิมพ์ข้อมูลลงตาราง Book1 แล้วกดปุ่มนี้เพื่อนำมาพล็อต/วิเคราะห์")
+        gbd.addWidget(self.btnUseSheet)
+        self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True)
+        gbd.addWidget(self.lblFile)
+        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection)
+        gbd.addWidget(self.lstFiles)
         rowStage = QHBoxLayout()
         self.btnAddStage = QPushButton("เพิ่มไฟล์…"); self.btnUseStage = QPushButton("ใช้ไฟล์นี้"); self.btnDelStage = QPushButton("ลบออก")
-        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage);
-        # Ensure equal widths for the 3 buttons and compact spacing
+        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage)
         try:
             rowStage.setStretch(0, 1); rowStage.setStretch(1, 1); rowStage.setStretch(2, 1)
             rowStage.setSpacing(8)
             rowStage.setContentsMargins(0, 0, 0, 0)
         except Exception:
             pass
-        gbf.addLayout(rowStage)
-        l.addWidget(gb_files)
+        gbd.addLayout(rowStage)
+        l.addWidget(gb_data)
 
-        # CHANGE: กล่อง "แสดง Crosshair"
-        gb_cross = QGroupBox("แสดง Crosshair")
-        gbc = QVBoxLayout(gb_cross); gbc.setContentsMargins(8, 8, 8, 8); gbc.setSpacing(8)
+        # ── ② เลือกคอลัมน์ → พล็อต (ย้ายมาจาก Inspector ที่ถูกซ่อน) ──
+        gb_plot = QGroupBox("② เลือกคอลัมน์ → พล็อต")
+        gbp = QVBoxLayout(gb_plot); gbp.setContentsMargins(4, 4, 4, 4); gbp.setSpacing(4)
+        panel = CompactPlotPanel(self)
+        gbp.addWidget(panel)
+        l.addWidget(gb_plot)
+
+        # aliases เดิม — โค้ด mixin อื่นเรียกผ่านชื่อพวกนี้ทั้งหมด
+        self.panel_plot = panel
+        self.btnLoadCols = getattr(panel, "btnLoadCols", getattr(panel, "btn_load_cols", None))
+        self.cbX         = panel.cbo_x
+        self.cbY         = panel.cbo_y
+        self.spLineWidth = panel.spin_width
+        self.chkMarker   = panel.chk_points
+        self.btnLine     = panel.btn_line
+        self.btnScatter  = panel.btn_scatter
+        self.btnClear    = panel.btn_clear
+        self.btnCurveFit = panel.btn_fit
+
+        # ── ③ เครื่องมือกราฟ ───────────────────────────────────────
+        gb_tools = QGroupBox("③ เครื่องมือกราฟ")
+        gbt = QVBoxLayout(gb_tools); gbt.setContentsMargins(8, 8, 8, 8); gbt.setSpacing(8)
         self.chkCross = QCheckBox("แสดง Crosshair")
-        gbc.addWidget(self.chkCross)
-        l.addWidget(gb_cross)
-
-        # CHANGE: กล่อง "มุมมอง/เมาส์"
-        gb_view = QGroupBox("มุมมอง/เมาส์")
-        gbv = QVBoxLayout(gb_view); gbv.setContentsMargins(8, 8, 8, 8); gbv.setSpacing(8)
+        gbt.addWidget(self.chkCross)
         self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
-        gbv.addWidget(self.btnBoxZoom)
-        l.addWidget(gb_view)
+        gbt.addWidget(self.btnBoxZoom)
+        l.addWidget(gb_tools)
 
         l.addStretch(1)
-        # UI-REFINE: การเชื่อมสัญญาณย้ายไป _connect_signals()
+
+        # ปุ่มขั้น ① ต่อเข้าเส้นทางเดิม (open_file / adopt_workbook_data มาจาก data mixin)
+        try:
+            self.btnOpenData.clicked.connect(lambda _=False: getattr(self, "open_file", lambda: None)())
+            self.btnUseSheet.clicked.connect(lambda _=False: getattr(self, "adopt_workbook_data", lambda: None)())
+        except Exception:
+            pass
+        # UI-REFINE: การเชื่อมสัญญาณอื่นอยู่ที่ _connect_signals()
 
     def _build_inspector_tabs(self):
         """
@@ -81,27 +111,28 @@ class MainWindowPanelsMixin:
         except Exception:
             pass
 
-        # ================== TAB: PLOT ==================
+        # ================== TAB: PLOT (Layers) ==================
+        # ชุดเลือกคอลัมน์/ปุ่มพล็อต (CompactPlotPanel) อยู่ที่ panel ซ้ายขั้น ②
+        # แล้ว — Inspector เหลือหน้าที่เสริม: จัดการ Layers ของกราฟ
         tab_plot = QWidget()
         tp = QVBoxLayout(tab_plot)
         tp.setContentsMargins(8,8,8,8)
         tp.setSpacing(8)
 
-        # ใช้ CompactPlotPanel เพียงตัวเดียว
-        panel = CompactPlotPanel(self)
-        tp.addWidget(panel)
-
-        # --- Alias ให้ชื่อเดิม เพื่อไม่ให้โค้ดส่วนอื่นพัง ---
-        self.panel_plot = panel
-        self.btnLoadCols = getattr(panel, "btnLoadCols", getattr(panel, "btn_load_cols", None))
-        self.cbX         = panel.cbo_x
-        self.cbY         = panel.cbo_y
-        self.spLineWidth = panel.spin_width
-        self.chkMarker   = panel.chk_points
-        self.btnLine     = panel.btn_line
-        self.btnScatter  = panel.btn_scatter
-        self.btnClear    = panel.btn_clear
-        self.btnCurveFit = panel.btn_fit
+        if not hasattr(self, "panel_plot"):
+            # เผื่อกรณีสร้าง Inspector โดยไม่ได้สร้าง left panel (เช่นในเทสต์เก่า)
+            panel = CompactPlotPanel(self)
+            tp.addWidget(panel)
+            self.panel_plot = panel
+            self.btnLoadCols = getattr(panel, "btnLoadCols", getattr(panel, "btn_load_cols", None))
+            self.cbX         = panel.cbo_x
+            self.cbY         = panel.cbo_y
+            self.spLineWidth = panel.spin_width
+            self.chkMarker   = panel.chk_points
+            self.btnLine     = panel.btn_line
+            self.btnScatter  = panel.btn_scatter
+            self.btnClear    = panel.btn_clear
+            self.btnCurveFit = panel.btn_fit
         self.layerGroup = QGroupBox("Layers", self)
         self.layerGroupLayout = QVBoxLayout(self.layerGroup)
         self.layerGroupLayout.setContentsMargins(6, 6, 6, 6)
@@ -450,10 +481,12 @@ class MainWindowPanelsMixin:
 
             # Buttons sizing + class names
             for btn, cls in (
-                (self.btnUseStage, "btn-primary"),
+                (self.btnOpenData, "btn-primary"),
+                (self.btnUseSheet, "btn-secondary"),
+                (self.btnUseStage, "btn-secondary"),
                 (self.btnAddStage, "btn-secondary"),
                 (self.btnDelStage, "btn-secondary"),
-                (self.btnBoxZoom, "btn-primary"),
+                (self.btnBoxZoom, "btn-secondary"),
             ):
                 try:
                     btn.setProperty("class", cls)
@@ -494,17 +527,8 @@ class MainWindowPanelsMixin:
                         card.setGraphicsEffect(eff)
                     except Exception:
                         pass
-                # Set clean Thai/English titles by containment
-                for card in cards:
-                    try:
-                        if hasattr(self, 'lstFiles') and isinstance(self.lstFiles, QListWidget) and card.isAncestorOf(self.lstFiles):
-                            card.setTitle("ไฟล์ที่เตรียมไว้")
-                        elif hasattr(self, 'chkCross') and isinstance(self.chkCross, QCheckBox) and card.isAncestorOf(self.chkCross):
-                            card.setTitle("Crosshair")
-                        elif hasattr(self, 'btnBoxZoom') and isinstance(self.btnBoxZoom, QPushButton) and card.isAncestorOf(self.btnBoxZoom):
-                            card.setTitle("มุมมอง / เมาส์")
-                    except Exception:
-                        pass
+                # Titles are set at construction (numbered workflow steps) —
+                # do not overwrite them here.
             except Exception:
                 pass
         except Exception:

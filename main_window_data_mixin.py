@@ -105,6 +105,31 @@ class MainWindowDataMixin:
             QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
             self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์")
 
+    def adopt_workbook_data(self) -> bool:
+        """ขั้น ① ของ workflow: นำข้อมูลที่พิมพ์/แก้ใน Book1 มาเป็น DataFrame หลัก
+
+        คืน True เมื่อสำเร็จ (มีข้อมูลจริงและคอลัมน์ถูกโหลดเข้า X/Y แล้ว)
+        """
+        wb = getattr(self, "workbook", None)
+        if wb is None:
+            return False
+        try:
+            df = wb.dataframe()
+        except Exception as e:
+            QMessageBox.critical(self, "อ่านตารางไม่สำเร็จ", f"สาเหตุ: {e}")
+            return False
+        if df is None or df.empty:
+            QMessageBox.information(
+                self, "ตารางยังว่าง",
+                "พิมพ์ข้อมูลลงตาราง Book1 ก่อน (คอลัมน์ A = X, คอลัมน์ B = Y)")
+            return False
+        self._df = df.copy()
+        self._current_path = None
+        self.load_columns_from_df()
+        self.statusBar().showMessage(
+            f"ใช้ข้อมูลจากตารางแล้ว ({len(df)} แถว × {len(df.columns)} คอลัมน์) → เลือก X/Y แล้วกดพล็อต")
+        return True
+
     def load_columns_from_df(self):
         if self._df is None:
             try:

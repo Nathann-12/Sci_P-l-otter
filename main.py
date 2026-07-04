@@ -340,7 +340,8 @@ class MainWindow(
         self.statusBar().addPermanentWidget(self._sb_rows)
         self.statusBar().addPermanentWidget(self._sb_fs)
         self.statusBar().addPermanentWidget(self._sb_cursor)
-        self.statusBar().showMessage("พร้อมใช้งาน • เปิดไฟล์ → โหลดคอลัมน์")
+        self.statusBar().showMessage(
+            "เริ่ม 3 ขั้น: ① เปิดไฟล์ หรือพิมพ์ข้อมูลใน Book1 แล้วกด 'ใช้ข้อมูลนี้' → ② เลือก X/Y → ③ กดพล็อต")
         self.setAcceptDrops(True)
 
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม (ผ่าน toggle_inspector
@@ -376,6 +377,9 @@ class MainWindow(
                 _btn = getattr(self, _btn_name, None)
                 if _btn is not None:
                     _btn.clicked.connect(lambda _=False: self._show_plot_view())
+            # Book1 เป็นจุดเริ่ม workflow ได้เอง: พิมพ์ข้อมูล → ใช้ข้อมูล → พล็อต
+            self.workbook.use_data_requested.connect(self.adopt_workbook_data)
+            self.workbook.plot_requested.connect(self.plot_from_workbook)
         except Exception:
             logger.debug("workbook wiring skipped", exc_info=True)
         # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เติมตารางครั้งแรก

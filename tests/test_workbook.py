@@ -62,6 +62,66 @@ def test_empty_defaults(qapp):
     assert wb.table.verticalHeaderItem(META_ROW_COUNT).text() == "1"
 
 
+def test_action_bar_buttons_exist(qapp):
+    wb = WorkbookWidget()
+    for name in ("btn_add_row", "btn_add_col", "btn_use_data",
+                 "btn_plot_line", "btn_plot_scatter"):
+        assert getattr(wb, name) is not None
+
+
+def test_add_data_row_and_column_grow_the_sheet(qapp):
+    wb = WorkbookWidget()
+    rows0, cols0 = wb.table.rowCount(), wb.table.columnCount()
+    wb.add_data_row()
+    wb.add_data_column()
+    assert wb.table.rowCount() == rows0 + 1
+    assert wb.table.columnCount() == cols0 + 1
+    # new column gets the next spreadsheet letter header
+    assert wb.table.horizontalHeaderItem(cols0).text() == column_header_text(cols0)
+    # new cells are real items (styling stays consistent)
+    assert wb.table.item(rows0, 0) is not None
+    assert wb.table.item(0, cols0) is not None
+
+
+def test_action_bar_emits_workflow_signals(qapp):
+    wb = WorkbookWidget()
+    got = []
+    wb.use_data_requested.connect(lambda: got.append("use"))
+    wb.plot_requested.connect(lambda style: got.append(style))
+
+    wb.btn_use_data.click()
+    wb.btn_plot_line.click()
+    wb.btn_plot_scatter.click()
+
+    assert got == ["use", "line", "scatter"]
+
+
+def test_selected_column_indexes_and_names(qapp):
+    wb = WorkbookWidget()
+    wb.set_meta(0, long_name="time")
+    wb.set_meta(1, long_name="volt")
+    # select one cell in column 1 and one in column 0
+    wb.table.setCurrentCell(META_ROW_COUNT, 1)
+    from PySide6.QtCore import QItemSelectionModel
+    index0 = wb.table.model().index(META_ROW_COUNT + 2, 0)
+    wb.table.selectionModel().select(index0, QItemSelectionModel.Select)
+    assert wb.selected_column_indexes() == [0, 1]
+    assert wb.selected_column_names() == ["time", "volt"]
+
+
+def test_dataframe_trims_all_empty_rows(qapp):
+    wb = WorkbookWidget()  # 32 empty rows
+    wb.set_meta(0, long_name="x")
+    wb.set_meta(1, long_name="y")
+    for r, (xv, yv) in enumerate([("1", "10"), ("2", "20"), ("3", "30")]):
+        wb.table.item(META_ROW_COUNT + r, 0).setText(xv)
+        wb.table.item(META_ROW_COUNT + r, 1).setText(yv)
+    df = wb.dataframe()
+    assert len(df) == 3  # 29 empty rows dropped
+    assert df["x"].tolist() == [1, 2, 3]
+    assert df["y"].tolist() == [10, 20, 30]
+
+
 def test_header_strip_background_is_styled(qapp):
     # The bare QHeaderView area beyond the last column must carry the dark
     # surface color, otherwise it paints near-black against the themed table.
