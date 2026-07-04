@@ -122,6 +122,55 @@ def test_dataframe_trims_all_empty_rows(qapp):
     assert df["y"].tolist() == [10, 20, 30]
 
 
+def test_default_designations_first_column_is_x(qapp):
+    wb = WorkbookWidget()
+    assert wb.column_designation(0) == "X"
+    assert wb.column_designation(1) == "Y"
+    assert wb.x_column_index() == 0
+    assert wb.y_column_indexes() == [1]
+    assert wb.table.horizontalHeaderItem(0).text() == "A(X)"
+    assert wb.table.horizontalHeaderItem(1).text() == "B(Y)"
+
+
+def test_set_designation_single_x_model_and_header_refresh(qapp):
+    wb = WorkbookWidget()
+    wb.add_data_column()  # A, B, C
+    wb.set_designation(2, "X")
+    # promoting C to X demotes A back to Y
+    assert wb.x_column_index() == 2
+    assert wb.column_designation(0) == "Y"
+    assert wb.table.horizontalHeaderItem(2).text() == "C(X)"
+    assert wb.table.horizontalHeaderItem(0).text() == "A(Y)"
+
+    wb.set_designation(1, "ignore")
+    assert wb.table.horizontalHeaderItem(1).text() == "B"  # no designation suffix
+    assert wb.y_column_indexes() == [0]
+
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        wb.set_designation(0, "Z")
+
+
+def test_auto_x_designation_prefers_time_like_column(qapp):
+    wb = WorkbookWidget()
+    df = pd.DataFrame({"value": [1.0, 2.0], "timestamp": [10, 20]})
+    wb.set_dataframe(df)
+    assert wb.x_column_index() == 1  # "timestamp" wins over column 0
+    assert wb.table.horizontalHeaderItem(1).text() == "B(X)"
+    assert wb.table.horizontalHeaderItem(0).text() == "A(Y)"
+
+
+def test_dirty_flag_tracks_user_edits_only(qapp):
+    wb = WorkbookWidget()
+    df = pd.DataFrame({"x": [1.0], "y": [2.0]})
+    wb.set_dataframe(df)
+    assert wb.is_dirty is False  # programmatic fill stays clean
+    wb.table.item(META_ROW_COUNT, 0).setText("9")
+    assert wb.is_dirty is True
+    wb.mark_clean()
+    assert wb.is_dirty is False
+
+
 def test_header_strip_background_is_styled(qapp):
     # The bare QHeaderView area beyond the last column must carry the dark
     # surface color, otherwise it paints near-black against the themed table.

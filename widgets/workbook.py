@@ -150,6 +150,13 @@ _WORKBOOK_QSS = f"""
 """
 
 
+# Column designations (Origin's "Set As"): X / Y / ignore (Disregard).
+DESIGNATIONS = ("X", "Y", "ignore")
+
+# Column names that look like a time axis get the X designation automatically.
+_TIME_LIKE_KEYS = ("time", "timestamp", "datetime", "date", "epoch", "t")
+
+
 def column_label(index: int) -> str:
     """Spreadsheet-style letter label for a column index (0 -> A, 25 -> Z, 26 -> AA)."""
     if index < 0:
@@ -208,6 +215,8 @@ class WorkbookWidget(QWidget):
         # plotting must re-read the sheet; clean books use source_df (fast).
         self._dirty = False
         self._loading = False
+        # Per-column designation ("X"/"Y"/"ignore") — Origin's Set As.
+        self._designations: List[str] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -268,6 +277,11 @@ class WorkbookWidget(QWidget):
         # Origin-style right-click: plot straight from the selection.
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Origin's "Set As X/Y" on the column header.
+        header = self.table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._show_header_menu)
 
         self.table.itemChanged.connect(self._on_item_changed)
 
@@ -339,9 +353,84 @@ class WorkbookWidget(QWidget):
         labels = list(META_ROWS) + [str(i + 1) for i in range(data_row_count)]
         self.table.setVerticalHeaderLabels(labels)
 
+    def _ensure_designations(self, col_count: int) -> None:
+        """Resize the designation list: first column X, new columns Y."""
+        if len(self._designations) > col_count:
+            self._designations = self._designations[:col_count]
+        while len(self._designations) < col_count:
+            self._designations.append("X" if not self._designations else "Y")
+
     def _apply_column_headers(self, col_count: int) -> None:
-        labels = [column_header_text(i) for i in range(col_count)]
+        self._ensure_designations(col_count)
+        labels = []
+        for i in range(col_count):
+            designation = self._designations[i]
+            if designation == "ignore":
+                labels.append(column_label(i))
+            else:
+                labels.append(f"{column_label(i)}({designation})")
         self.table.setHorizontalHeaderLabels(labels)
+
+    # ---------------------------------------------- designations (Set As X/Y)
+    def column_designation(self, col_index: int) -> str:
+        self._ensure_designations(self.table.columnCount())
+        if 0 <= col_index < len(self._designations):
+            return self._designations[col_index]
+        return "Y"
+
+    def set_designation(self, col_index: int, kind: str) -> None:
+        """Origin's Set As: mark a column X / Y / ignore (single-X model —
+        promoting a column to X demotes the previous X to Y)."""
+        if kind not in DESIGNATIONS:
+            raise ValueError(f"unknown designation: {kind!r} (use one of {DESIGNATIONS})")
+        self._ensure_designations(self.table.columnCount())
+        if not (0 <= col_index < len(self._designations)):
+            raise IndexError(f"column index {col_index} out of range")
+        if kind == "X":
+            for i, d in enumerate(self._designations):
+                if d == "X":
+                    self._designations[i] = "Y"
+        self._designations[col_index] = kind
+        self._apply_column_headers(self.table.columnCount())
+
+    def x_column_index(self):
+        """Index of the designated X column, or None."""
+        self._ensure_designations(self.table.columnCount())
+        for i, d in enumerate(self._designations):
+            if d == "X":
+                return i
+        return None
+
+    def y_column_indexes(self) -> List[int]:
+        """Indexes of all designated Y columns (order preserved)."""
+        self._ensure_designations(self.table.columnCount())
+        return [i for i, d in enumerate(self._designations) if d == "Y"]
+
+    def _auto_designations(self, df: pd.DataFrame) -> None:
+        """Default X = first time-like column (else column 0), rest Y."""
+        n = max(1, int(df.shape[1]))
+        self._designations = ["Y"] * n
+        x_idx = 0
+        for i, name in enumerate(df.columns):
+            low = str(name).strip().lower()
+            if any(key == low or key in low for key in _TIME_LIKE_KEYS if len(key) > 1) or low == "t":
+                x_idx = i
+                break
+        self._designations[x_idx] = "X"
+
+    def _show_header_menu(self, pos) -> None:
+        header = self.table.horizontalHeader()
+        col = header.logicalIndexAt(pos)
+        if col < 0:
+            return
+        menu = QMenu(header)
+        menu.addAction(f"Set As X — คอลัมน์ {column_label(col)}").triggered.connect(
+            lambda: self.set_designation(col, "X"))
+        menu.addAction(f"Set As Y — คอลัมน์ {column_label(col)}").triggered.connect(
+            lambda: self.set_designation(col, "Y"))
+        menu.addAction("ไม่ใช้คอลัมน์นี้ (Disregard)").triggered.connect(
+            lambda: self.set_designation(col, "ignore"))
+        menu.exec(header.mapToGlobal(pos))
 
     def _make_item(self, text: str, is_meta: bool) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -406,6 +495,7 @@ class WorkbookWidget(QWidget):
         with self._loading_guard():
             cols = max(1, int(cols))
             rows = max(0, int(rows))
+            self._designations = []  # reset to default: A(X), B(Y), ...
             self.table.clear()
             self.table.setColumnCount(cols)
             self.table.setRowCount(META_ROW_COUNT + rows)
@@ -448,6 +538,7 @@ class WorkbookWidget(QWidget):
             return
 
         self.source_df = df
+        self._auto_designations(df)  # X = คอลัมน์เวลา (ถ้ามี) ไม่งั้นคอลัมน์แรก
         with self._loading_guard():
             n_cols = max(1, int(df.shape[1]))
             n_rows = int(df.shape[0])

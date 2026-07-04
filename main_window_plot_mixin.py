@@ -119,9 +119,10 @@ class MainWindowPlotMixin:
         ``new_graph=True`` (ดีฟอลต์แบบ OriginPro): สร้าง Graph window ใหม่เสมอ;
         ``new_graph=False``: เพิ่มลงกราฟที่ active อยู่ (เส้นทาง overlay เดิม)
 
-        กติกาเลือกคอลัมน์: เลือก ≥2 → คอลัมน์แรก = X ที่เหลือ = Y (หลายเส้น);
-        เลือก 1 (ไม่ใช่คอลัมน์แรก) → X = คอลัมน์แรก, Y = ที่เลือก;
-        ไม่ได้เลือก → X = คอลัมน์แรก, Y = คอลัมน์ที่สอง
+        กติกาเลือกคอลัมน์ (ตาม designation แบบ Origin — ดูหัวคอลัมน์ A(X)/B(Y)):
+        X = คอลัมน์ที่ตั้ง Set As X ไว้ (ดีฟอลต์ = คอลัมน์เวลา/คอลัมน์แรก);
+        Y = คอลัมน์ที่เลือกบนชีต (ยกเว้น X และคอลัมน์ Disregard) — เลือกหลาย
+        คอลัมน์ได้หลายเส้น; ไม่ได้เลือกเลย → คอลัมน์ Y ตัวแรก
 
         styles: ``line`` / ``scatter`` / ``linesymbol`` / ``bar`` / ``histogram``
         """
@@ -141,20 +142,40 @@ class MainWindowPlotMixin:
             return
         cols = [str(c) for c in self._df.columns]
         sel = [i for i in wb.selected_column_indexes() if i < len(cols)]
-        if len(sel) >= 2:
-            x_name, y_names = cols[sel[0]], [cols[i] for i in sel[1:]]
-        elif len(sel) == 1 and sel[0] != 0 and len(cols) >= 2:
-            x_name, y_names = cols[0], [cols[sel[0]]]
-        elif style == "histogram" and len(sel) == 1:
-            x_name, y_names = cols[0], [cols[sel[0]]]
-        elif len(cols) >= 2:
-            x_name, y_names = cols[0], [cols[1]]
-        elif style == "histogram" and len(cols) == 1:
-            x_name, y_names = cols[0], [cols[0]]
+
+        # X มาจาก designation (Set As X); ดีฟอลต์คอลัมน์แรก
+        x_idx = None
+        if hasattr(wb, "x_column_index"):
+            x_idx = wb.x_column_index()
+        if x_idx is None or x_idx >= len(cols):
+            x_idx = 0
+        x_name = cols[x_idx]
+
+        def _usable(i: int) -> bool:
+            if i == x_idx:
+                return False
+            if hasattr(wb, "column_designation") and wb.column_designation(i) == "ignore":
+                return False
+            return True
+
+        sel_y = [i for i in sel if _usable(i)]
+        if sel_y:
+            y_names = [cols[i] for i in sel_y]
         else:
-            QMessageBox.information(
-                self, "ข้อมูลไม่พอ", "ต้องมีอย่างน้อย 2 คอลัมน์ (X และ Y) ถึงจะพล็อตได้")
-            return
+            if hasattr(wb, "y_column_indexes"):
+                candidates = [i for i in wb.y_column_indexes() if i < len(cols) and i != x_idx]
+            else:
+                candidates = [i for i in range(len(cols)) if i != x_idx]
+            y_names = [cols[candidates[0]]] if candidates else []
+
+        if not y_names:
+            if style == "histogram" and cols:
+                y_names = [cols[sel[0]] if sel else x_name]
+            else:
+                QMessageBox.information(
+                    self, "ข้อมูลไม่พอ",
+                    "ต้องมีคอลัมน์ Y อย่างน้อย 1 คอลัมน์ (ดูหัวคอลัมน์ A(X)/B(Y) — คลิกขวาเพื่อ Set As)")
+                return
 
         if new_graph:
             try:

@@ -186,6 +186,35 @@ def test_multibook_plot_uses_active_book(win, tmp_path):
     assert list(ax.get_lines()[-1].get_ydata()) == [5.0, 6.0, 7.0]
 
 
+def test_plot_respects_set_as_x_designation(win, tmp_path):
+    """Origin Set As: after designating column C as X, plots use C for x-data."""
+    p = tmp_path / "delta.csv"
+    p.write_text("a,b,c\n1,10,100\n2,20,200\n3,30,300\n", encoding="utf-8")
+    win.load_data(str(p))
+
+    win.workbook.set_designation(2, "X")  # C(X); A demoted to Y
+    win.plot_from_workbook("line")
+
+    ax = win.tabs.currentWidget().get_axes()
+    line = ax.get_lines()[-1]
+    assert list(line.get_xdata()) == [100.0, 200.0, 300.0]
+    assert win.cbX.currentText() == "c"
+
+
+def test_auto_x_uses_time_column_when_loading_file(win, tmp_path):
+    p = tmp_path / "timed.csv"
+    p.write_text("volt,time\n5,0\n6,1\n7,2\n", encoding="utf-8")
+    win.load_data(str(p))
+
+    win.plot_from_workbook("line")
+
+    ax = win.tabs.currentWidget().get_axes()
+    line = ax.get_lines()[-1]
+    # X came from the auto-designated "time" column, Y from "volt"
+    assert list(line.get_xdata()) == [0.0, 1.0, 2.0]
+    assert list(line.get_ydata()) == [5.0, 6.0, 7.0]
+
+
 def test_empty_sheet_is_rejected_politely(win, monkeypatch):
     # fresh window has an empty Book1 → adopting must fail without crashing
     infos = []
