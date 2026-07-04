@@ -202,6 +202,31 @@ class MainWindowToolbarMixin:
         # === กลุ่มที่ 6: การแสดงผลและเครื่องมือ ===
         # Inspector already added near the Open button for better access
 
+        # Graph tools (moved from the removed left panel): crosshair + box zoom
+        if not hasattr(self, 'actCrosshair'):
+            self.actCrosshair = QAction("Crosshair", self)
+            self.actCrosshair.setCheckable(True)
+            self.actCrosshair.setToolTip("แสดง Crosshair บนกราฟ")
+            # Drive the hidden chkCross so existing wiring + session save keep working
+            self.actCrosshair.toggled.connect(
+                lambda checked: getattr(self, 'chkCross', None) is not None
+                and self.chkCross.setChecked(checked))
+            try:
+                self.actCrosshair.setIcon(self._icon("crosshair", QStyle.StandardPixmap.SP_DialogYesButton))
+            except Exception:
+                pass
+        if not hasattr(self, 'actBoxZoom'):
+            self.actBoxZoom = QAction("Box Zoom", self)
+            self.actBoxZoom.setToolTip("เลือกช่วง (ลากเพื่อซูม)")
+            self.actBoxZoom.triggered.connect(
+                lambda: getattr(self, 'start_box_zoom', lambda: None)())
+            try:
+                self.actBoxZoom.setIcon(self._icon("boxzoom", QStyle.StandardPixmap.SP_FileDialogContentsView))
+            except Exception:
+                pass
+        self.tb.addAction(self.actCrosshair)
+        self.tb.addAction(self.actBoxZoom)
+
         # Error Panel toggle
         self.actErrorPanel = self.tb.addAction("Error Panel")
         self.actErrorPanel.setCheckable(True)

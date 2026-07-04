@@ -45,7 +45,7 @@
 - ✅ Time column detection
 - 🟡 Unit detection
 - 🟡 Metadata reader
-- 🟡 Dataset tree (ตอนนี้เป็น staging list แบน)
+- ✅ Dataset tree (Origin multi-book: 1 ไฟล์ = 1 Book + Project Explorer)
 - ☐ Dataset grouping
 - 🟡 Dataset rename
 - ☐ Dataset duplicate

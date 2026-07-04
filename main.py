@@ -133,6 +133,8 @@ _QTA_ICON_MAP = {
     "export": "fa5s.file-export",
     "clear": "fa5s.exclamation-triangle",
     "fit": "fa5s.chart-area",
+    "crosshair": "fa5s.crosshairs",
+    "boxzoom": "fa5s.search-plus",
 }
 
 from core.plot_mode import PlotMode  # re-exported here for backward compatibility
@@ -261,33 +263,15 @@ class MainWindow(
         self.error_panel = ErrorPanel(self)
         self.error_panel.hide()
 
-        # ซ้าย = File/Staging -> context "Data"
+        # Origin-pure shell: ไม่มีแผงซ้ายแล้ว — ทุกอย่างทำผ่าน Worksheet +
+        # แถบไอคอนพล็อต + Project Explorer + เมนู. แผงนี้ยังถูก "สร้าง" ไว้แบบ
+        # ซ่อน เพื่อเป็น state-holder ของ aliases ที่ mixin/session ใช้
+        # (lblFile, chkCross, btnBoxZoom, btnOpenData, cbX/cbY ผ่าน panel_plot)
         self._panel_left = QWidget(self)
         self._panel_left.setObjectName("SidePanel")
         self._left_layout = QVBoxLayout(self._panel_left)
-        self._left_layout.setContentsMargins(12, 12, 12, 12)
-        self._left_layout.setSpacing(10)
         self._build_left_panel()
-        try:
-            self.apply_sidepanel_style()
-        except Exception:
-            pass
-        self._panel_left.setMinimumWidth(190)
-        # ห่อด้วย scroll area: จอเตี้ย/หน้าต่างเล็กจะเลื่อนดูได้ แทนที่จะบีบ
-        # การ์ด ①②③ จนตัวหนังสือไทยถูกตัด
-        _left_scroll = QScrollArea(self)
-        _left_scroll.setObjectName("SidePanelScroll")
-        _left_scroll.setWidgetResizable(True)
-        _left_scroll.setFrameShape(QFrame.NoFrame)
-        _left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        _left_scroll.setWidget(self._panel_left)
-        _left_scroll.setStyleSheet(
-            "QScrollArea#SidePanelScroll{background:transparent;border:none;}")
-        try:
-            _data_icon = self._icon("open", QStyle.SP_DirOpenIcon)
-        except Exception:
-            _data_icon = None
-        self.shell.register_context("data", "Data", _left_scroll, icon=_data_icon)
+        self._panel_left.hide()
 
         # ขวา = Inspector Tabs (Plot/Processing/Export)
         self._panel_right = QWidget(self)

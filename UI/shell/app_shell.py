@@ -46,14 +46,18 @@ class AppShell(QWidget):
         self._command_palette: Optional[QWidget] = None
 
         # --- left: activity rail ---
+        # Hidden until a context is registered (Origin-pure shell has none;
+        # future specialty modules — Gas Sensor etc. — bring the rail back).
         self.rail = ActivityRail(self)
         self.rail.setFixedWidth(RAIL_WIDTH)
         self.rail.activity_changed.connect(self._on_activity_changed)
+        self.rail.hide()
 
         # --- context stack (เปลี่ยนตามกิจกรรมที่เลือกใน rail) ---
         self.context_stack = QStackedWidget(self)
         self.context_stack.setObjectName("ContextStack")
         self.context_stack.setMinimumWidth(180)
+        self.context_stack.hide()
 
         # --- central workspace ---
         self.workspace_container = QWidget(self)
@@ -154,6 +158,9 @@ class AppShell(QWidget):
         # ถ้านี่เป็นกิจกรรมแรก rail จะ set active ให้ → sync หน้าตอนนี้
         if self.rail.current_activity() == activity_id:
             self.context_stack.setCurrentIndex(index)
+        # มี context แล้วค่อยโชว์ rail + แผง (ไม่มี = shell แบบ Origin ล้วน)
+        self.rail.show()
+        self.context_stack.show()
 
     def set_workspace(self, widget: QWidget) -> None:
         """วาง widget กลาง (เช่น TabManager) ในพื้นที่ workspace"""

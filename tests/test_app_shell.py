@@ -119,6 +119,17 @@ def test_default_layout_sizes(qapp):
     assert not shell._top_splitter.childrenCollapsible()
 
 
+def test_rail_hidden_until_a_context_is_registered(qapp):
+    shell = AppShell()
+    # Origin-pure shell: no contexts → no rail, no context column
+    assert shell.rail.isHidden()
+    assert shell.context_stack.isHidden()
+
+    shell.register_context("gas", "Gas Sensor", QLabel("gas module"))
+    assert not shell.rail.isHidden()
+    assert not shell.context_stack.isHidden()
+
+
 def test_set_inspector_visible_collapses_the_column(qapp):
     shell = AppShell()
 

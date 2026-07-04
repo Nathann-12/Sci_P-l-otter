@@ -128,22 +128,34 @@ def test_left_panel_plot_controls_fit_thai_text(win):
         assert cb.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
 
 
-def test_left_panel_is_scrollable_and_plot_panel_is_hidden_holder(win):
-    """The Data context is a scroll area; plotting moved to the worksheet +
-    plot toolbar (Origin loop), so CompactPlotPanel survives only as a hidden
-    state-holder that keeps the cbX/cbY/... aliases alive."""
-    from PySide6.QtWidgets import QScrollArea
-    ctx = win.shell.context_widget("data")
-    assert isinstance(ctx, QScrollArea)
-    assert ctx.widget() is win._panel_left
-    assert win._panel_left.isAncestorOf(win.btnOpenData)
-    assert win._panel_left.isAncestorOf(win.btnBoxZoom)
-    # plot controls are NOT in the visible panel anymore, but aliases remain
-    assert not win._panel_left.isAncestorOf(win.cbX)
+def test_origin_pure_shell_no_left_panel_but_aliases_survive(win):
+    """P4: the Data panel is gone (Origin-pure shell) — no context registered,
+    rail hidden, and every widget alias mixins rely on lives on as a hidden
+    state-holder."""
+    assert win.shell.context_widget("data") is None
+    assert win.shell.rail.isHidden()
+    assert win.shell.context_stack.isHidden()
+    assert win._panel_left.isHidden()
     assert win.panel_plot.isHidden()
     for alias in ("cbX", "cbY", "spLineWidth", "chkMarker",
-                  "btnLine", "btnScatter", "btnClear", "btnCurveFit"):
+                  "btnLine", "btnScatter", "btnClear", "btnCurveFit",
+                  "lblFile", "chkCross", "btnBoxZoom", "btnOpenData"):
         assert getattr(win, alias) is not None
+
+
+def test_crosshair_and_boxzoom_live_on_the_toolbar(win):
+    """P4: graph tools moved from the left panel to checkable toolbar actions;
+    the crosshair action drives the hidden chkCross so old wiring + session
+    persistence still work."""
+    assert win.actCrosshair.isCheckable()
+    win.actCrosshair.setChecked(True)
+    assert win.chkCross.isChecked() is True
+    win.actCrosshair.setChecked(False)
+    assert win.chkCross.isChecked() is False
+    assert win.actBoxZoom is not None
+    toolbar_actions = win.tb.actions()
+    assert win.actCrosshair in toolbar_actions
+    assert win.actBoxZoom in toolbar_actions
 
 
 def test_multibook_one_file_one_book_and_active_switch(win, tmp_path):
