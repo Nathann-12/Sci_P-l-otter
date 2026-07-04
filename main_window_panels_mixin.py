@@ -28,28 +28,18 @@ class MainWindowPanelsMixin:
         l = self._left_layout
 
         # ── ① ข้อมูล ────────────────────────────────────────────────
+        # Origin model: เปิดไฟล์ = Book ใหม่; รายชื่อชุดข้อมูลดูที่ Project
+        # Explorer (ไม่มี staging list อีกแล้ว)
         gb_data = QGroupBox("① ข้อมูล")
         gbd = QVBoxLayout(gb_data); gbd.setContentsMargins(8, 8, 8, 8); gbd.setSpacing(8)
         self.btnOpenData = QPushButton("เปิดไฟล์ข้อมูล…")
-        self.btnOpenData.setToolTip("CSV / TSV / TXT / Excel / NetCDF / CDF")
+        self.btnOpenData.setToolTip("CSV / TSV / TXT / Excel / NetCDF / CDF — เปิดเป็น Book ใหม่")
         gbd.addWidget(self.btnOpenData)
-        self.btnUseSheet = QPushButton("ใช้ข้อมูลจากตาราง (Book1)")
-        self.btnUseSheet.setToolTip("พิมพ์ข้อมูลลงตาราง Book1 แล้วกดปุ่มนี้เพื่อนำมาพล็อต/วิเคราะห์")
+        self.btnUseSheet = QPushButton("ใช้ข้อมูลจากตาราง (Book)")
+        self.btnUseSheet.setToolTip("พิมพ์ข้อมูลลง Book แล้วกดปุ่มนี้เพื่อนำมาพล็อต/วิเคราะห์")
         gbd.addWidget(self.btnUseSheet)
         self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True)
         gbd.addWidget(self.lblFile)
-        self.lstFiles = QListWidget(); self.lstFiles.setSelectionMode(QListWidget.SingleSelection)
-        gbd.addWidget(self.lstFiles)
-        rowStage = QHBoxLayout()
-        self.btnAddStage = QPushButton("เพิ่มไฟล์…"); self.btnUseStage = QPushButton("ใช้ไฟล์นี้"); self.btnDelStage = QPushButton("ลบออก")
-        rowStage.addWidget(self.btnAddStage); rowStage.addWidget(self.btnUseStage); rowStage.addWidget(self.btnDelStage)
-        try:
-            rowStage.setStretch(0, 1); rowStage.setStretch(1, 1); rowStage.setStretch(2, 1)
-            rowStage.setSpacing(8)
-            rowStage.setContentsMargins(0, 0, 0, 0)
-        except Exception:
-            pass
-        gbd.addLayout(rowStage)
         l.addWidget(gb_data)
 
         # ── Origin loop: การพล็อตทำผ่าน worksheet + แถบไอคอนพล็อตล่างแล้ว ──
@@ -466,26 +456,10 @@ class MainWindowPanelsMixin:
             # Container name for QSS scoping
             self._panel_left.setObjectName("SidePanel")
 
-            # Staging list styling hooks
-            try:
-                self.lstFiles.setObjectName("StagingList")
-                self.lstFiles.setAlternatingRowColors(False)
-                self.lstFiles.setUniformItemSizes(False)
-                try:
-                    self.lstFiles.setWordWrap(False)
-                    self.lstFiles.setTextElideMode(Qt.ElideNone)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
             # Buttons sizing + class names
             for btn, cls in (
                 (self.btnOpenData, "btn-primary"),
                 (self.btnUseSheet, "btn-secondary"),
-                (self.btnUseStage, "btn-secondary"),
-                (self.btnAddStage, "btn-secondary"),
-                (self.btnDelStage, "btn-secondary"),
                 (self.btnBoxZoom, "btn-secondary"),
             ):
                 try:
@@ -501,9 +475,6 @@ class MainWindowPanelsMixin:
                     pass
             # Button/checkbox readable Thai/English labels
             try:
-                self.btnAddStage.setText("เพิ่มไฟล์")
-                self.btnUseStage.setText("ใช้ไฟล์")
-                self.btnDelStage.setText("ลบ")
                 self.btnBoxZoom.setText("เลือกช่วง (ลากเพื่อซูม)")
                 self.chkCross.setText("แสดง Crosshair")
             except Exception:

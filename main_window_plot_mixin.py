@@ -128,8 +128,16 @@ class MainWindowPlotMixin:
         wb = getattr(self, "workbook", None)
         if wb is None:
             return
-        # sync ข้อมูลที่พิมพ์ไว้ก่อนเสมอ — นี่คือคำตอบของ "พิมพ์แล้วพล็อตตรงไหน"
-        if not self.adopt_workbook_data():
+        # Book สะอาด (ข้อมูลจากไฟล์, ไม่ได้แก้เซลล์) → ใช้ source_df ตรง ๆ ไม่ต้อง
+        # อ่าน QTableWidget ทั้งตาราง; ชีตที่ถูกพิมพ์/แก้ → adopt จากชีตก่อนเสมอ
+        src = getattr(wb, "source_df", None)
+        if src is not None and not getattr(wb, "is_dirty", True) and not src.empty:
+            self._df = src
+            try:
+                self.load_columns_from_df()
+            except Exception:
+                logger.debug("column reload before plot failed", exc_info=True)
+        elif not self.adopt_workbook_data():
             return
         cols = [str(c) for c in self._df.columns]
         sel = [i for i in wb.selected_column_indexes() if i < len(cols)]

@@ -44,14 +44,12 @@ def save_session(window: Any) -> None:
         if tabs_widget is None:
             return
 
+        # Multi-book model: the dataset registry is the source of truth
+        # (the legacy lstFiles staging list no longer exists in the UI).
         staging: List[Dict[str, Any]] = []
         datasets = getattr(window, '_datasets', {}) if hasattr(window, '_datasets') else {}
-        lst_widget = getattr(window, 'lstFiles', None)
-        if lst_widget is not None:
-            for i in range(lst_widget.count()):
-                item = lst_widget.item(i)
-                name = item.text()
-                info = datasets.get(name) if isinstance(datasets, dict) else None
+        if isinstance(datasets, dict):
+            for name, info in datasets.items():
                 path_val = info.get('path') if isinstance(info, dict) else None
                 staging.append({'name': name, 'path': path_val})
 
@@ -145,19 +143,27 @@ def load_session(window: Any) -> None:
             except Exception:
                 LOG.warning('Failed to reload dataset %s', path_val, exc_info=True)
 
-        # Select active dataset if available
+        # Select active dataset if available — multi-book: activate its Book;
+        # legacy staging-list path kept for old stubs/tests.
         active_dataset = data.get('active_dataset')
         if active_dataset:
-            lst_widget = getattr(window, 'lstFiles', None)
-            if lst_widget is not None:
-                for i in range(lst_widget.count()):
-                    if lst_widget.item(i).text() == active_dataset:
-                        lst_widget.setCurrentRow(i)
-                        try:
-                            window.stage_use_selected()
-                        except Exception:
-                            pass
-                        break
+            activate = getattr(window, '_activate_book_by_name', None)
+            if callable(activate):
+                try:
+                    activate(active_dataset)
+                except Exception:
+                    LOG.warning('Failed to activate book %s', active_dataset, exc_info=True)
+            else:
+                lst_widget = getattr(window, 'lstFiles', None)
+                if lst_widget is not None:
+                    for i in range(lst_widget.count()):
+                        if lst_widget.item(i).text() == active_dataset:
+                            lst_widget.setCurrentRow(i)
+                            try:
+                                window.stage_use_selected()
+                            except Exception:
+                                pass
+                            break
 
         # Reset tabs
         try:

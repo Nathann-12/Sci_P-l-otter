@@ -146,6 +146,46 @@ def test_left_panel_is_scrollable_and_plot_panel_is_hidden_holder(win):
         assert getattr(win, alias) is not None
 
 
+def test_multibook_one_file_one_book_and_active_switch(win, tmp_path):
+    """Origin model: each opened file becomes its own Book; activating a Book
+    switches the working DataFrame."""
+    import pandas as pd
+
+    a = tmp_path / "alpha.csv"
+    a.write_text("t,va\n0,1\n1,2\n", encoding="utf-8")
+    b = tmp_path / "beta.csv"
+    b.write_text("t,vb\n0,10\n1,20\n", encoding="utf-8")
+
+    books_before = len(win.mdi._books)
+    win.load_data(str(a))
+    win.load_data(str(b))
+
+    assert len(win.mdi._books) == books_before + 2
+    # last opened book is active → its data is the working df
+    assert "vb" in win._df.columns
+    assert win._df["vb"].tolist() == [10, 20]
+
+    # switch back to the first file's Book → df follows
+    assert win._activate_book_by_name("alpha.csv [ตาราง]") is True
+    assert "va" in win._df.columns
+    assert win._df["va"].tolist() == [1, 2]
+    x_items = [win.cbX.itemText(i) for i in range(win.cbX.count())]
+    assert x_items == ["t", "va"]
+
+
+def test_multibook_plot_uses_active_book(win, tmp_path):
+    p = tmp_path / "gamma.csv"
+    p.write_text("t,g\n0,5\n1,6\n2,7\n", encoding="utf-8")
+    win.load_data(str(p))
+
+    graphs_before = win.tabs.count()
+    win.plot_from_workbook("line")
+
+    assert win.tabs.count() == graphs_before + 1
+    ax = win.tabs.currentWidget().get_axes()
+    assert list(ax.get_lines()[-1].get_ydata()) == [5.0, 6.0, 7.0]
+
+
 def test_empty_sheet_is_rejected_politely(win, monkeypatch):
     # fresh window has an empty Book1 → adopting must fail without crashing
     infos = []

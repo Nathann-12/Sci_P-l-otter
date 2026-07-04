@@ -232,12 +232,13 @@ def test_load_data_updates_state_for_tabular_files(monkeypatch, tmp_path):
 
     window.load_data(str(path))
 
-    assert window._df.equals(df)
-    assert window._current_path == str(path)
-    assert "sample.csv" in window.lblFile.text
-    assert "csv-note" in window.lblFile.text
-    assert "2 แถว" in window.lblFile.text
-    assert "โหลดข้อมูลสำเร็จ" in window.statusBar().messages[-1]
+    # Origin multi-book: drag & drop opens a new Book via the staging funnel
+    assert len(window.staged) == 1
+    staged_name, staged_df, staged_path = window.staged[0]
+    assert staged_name == "sample.csv [ตาราง]"
+    assert staged_path == str(path)
+    assert staged_df.equals(df)
+    assert "เปิดเป็น Book แล้ว" in window.statusBar().messages[-1]
     assert recorder.calls == []
 
 
@@ -264,8 +265,8 @@ def test_open_file_stages_loaded_dataframe(monkeypatch, tmp_path):
     assert staged_name == "picked.csv [ตาราง]"
     assert staged_path == str(path)
     assert staged_df.equals(df)
-    assert window.lstFiles.current_row == 0
-    assert "เพิ่มไฟล์เข้าสู่รายการแล้ว" in window.statusBar().messages[-1]
+    # Origin multi-book: the file opens as a Book (no staging-list selection)
+    assert "เปิดเป็น Book แล้ว" in window.statusBar().messages[-1]
     assert recorder.calls == []
 
 

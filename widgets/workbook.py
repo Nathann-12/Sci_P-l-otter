@@ -198,6 +198,17 @@ class WorkbookWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("WorkbookWidget")
 
+        # Origin multi-book model: each Book carries its own DataFrame so
+        # switching Books never re-reads the (slow) QTableWidget. Kept in sync
+        # by set_dataframe() and MainWindow.adopt_workbook_data().
+        self.source_df: Optional[pd.DataFrame] = None
+        # Registry key in MainWindow._datasets (set when the Book is created).
+        self.dataset_name: str = ""
+        # Dirty = user edited cells since the last set_dataframe/adopt →
+        # plotting must re-read the sheet; clean books use source_df (fast).
+        self._dirty = False
+        self._loading = False
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -258,6 +269,8 @@ class WorkbookWidget(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
+        self.table.itemChanged.connect(self._on_item_changed)
+
         self.setStyleSheet(_WORKBOOK_QSS)
 
         self.clear_to_empty()
@@ -288,6 +301,33 @@ class WorkbookWidget(QWidget):
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ helpers
+    def _on_item_changed(self, _item) -> None:
+        if not self._loading:
+            self._dirty = True
+
+    def _loading_guard(self):
+        """Context manager: suppress dirty-marking during programmatic fills."""
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _guard():
+            prev = self._loading
+            self._loading = True
+            try:
+                yield
+            finally:
+                self._loading = prev
+
+        return _guard()
+
+    @property
+    def is_dirty(self) -> bool:
+        """True เมื่อผู้ใช้แก้เซลล์หลังโหลดข้อมูลครั้งล่าสุด (ชีตใหม่กว่า source_df)"""
+        return self._dirty
+
+    def mark_clean(self) -> None:
+        self._dirty = False
+
     def _meta_brush(self) -> QBrush:
         return QBrush(QColor(_META_BG))
 
@@ -332,19 +372,21 @@ class WorkbookWidget(QWidget):
     # -------------------------------------------------------------------- API
     def add_data_row(self) -> None:
         """Append one empty data row (keeps meta rows and styling intact)."""
-        row = self.table.rowCount()
-        self.table.setRowCount(row + 1)
-        for c in range(self.table.columnCount()):
-            self.table.setItem(row, c, self._make_item("", False))
-        self._apply_row_headers(self.data_row_count)
+        with self._loading_guard():
+            row = self.table.rowCount()
+            self.table.setRowCount(row + 1)
+            for c in range(self.table.columnCount()):
+                self.table.setItem(row, c, self._make_item("", False))
+            self._apply_row_headers(self.data_row_count)
 
     def add_data_column(self) -> None:
         """Append one empty column labelled with the next spreadsheet letter."""
-        col = self.table.columnCount()
-        self.table.setColumnCount(col + 1)
-        for r in range(self.table.rowCount()):
-            self.table.setItem(r, col, self._make_item("", r < META_ROW_COUNT))
-        self._apply_column_headers(col + 1)
+        with self._loading_guard():
+            col = self.table.columnCount()
+            self.table.setColumnCount(col + 1)
+            for r in range(self.table.rowCount()):
+                self.table.setItem(r, col, self._make_item("", r < META_ROW_COUNT))
+            self._apply_column_headers(col + 1)
 
     def selected_column_indexes(self) -> List[int]:
         """Worksheet columns touched by the current selection, in order."""
@@ -361,14 +403,16 @@ class WorkbookWidget(QWidget):
 
     def clear_to_empty(self, rows: int = 32, cols: int = 2) -> None:
         """Reset to an empty ``Book1``-like sheet: ``cols`` columns, ``rows`` data rows."""
-        cols = max(1, int(cols))
-        rows = max(0, int(rows))
-        self.table.clear()
-        self.table.setColumnCount(cols)
-        self.table.setRowCount(META_ROW_COUNT + rows)
-        self._apply_column_headers(cols)
-        self._apply_row_headers(rows)
-        self._populate_empty_cells()
+        with self._loading_guard():
+            cols = max(1, int(cols))
+            rows = max(0, int(rows))
+            self.table.clear()
+            self.table.setColumnCount(cols)
+            self.table.setRowCount(META_ROW_COUNT + rows)
+            self._apply_column_headers(cols)
+            self._apply_row_headers(rows)
+            self._populate_empty_cells()
+        self._dirty = False
 
     def set_meta(
         self,
@@ -381,10 +425,11 @@ class WorkbookWidget(QWidget):
         if col_index < 0 or col_index >= self.table.columnCount():
             raise IndexError(f"column index {col_index} out of range")
         mapping = {0: long_name, 1: units, 2: comments}
-        for meta_row, value in mapping.items():
-            if value is None:
-                continue
-            self.table.setItem(meta_row, col_index, self._make_item(str(value), True))
+        with self._loading_guard():
+            for meta_row, value in mapping.items():
+                if value is None:
+                    continue
+                self.table.setItem(meta_row, col_index, self._make_item(str(value), True))
 
     def _meta_text(self, meta_row: int, col_index: int) -> str:
         item = self.table.item(meta_row, col_index)
@@ -398,29 +443,33 @@ class WorkbookWidget(QWidget):
         designation, the rest Y (best-effort).
         """
         if df is None:
+            self.source_df = None
             self.clear_to_empty()
             return
 
-        n_cols = max(1, int(df.shape[1]))
-        n_rows = int(df.shape[0])
+        self.source_df = df
+        with self._loading_guard():
+            n_cols = max(1, int(df.shape[1]))
+            n_rows = int(df.shape[0])
 
-        self.table.clear()
-        self.table.setColumnCount(n_cols)
-        self.table.setRowCount(META_ROW_COUNT + n_rows)
-        self._apply_column_headers(n_cols)
-        self._apply_row_headers(n_rows)
-        self._populate_empty_cells()
+            self.table.clear()
+            self.table.setColumnCount(n_cols)
+            self.table.setRowCount(META_ROW_COUNT + n_rows)
+            self._apply_column_headers(n_cols)
+            self._apply_row_headers(n_rows)
+            self._populate_empty_cells()
 
-        for c, col_name in enumerate(df.columns):
-            # Long Name meta row holds the source column name.
-            self.set_meta(c, long_name=str(col_name))
-            series = df.iloc[:, c]
-            for r in range(n_rows):
-                value = series.iat[r]
-                text = "" if pd.isna(value) else str(value)
-                self.table.setItem(
-                    r + META_ROW_COUNT, c, self._make_item(text, False)
-                )
+            for c, col_name in enumerate(df.columns):
+                # Long Name meta row holds the source column name.
+                self.set_meta(c, long_name=str(col_name))
+                series = df.iloc[:, c]
+                for r in range(n_rows):
+                    value = series.iat[r]
+                    text = "" if pd.isna(value) else str(value)
+                    self.table.setItem(
+                        r + META_ROW_COUNT, c, self._make_item(text, False)
+                    )
+        self._dirty = False
 
     def dataframe(self) -> pd.DataFrame:
         """Read the data rows back into a DataFrame.

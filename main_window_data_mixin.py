@@ -54,53 +54,88 @@ class MainWindowDataMixin:
                     return
                 raise
 
+            # Origin model: 1 ไฟล์ = 1 Book (สร้าง+activate ใน _stage_insert)
             name = f"{os.path.basename(path)} [{kind}]"
             self._stage_insert(name, df, path)
-            self.lstFiles.setCurrentRow(self.lstFiles.count() - 1)
             self.statusBar().showMessage(
-                "เพิ่มไฟล์เข้าสู่รายการแล้ว • เลือกแล้วกด 'ใช้ไฟล์นี้' หรือดับเบิลคลิกชื่อไฟล์"
+                f"เปิดเป็น Book แล้ว: {name} • เลือกคอลัมน์บนชีต แล้วคลิกไอคอนพล็อตด้านล่าง"
             )
         except Exception as e:
             QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
 
-    def load_data(self, path: str):
+    def _open_book_for_dataset(self, name: str, df, path=None):
+        """สร้าง Book window ใหม่ให้ dataset (Origin: 1 ชุดข้อมูล = 1 Book)
+
+        คืน WorkbookWidget ที่สร้าง; ผูกสัญญาณ worksheet ครบชุดและ activate
+        ทันที (ตัว handler bookActivated จะสลับ _df ให้เอง)
+        """
+        from widgets.workbook import WorkbookWidget
+
+        wb = WorkbookWidget(self)
+        wb.set_dataframe(df)
+        wb.dataset_name = name
         try:
-            ext = os.path.splitext(path)[1].lower()
-            if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
-                df, enc_note = load_tabular(path, ext)
-                if df is None or df.empty:
-                    raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
-                self._df, self._current_path = df, path
+            wb.use_data_requested.connect(self.adopt_workbook_data)
+            wb.plot_requested.connect(lambda s: self.plot_from_workbook(s, new_graph=True))
+            wb.overlay_requested.connect(lambda s: self.plot_from_workbook(s, new_graph=False))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("book signal wiring failed", exc_info=True)
+        sub = self.mdi.add_book(wb, title=name)
+        try:
+            self.mdi.mdi.setActiveSubWindow(sub)
+        except Exception:
+            pass
+        # activation signal may be suppressed while constructing — sync now
+        self._on_book_activated(sub.windowTitle())
+        return wb
 
-                rows_count = len(df)
-                self.lblFile.setText(
-                    f"ไฟล์: {os.path.basename(path)} (ตาราง) • {enc_note} • {rows_count:,} แถว"
-                )
-                self.statusBar().showMessage(
-                    f"โหลดข้อมูลสำเร็จ (ตาราง) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'"
-                )
-                return
-            if ext in [".nc", ".cdf"]:
-                try:
-                    df = load_cdf_nc_on_demand(self, path)
-                    if df is None or df.empty:
-                        raise ValueError("อ่านไฟล์ CDF/NetCDF ไม่สำเร็จ หรือไม่มีข้อมูล")
-                    self._df, self._current_path = df, path
+    def _on_book_activated(self, title: str):
+        """สลับข้อมูลทำงานตาม Book ที่ active (หัวใจของ Origin multi-book)"""
+        wb = self.mdi.book_widget(title)
+        if wb is None:
+            return
+        self.workbook = wb
+        df = getattr(wb, "source_df", None)
+        registry = getattr(self, "_datasets", {}).get(getattr(wb, "dataset_name", "") or title)
+        if df is None and registry:
+            df = registry.get("df")
+        if df is not None and not getattr(df, "empty", True):
+            self._df = df
+            self._current_path = (registry or {}).get("path")
+            try:
+                self.load_columns_from_df()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug("column reload on book switch failed", exc_info=True)
+            try:
+                self.lblFile.setText(f"ใช้งาน Book: {title}")
+            except Exception:
+                pass
+            self.statusBar().showMessage(
+                f"ใช้ข้อมูลจาก Book: {title} ({len(df):,} แถว × {len(df.columns)} คอลัมน์)")
+        else:
+            # Book เปล่า (เช่นพิมพ์เองยังไม่กด 'ใช้ข้อมูลนี้') — ชี้ workbook ไว้พอ
+            self.statusBar().showMessage(
+                f"Book: {title} ยังไม่มีข้อมูล — พิมพ์ข้อมูลแล้วกด 'ใช้ข้อมูลนี้' หรือกดพล็อตได้เลย")
 
-                    rows_count = len(df)
-                    self.lblFile.setText(
-                        f"ไฟล์: {os.path.basename(path)} (CDF/NetCDF) • {rows_count:,} แถว"
-                    )
-                    self.statusBar().showMessage(
-                        f"โหลดข้อมูลสำเร็จ (On‑Demand) • {rows_count:,} แถว • กด 'โหลดคอลัมน์'"
-                    )
-                    return
-                except Exception as e:
-                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
-                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+    def load_data(self, path: str):
+        """โหลดไฟล์ (เช่นจาก drag & drop) → Book ใหม่ตามโมเดล Origin"""
+        try:
+            try:
+                df, kind, _enc_note = self._load_dataframe_for_path(path)
+            except Exception as e:
+                ext = os.path.splitext(path)[1].lower()
+                if ext in [".nc", ".cdf"]:
+                    QMessageBox.critical(
+                        self, "ข้อผิดพลาด", f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{e}")
                     self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์ CDF/NetCDF")
                     return
-            raise ValueError("นามสกุลไฟล์ไม่รองรับ")
+                raise
+            name = f"{os.path.basename(path)} [{kind}]"
+            self._stage_insert(name, df, path)
+            self.statusBar().showMessage(
+                f"เปิดเป็น Book แล้ว: {name} • เลือกคอลัมน์บนชีต แล้วคลิกไอคอนพล็อตด้านล่าง")
         except Exception as e:
             QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
             self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์")
@@ -125,10 +160,51 @@ class MainWindowDataMixin:
             return False
         self._df = df.copy()
         self._current_path = None
+        # multi-book: ข้อมูลที่พิมพ์เป็นของ Book นี้ — เก็บไว้กับตัว Book และ
+        # ลงทะเบียนใน registry เพื่อให้สลับ Book ไป-กลับแล้วข้อมูลไม่หาย
+        try:
+            wb.source_df = self._df
+            if hasattr(wb, "mark_clean"):
+                wb.mark_clean()
+            key = getattr(wb, "dataset_name", "") or self._book_title_for(wb) or "Book1"
+            wb.dataset_name = key
+            if hasattr(self, "_datasets"):
+                # อย่าทับ path เดิม — Book ที่มาจากไฟล์ต้อง restore ได้จาก session
+                existing = self._datasets.get(key) or {}
+                self._datasets[key] = {"df": self._df, "path": existing.get("path")}
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("book registry sync failed", exc_info=True)
         self.load_columns_from_df()
         self.statusBar().showMessage(
             f"ใช้ข้อมูลจากตารางแล้ว ({len(df)} แถว × {len(df.columns)} คอลัมน์) → เลือก X/Y แล้วกดพล็อต")
         return True
+
+    def _activate_book_by_name(self, name: str) -> bool:
+        """Activate (raise + switch data to) the Book titled/registered as ``name``."""
+        try:
+            for kind, title, sub in self.mdi.sub_windows():
+                if kind != "book":
+                    continue
+                widget = sub.widget()
+                if title == name or getattr(widget, "dataset_name", "") == name:
+                    self.mdi.mdi.setActiveSubWindow(sub)
+                    self._on_book_activated(title)
+                    return True
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("activate book by name failed", exc_info=True)
+        return False
+
+    def _book_title_for(self, wb) -> str:
+        """คืน title ของ Book window ที่ถือ widget นี้อยู่ ('' ถ้าไม่พบ)"""
+        try:
+            for kind, title, sub in self.mdi.sub_windows():
+                if kind == "book" and sub.widget() is wb:
+                    return title
+        except Exception:
+            pass
+        return ""
 
     def load_columns_from_df(self):
         if self._df is None:

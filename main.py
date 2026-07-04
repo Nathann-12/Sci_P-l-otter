@@ -212,11 +212,14 @@ class MainWindow(
         # กลาง = MDI workspace แบบ Origin (Book/Graph เป็นหน้าต่างลูกลอยได้)
         # MdiWorkspace เลียนแบบ API ของ TabManager → โค้ดพล็อตเดิม reuse ได้ทั้งหมด
         self.workbook = WorkbookWidget(self)
+        self.workbook.dataset_name = "Book1"
         self.mdi = MdiWorkspace(self)
         self.mdi.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.tabs = self.mdi
         # MdiWorkspace สร้าง "Graph 1" ให้เองแล้ว (canvas พร้อมใช้) — เพิ่มแค่ Book1
         self._book_sub = self.mdi.add_book(self.workbook, "Book1")   # worksheet แบบ Origin
+        # Origin multi-book: คลิกหน้าต่าง Book ไหน = ใช้ข้อมูลชุดนั้น
+        self.mdi.bookActivated.connect(self._on_book_activated)
         try:
             self.mdi.mdi.setActiveSubWindow(self._book_sub)          # โชว์ Book1 หน้าสุดตอนเปิด
         except Exception:
@@ -417,11 +420,17 @@ class MainWindow(
             logger.debug("workbook refresh skipped", exc_info=True)
 
     def _show_data_view(self) -> None:
-        """Raise the Book (worksheet) sub-window in the MDI area."""
+        """Raise the ACTIVE Book's sub-window in the MDI area (multi-book)."""
         try:
-            book_sub = getattr(self, "_book_sub", None)
-            if book_sub is not None:
-                self.mdi.mdi.setActiveSubWindow(book_sub)
+            target = None
+            for kind, _title, sub in self.mdi.sub_windows():
+                if kind == "book" and sub.widget() is self.workbook:
+                    target = sub
+                    break
+            if target is None:
+                target = getattr(self, "_book_sub", None)
+            if target is not None:
+                self.mdi.mdi.setActiveSubWindow(target)
         except Exception:
             logger.debug("show data view skipped", exc_info=True)
 
@@ -514,13 +523,9 @@ class MainWindow(
             self.btnExportReport.clicked.connect(self.on_export_report)  # Export Report PDF
         except Exception:
             pass
-        # Staging/View (ฝั่งซ้าย)
+        # View tools (ฝั่งซ้าย) — staging list ถูกแทนด้วย Origin multi-book แล้ว
         self.chkCross.toggled.connect(self.toggle_crosshair)
         self.btnBoxZoom.clicked.connect(self.start_box_zoom)
-        self.btnAddStage.clicked.connect(self.stage_add_files)
-        self.btnUseStage.clicked.connect(self.stage_use_selected)
-        self.btnDelStage.clicked.connect(self.stage_remove_selected)
-        self.lstFiles.itemDoubleClicked.connect(lambda it: self.stage_use_selected())
 
     def _wire_load_button(self):
         try:

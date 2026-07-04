@@ -138,7 +138,7 @@ def test_stage_insert_deduplicates_names_and_stores_dataframe_copy():
 
     assert list(window._datasets) == ["sample.csv [ตาราง]", "sample.csv [ตาราง] (2)"]
     assert window.lstFiles.count() == 2
-    assert window.statusBar().messages[-1] == "เตรียมไฟล์: sample.csv [ตาราง] (2)"
+    assert window.statusBar().messages[-1] == "เตรียมข้อมูล: sample.csv [ตาราง] (2)"
 
 
 def test_load_dataset_from_path_uses_override_name(monkeypatch, tmp_path):

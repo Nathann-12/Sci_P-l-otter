@@ -156,6 +156,9 @@ class MdiWorkspace(QWidget):
     subWindowAdded = Signal(str, str)    # (kind, title)
     subWindowRemoved = Signal(str, str)  # (kind, title)
     subWindowRenamed = Signal(str, str)  # (kind, title)
+    # Origin multi-book: emitted when a Book sub-window becomes active so the
+    # MainWindow can switch its working DataFrame to that Book's data.
+    bookActivated = Signal(str)          # (title)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -569,6 +572,25 @@ class MdiWorkspace(QWidget):
                 except Exception:
                     logger.debug("currentChanged emit failed", exc_info=True)
                 return
+        # A Book became active → tell listeners which one (Origin data switch).
+        for title, (_w, bsub) in self._books.items():
+            if bsub is sub:
+                try:
+                    self.bookActivated.emit(bsub.windowTitle() or title)
+                except Exception:
+                    logger.debug("bookActivated emit failed", exc_info=True)
+                return
+
+    def book_widget(self, title: str) -> Optional[QWidget]:
+        """Return the widget hosted by the Book titled ``title`` (or None).
+
+        Looks up by live sub-window title first (covers renames), then by the
+        registry key the Book was created under.
+        """
+        for key, (widget, bsub) in self._books.items():
+            if bsub.windowTitle() == title or key == title:
+                return widget
+        return None
 
     # ======================================================================
     # Plotting surface — ported from TabManager (operates on self.tabs +

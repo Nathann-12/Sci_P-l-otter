@@ -48,14 +48,29 @@ class MainWindowSessionMixin:
         return dataset_name
 
     def _stage_insert(self, name: str, df: pd.DataFrame, path: str):
+        """ลงทะเบียน dataset แล้วเปิดเป็น Book window (Origin: 1 ชุดข้อมูล = 1 Book)
+
+        ยังเติม lstFiles ด้วยถ้ามี (สะพานให้เทสต์/สตับเก่า — UI จริงไม่มีลิสต์แล้ว)
+        """
         base = name
         i = 2
         while name in self._datasets:
             name = f"{base} ({i})"
             i += 1
         self._datasets[name] = {"df": df, "path": path}
-        self.lstFiles.addItem(QListWidgetItem(name))
-        self.statusBar().showMessage(f"เตรียมไฟล์: {name}")
+        opener = getattr(self, "_open_book_for_dataset", None)
+        if callable(opener):
+            try:
+                opener(name, df, path)
+            except Exception:
+                logger.debug("open book for dataset failed: %s", name, exc_info=True)
+        lst = getattr(self, "lstFiles", None)
+        if lst is not None:
+            try:
+                lst.addItem(QListWidgetItem(name))
+            except Exception:
+                logger.debug("legacy staging list append skipped", exc_info=True)
+        self.statusBar().showMessage(f"เตรียมข้อมูล: {name}")
 
     def stage_add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
