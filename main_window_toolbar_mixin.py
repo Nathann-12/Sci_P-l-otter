@@ -34,6 +34,68 @@ class MainWindowToolbarMixin:
         # Apply styling
         self._apply_toolbar_styling()
 
+        # Origin-style 2D plot bar (bottom): select columns on the sheet ->
+        # click an icon -> a NEW graph window appears.
+        try:
+            self.build_plot_toolbar()
+        except Exception:
+            logging.getLogger(__name__).debug("plot toolbar skipped", exc_info=True)
+
+    # Origin's 2D graph toolbar. (kind, icon candidates, thai tooltip, style key)
+    _PLOT_BAR_SPECS = (
+        ("Line", ("mdi.chart-line", "fa5s.chart-line"),
+         "พล็อตเส้น → Graph ใหม่", "line"),
+        ("Scatter", ("mdi.chart-scatter-plot", "fa5s.braille"),
+         "พล็อตจุด (Scatter) → Graph ใหม่", "scatter"),
+        ("Line+Symbol", ("mdi.chart-timeline-variant", "fa5s.chart-line"),
+         "เส้น+จุด → Graph ใหม่", "linesymbol"),
+        ("Column", ("mdi.chart-bar", "fa5s.chart-bar"),
+         "กราฟแท่ง → Graph ใหม่", "bar"),
+        ("Histogram", ("mdi.chart-histogram", "fa5s.chart-area"),
+         "Histogram → Graph ใหม่", "histogram"),
+    )
+
+    def _plot_bar_icon(self, candidates, fallback_sp=QStyle.StandardPixmap.SP_FileDialogContentsView):
+        """qtawesome icon from the first available candidate name, else a
+        standard-pixmap fallback (never raises)."""
+        try:
+            import qtawesome as qta
+            for name in candidates:
+                try:
+                    return qta.icon(name, color="#cfd3d6")
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        try:
+            return self.style().standardIcon(fallback_sp)
+        except Exception:
+            from PySide6.QtGui import QIcon
+            return QIcon()
+
+    def build_plot_toolbar(self):
+        """Origin-style plot bar: one icon per graph type, always visible at
+        the bottom. Every action funnels into plot_from_workbook(new_graph=True)."""
+        from PySide6.QtCore import Qt
+
+        tb = QToolBar("Plot Toolbar", self)
+        tb.setObjectName("PlotToolbar")
+        tb.setIconSize(QSize(20, 20))
+        tb.setMovable(False)
+        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
+
+        self.plot_bar_actions = {}
+        for name, icons, tip, style in self._PLOT_BAR_SPECS:
+            act = QAction(self._plot_bar_icon(icons), name, self)
+            act.setToolTip(tip)
+            act.triggered.connect(
+                lambda _=False, s=style: self.plot_from_workbook(s, new_graph=True))
+            tb.addAction(act)
+            self.plot_bar_actions[style] = act
+
+        self.addToolBar(Qt.BottomToolBarArea, tb)
+        self.plot_toolbar = tb
+
     def _sync_toolbar_tooltips(self):
         """Make each toolbar action's tooltip = its label (icon-only mode).
 

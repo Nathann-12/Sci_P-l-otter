@@ -184,11 +184,15 @@ class WorkbookWidget(QWidget):
 
     Signals (the workflow: type data → use it → plot it):
         - ``use_data_requested()``          — adopt the sheet as the active data.
-        - ``plot_requested(str)``           — plot selected columns ("line"/"scatter").
+        - ``plot_requested(str)``           — plot selected columns into a NEW
+          graph window ("line"/"scatter"/...), Origin-style.
+        - ``overlay_requested(str)``        — add selected columns to the
+          currently active graph instead.
     """
 
     use_data_requested = Signal()
     plot_requested = Signal(str)
+    overlay_requested = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -211,9 +215,9 @@ class WorkbookWidget(QWidget):
         self.btn_use_data.setToolTip("นำข้อมูลในตารางไปเป็นข้อมูลหลัก (พร้อมพล็อต/วิเคราะห์)")
         self.btn_plot_line = QPushButton("พล็อตเส้น", bar)
         self.btn_plot_line.setObjectName("WorkbookPlotButton")
-        self.btn_plot_line.setToolTip("พล็อตจากคอลัมน์ที่เลือก (คอลัมน์แรก = X)")
+        self.btn_plot_line.setToolTip("พล็อตจากคอลัมน์ที่เลือกเป็น Graph ใหม่ (คอลัมน์แรก = X)")
         self.btn_plot_scatter = QPushButton("พล็อตจุด", bar)
-        self.btn_plot_scatter.setToolTip("พล็อต scatter จากคอลัมน์ที่เลือก (คอลัมน์แรก = X)")
+        self.btn_plot_scatter.setToolTip("พล็อต scatter จากคอลัมน์ที่เลือกเป็น Graph ใหม่ (คอลัมน์แรก = X)")
 
         hint = QLabel("พิมพ์ข้อมูลลงตาราง → เลือกคอลัมน์ → กดพล็อต", bar)
 
@@ -260,10 +264,21 @@ class WorkbookWidget(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         menu = QMenu(self.table)
-        menu.addAction("พล็อตเส้นจากคอลัมน์ที่เลือก").triggered.connect(
+        menu.addAction("พล็อตเส้น → Graph ใหม่").triggered.connect(
             lambda: self.plot_requested.emit("line"))
-        menu.addAction("พล็อตจุดจากคอลัมน์ที่เลือก").triggered.connect(
+        menu.addAction("พล็อตจุด → Graph ใหม่").triggered.connect(
             lambda: self.plot_requested.emit("scatter"))
+        menu.addAction("เส้น+จุด → Graph ใหม่").triggered.connect(
+            lambda: self.plot_requested.emit("linesymbol"))
+        menu.addAction("กราฟแท่ง → Graph ใหม่").triggered.connect(
+            lambda: self.plot_requested.emit("bar"))
+        menu.addAction("Histogram → Graph ใหม่").triggered.connect(
+            lambda: self.plot_requested.emit("histogram"))
+        menu.addSeparator()
+        menu.addAction("เพิ่มเส้นลงกราฟปัจจุบัน").triggered.connect(
+            lambda: self.overlay_requested.emit("line"))
+        menu.addAction("เพิ่มจุดลงกราฟปัจจุบัน").triggered.connect(
+            lambda: self.overlay_requested.emit("scatter"))
         menu.addSeparator()
         menu.addAction("ใช้ข้อมูลนี้เป็นข้อมูลหลัก").triggered.connect(
             self.use_data_requested.emit)

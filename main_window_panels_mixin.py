@@ -52,12 +52,12 @@ class MainWindowPanelsMixin:
         gbd.addLayout(rowStage)
         l.addWidget(gb_data)
 
-        # ── ② เลือกคอลัมน์ → พล็อต (ย้ายมาจาก Inspector ที่ถูกซ่อน) ──
-        gb_plot = QGroupBox("② เลือกคอลัมน์ → พล็อต")
-        gbp = QVBoxLayout(gb_plot); gbp.setContentsMargins(4, 4, 4, 4); gbp.setSpacing(4)
+        # ── Origin loop: การพล็อตทำผ่าน worksheet + แถบไอคอนพล็อตล่างแล้ว ──
+        # CompactPlotPanel เหลือหน้าที่เป็น hidden state-holder เท่านั้น เพื่อรักษา
+        # aliases (cbX/cbY/spLineWidth/...) ที่ mixin อื่นอ่าน/เขียนทั้งหมด
+        # (หนี้เทคนิค: ถอด cbX ออกจาก logic จริงเป็นงานรีแฟคเตอร์รอบหน้า)
         panel = CompactPlotPanel(self)
-        gbp.addWidget(panel)
-        l.addWidget(gb_plot)
+        panel.hide()
 
         # aliases เดิม — โค้ด mixin อื่นเรียกผ่านชื่อพวกนี้ทั้งหมด
         self.panel_plot = panel

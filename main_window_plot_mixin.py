@@ -113,12 +113,17 @@ class MainWindowPlotMixin:
                 logger.debug("Failed to beautify axes", exc_info=True)
             self._draw_tab(tab, attempts=draw_attempts)
 
-    def plot_from_workbook(self, style: str = "line"):
-        """Origin-style: พล็อตจากคอลัมน์ที่เลือกใน Book1 (คอลัมน์แรกที่เลือก = X)
+    def plot_from_workbook(self, style: str = "line", new_graph: bool = True):
+        """Origin-style: เลือกคอลัมน์บนชีต → พล็อต
 
-        กติกา: เลือก ≥2 คอลัมน์ → คอลัมน์แรก = X ที่เหลือ = Y (ซ้อนเป็น overlay);
-        เลือก 1 คอลัมน์ (ไม่ใช่ A) → X = คอลัมน์แรกของตาราง, Y = ที่เลือก;
-        ไม่ได้เลือกเลย → X = คอลัมน์แรก, Y = คอลัมน์ที่สอง
+        ``new_graph=True`` (ดีฟอลต์แบบ OriginPro): สร้าง Graph window ใหม่เสมอ;
+        ``new_graph=False``: เพิ่มลงกราฟที่ active อยู่ (เส้นทาง overlay เดิม)
+
+        กติกาเลือกคอลัมน์: เลือก ≥2 → คอลัมน์แรก = X ที่เหลือ = Y (หลายเส้น);
+        เลือก 1 (ไม่ใช่คอลัมน์แรก) → X = คอลัมน์แรก, Y = ที่เลือก;
+        ไม่ได้เลือก → X = คอลัมน์แรก, Y = คอลัมน์ที่สอง
+
+        styles: ``line`` / ``scatter`` / ``linesymbol`` / ``bar`` / ``histogram``
         """
         wb = getattr(self, "workbook", None)
         if wb is None:
@@ -132,21 +137,48 @@ class MainWindowPlotMixin:
             x_name, y_names = cols[sel[0]], [cols[i] for i in sel[1:]]
         elif len(sel) == 1 and sel[0] != 0 and len(cols) >= 2:
             x_name, y_names = cols[0], [cols[sel[0]]]
+        elif style == "histogram" and len(sel) == 1:
+            x_name, y_names = cols[0], [cols[sel[0]]]
         elif len(cols) >= 2:
             x_name, y_names = cols[0], [cols[1]]
+        elif style == "histogram" and len(cols) == 1:
+            x_name, y_names = cols[0], [cols[0]]
         else:
             QMessageBox.information(
                 self, "ข้อมูลไม่พอ", "ต้องมีอย่างน้อย 2 คอลัมน์ (X และ Y) ถึงจะพล็อตได้")
             return
 
+        if new_graph:
+            try:
+                self.tabs.add_tab()  # Origin: คำสั่งพล็อต = Graph window ใหม่
+            except Exception:
+                logger.debug("add new graph failed; plotting into current", exc_info=True)
+
         # ขับผ่าน combo X/Y เพื่อ reuse เส้นทางพล็อตเดิมทั้งหมด (validation/label/meta)
         self.cbX.setCurrentText(x_name)
         self.cbY.setCurrentText(y_names[0])
-        (self.plot_line if style == "line" else self.plot_scatter)()
-        for extra in y_names[1:]:
-            self.cbY.setCurrentText(extra)
-            (self.add_line_overlay if style == "line" else self.add_scatter_overlay)()
-        self.cbY.setCurrentText(y_names[0])
+        if style == "histogram":
+            self.plot_histogram()
+        elif style == "bar":
+            self.plot_bar(
+                self._df[x_name], self._df[y_names[0]],
+                xlabel=x_name, ylabel=y_names[0],
+                title=f"{y_names[0]} vs {x_name}",
+            )
+        else:
+            marker_before = self.chkMarker.isChecked()
+            if style == "linesymbol":
+                self.chkMarker.setChecked(True)
+            base = "scatter" if style == "scatter" else "line"
+            try:
+                (self.plot_line if base == "line" else self.plot_scatter)()
+                for extra in y_names[1:]:
+                    self.cbY.setCurrentText(extra)
+                    (self.add_line_overlay if base == "line" else self.add_scatter_overlay)()
+                self.cbY.setCurrentText(y_names[0])
+            finally:
+                if style == "linesymbol":
+                    self.chkMarker.setChecked(marker_before)
         try:
             self._show_plot_view()
         except Exception:

@@ -74,8 +74,19 @@ class MainWindowMenuMixin:
 
         self.dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
 
-        # Plot menu (top menubar) – overlay only
+        # Plot menu (top menubar) — Origin model: each entry = a NEW graph
         plotMenu = m.addMenu("&Plot")
+        for _title, _style in (
+            ("กราฟเส้น", "line"),
+            ("กราฟจุด (Scatter)", "scatter"),
+            ("เส้น+จุด", "linesymbol"),
+            ("กราฟแท่ง (Column/Bar)", "bar"),
+            ("Histogram", "histogram"),
+        ):
+            _act = plotMenu.addAction(f"{_title} → Graph ใหม่")
+            _act.triggered.connect(
+                lambda _=False, s=_style: self.plot_from_workbook(s, new_graph=True))
+        plotMenu.addSeparator()
         actAddLine = plotMenu.addAction("Add Line (overlay)")
         actAddScatter = plotMenu.addAction("Add Scatter (overlay)")
         try:

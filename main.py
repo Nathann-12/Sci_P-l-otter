@@ -389,7 +389,11 @@ class MainWindow(
                     _btn.clicked.connect(lambda _=False: self._show_plot_view())
             # Book1 เป็นจุดเริ่ม workflow ได้เอง: พิมพ์ข้อมูล → ใช้ข้อมูล → พล็อต
             self.workbook.use_data_requested.connect(self.adopt_workbook_data)
-            self.workbook.plot_requested.connect(self.plot_from_workbook)
+            # Origin model: พล็อตจากชีต = Graph ใหม่; overlay = ลงกราฟปัจจุบัน
+            self.workbook.plot_requested.connect(
+                lambda s: self.plot_from_workbook(s, new_graph=True))
+            self.workbook.overlay_requested.connect(
+                lambda s: self.plot_from_workbook(s, new_graph=False))
         except Exception:
             logger.debug("workbook wiring skipped", exc_info=True)
         # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เติมตารางครั้งแรก
@@ -422,13 +426,9 @@ class MainWindow(
             logger.debug("show data view skipped", exc_info=True)
 
     def _show_plot_view(self) -> None:
-        """Raise a Graph sub-window in the MDI area (so a new plot is visible)."""
+        """Raise the current Graph sub-window (the one that was just plotted)."""
         try:
-            from widgets.plot_tabs import GraphTab as _GT
-            for sub in self.mdi.mdi.subWindowList():
-                if isinstance(sub.widget(), _GT):
-                    self.mdi.mdi.setActiveSubWindow(sub)
-                    break
+            self.mdi.raise_current_graph()
         except Exception:
             logger.debug("show plot view skipped", exc_info=True)
 

@@ -531,6 +531,20 @@ class MdiWorkspace(QWidget):
         """
         return self.sub_windows()
 
+    def raise_current_graph(self) -> None:
+        """Bring the current graph's sub-window to the front (newest plot).
+
+        Falls back to the most recently created graph — never the first one,
+        which is what the old "raise any GraphTab" logic wrongly did (it kept
+        yanking focus back to an empty Graph 1 after plotting on Graph N).
+        """
+        tab_id = self.get_current_tab_id()
+        sub = self._graph_subs.get(tab_id) if tab_id else None
+        if sub is None and self._graph_subs:
+            sub = next(reversed(self._graph_subs.values()))
+        if sub is not None:
+            self.mdi.setActiveSubWindow(sub)
+
     # Convenience layout actions (Origin-style window arrangement).
     def tile(self) -> None:
         self.mdi.tileSubWindows()

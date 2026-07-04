@@ -71,11 +71,13 @@ def test_workbook_use_data_signal_reaches_mainwindow(win):
     assert win._df["signal"].tolist() == [5.0, 6.0]
 
 
-def test_plot_from_workbook_draws_typed_data(win):
+def test_plot_from_workbook_creates_new_graph_with_typed_data(win):
     _type_into_book1(win, [(0, 1.0), (1, 2.0), (2, 3.0)])
+    graphs_before = win.tabs.count()
 
-    win.plot_from_workbook("line")
+    win.plot_from_workbook("line")  # Origin default: new graph window
 
+    assert win.tabs.count() == graphs_before + 1
     ax = win.tabs.currentWidget().get_axes()
     lines = ax.get_lines()
     assert lines, "plot_from_workbook must draw at least one line"
@@ -83,6 +85,33 @@ def test_plot_from_workbook_draws_typed_data(win):
     assert ydata == [1.0, 2.0, 3.0]
     assert win.cbX.currentText() == "t"
     assert win.cbY.currentText() == "signal"
+
+
+def test_overlay_plots_into_current_graph_without_new_window(win):
+    _type_into_book1(win, [(0, 4.0), (1, 5.0)])
+    win.plot_from_workbook("line")  # creates a graph first
+    graphs_before = win.tabs.count()
+
+    win.workbook.overlay_requested.emit("line")
+
+    assert win.tabs.count() == graphs_before  # no new window
+    ax = win.tabs.currentWidget().get_axes()
+    assert len(ax.get_lines()) >= 2  # overlay added a second series
+
+
+def test_plot_toolbar_origin_bar_exists_and_plots(win):
+    from PySide6.QtCore import Qt
+
+    assert hasattr(win, "plot_toolbar")
+    assert win.toolBarArea(win.plot_toolbar) == Qt.BottomToolBarArea
+    assert set(win.plot_bar_actions) == {"line", "scatter", "linesymbol", "bar", "histogram"}
+
+    _type_into_book1(win, [(0, 7.0), (1, 8.0)])
+    graphs_before = win.tabs.count()
+    win.plot_bar_actions["line"].trigger()
+    assert win.tabs.count() == graphs_before + 1
+    ax = win.tabs.currentWidget().get_axes()
+    assert list(ax.get_lines()[-1].get_ydata()) == [7.0, 8.0]
 
 
 def test_left_panel_plot_controls_fit_thai_text(win):
@@ -99,16 +128,22 @@ def test_left_panel_plot_controls_fit_thai_text(win):
         assert cb.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
 
 
-def test_left_panel_is_scrollable_and_holds_workflow_cards(win):
-    """The Data context must be a scroll area wrapping the ①②③ panel, so a
-    short window scrolls instead of crushing the cards."""
+def test_left_panel_is_scrollable_and_plot_panel_is_hidden_holder(win):
+    """The Data context is a scroll area; plotting moved to the worksheet +
+    plot toolbar (Origin loop), so CompactPlotPanel survives only as a hidden
+    state-holder that keeps the cbX/cbY/... aliases alive."""
     from PySide6.QtWidgets import QScrollArea
     ctx = win.shell.context_widget("data")
     assert isinstance(ctx, QScrollArea)
     assert ctx.widget() is win._panel_left
     assert win._panel_left.isAncestorOf(win.btnOpenData)
-    assert win._panel_left.isAncestorOf(win.cbX)
     assert win._panel_left.isAncestorOf(win.btnBoxZoom)
+    # plot controls are NOT in the visible panel anymore, but aliases remain
+    assert not win._panel_left.isAncestorOf(win.cbX)
+    assert win.panel_plot.isHidden()
+    for alias in ("cbX", "cbY", "spLineWidth", "chkMarker",
+                  "btnLine", "btnScatter", "btnClear", "btnCurveFit"):
+        assert getattr(win, alias) is not None
 
 
 def test_empty_sheet_is_rejected_politely(win, monkeypatch):
