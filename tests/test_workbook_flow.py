@@ -85,6 +85,32 @@ def test_plot_from_workbook_draws_typed_data(win):
     assert win.cbY.currentText() == "signal"
 
 
+def test_left_panel_plot_controls_fit_thai_text(win):
+    """Regression: the ② card clipped Thai vowels because CompactPlotPanel
+    used fixed 28px heights and a side-by-side form layout. Fields must be
+    height-flexible (no fixed max) and full-width in the narrow panel."""
+    from PySide6.QtWidgets import QSizePolicy
+    panel = win.panel_plot
+    QWIDGETSIZE_MAX = 16777215
+    for widget in (panel.cbo_x, panel.cbo_y, panel.spin_width):
+        assert widget.maximumHeight() == QWIDGETSIZE_MAX  # not setFixedHeight
+        assert widget.minimumHeight() >= 30
+    for cb in (panel.cbo_x, panel.cbo_y):
+        assert cb.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+
+
+def test_left_panel_is_scrollable_and_holds_workflow_cards(win):
+    """The Data context must be a scroll area wrapping the ①②③ panel, so a
+    short window scrolls instead of crushing the cards."""
+    from PySide6.QtWidgets import QScrollArea
+    ctx = win.shell.context_widget("data")
+    assert isinstance(ctx, QScrollArea)
+    assert ctx.widget() is win._panel_left
+    assert win._panel_left.isAncestorOf(win.btnOpenData)
+    assert win._panel_left.isAncestorOf(win.cbX)
+    assert win._panel_left.isAncestorOf(win.btnBoxZoom)
+
+
 def test_empty_sheet_is_rejected_politely(win, monkeypatch):
     # fresh window has an empty Book1 → adopting must fail without crashing
     infos = []

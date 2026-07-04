@@ -30,7 +30,7 @@ matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
 print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
 
 from PySide6.QtCore import Qt, QSize, QSettings
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget, QTabWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget, QTabWidget, QScrollArea
 from PySide6.QtGui import QIcon
 from typing import Any, Dict, Optional
 
@@ -270,11 +270,21 @@ class MainWindow(
         except Exception:
             pass
         self._panel_left.setMinimumWidth(190)
+        # ห่อด้วย scroll area: จอเตี้ย/หน้าต่างเล็กจะเลื่อนดูได้ แทนที่จะบีบ
+        # การ์ด ①②③ จนตัวหนังสือไทยถูกตัด
+        _left_scroll = QScrollArea(self)
+        _left_scroll.setObjectName("SidePanelScroll")
+        _left_scroll.setWidgetResizable(True)
+        _left_scroll.setFrameShape(QFrame.NoFrame)
+        _left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        _left_scroll.setWidget(self._panel_left)
+        _left_scroll.setStyleSheet(
+            "QScrollArea#SidePanelScroll{background:transparent;border:none;}")
         try:
             _data_icon = self._icon("open", QStyle.SP_DirOpenIcon)
         except Exception:
             _data_icon = None
-        self.shell.register_context("data", "Data", self._panel_left, icon=_data_icon)
+        self.shell.register_context("data", "Data", _left_scroll, icon=_data_icon)
 
         # ขวา = Inspector Tabs (Plot/Processing/Export)
         self._panel_right = QWidget(self)

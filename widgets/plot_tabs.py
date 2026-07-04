@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGridLayout,
+    QHBoxLayout,
     QInputDialog,
+    QLabel,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -751,45 +753,54 @@ class CompactPlotPanel(QWidget):
         outer.setSpacing(8)
 
         self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
-        self.btnLoadCols.setMinimumHeight(28)
+        self.btnLoadCols.setMinimumHeight(32)
         self.btnLoadCols.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         outer.addWidget(self.btnLoadCols)
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignTop)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(6)
-
+        # Narrow-panel friendly (lives in the left workflow card ②): labels sit
+        # ABOVE full-width fields. The old QFormLayout squeezed label+combo
+        # side-by-side, and fixed 28px heights clipped Thai vowels/tone marks.
         self.cbo_x = QComboBox()
         self.cbo_y = QComboBox()
         for cb in (self.cbo_x, self.cbo_y):
-            cb.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-            cb.setMinimumWidth(140)
-            cb.setFixedHeight(28)
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(8)
+            cb.setMinimumHeight(30)
+            cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        outer.addWidget(QLabel("แกน X"))
+        outer.addWidget(self.cbo_x)
+        outer.addWidget(QLabel("แกน Y"))
+        outer.addWidget(self.cbo_y)
 
         self.spin_width = QSpinBox()
         self.spin_width.setRange(1, 10)
         self.spin_width.setValue(2)
-        self.spin_width.setFixedHeight(28)
+        self.spin_width.setMinimumHeight(30)
+        self.spin_width.setMinimumWidth(64)
+
+        width_row = QHBoxLayout()
+        width_row.setContentsMargins(0, 0, 0, 0)
+        width_row.setSpacing(6)
+        width_row.addWidget(QLabel("ความหนาเส้น"))
+        width_row.addWidget(self.spin_width)
+        width_row.addStretch(1)
+        outer.addLayout(width_row)
 
         self.chk_points = QCheckBox("แสดงจุดข้อมูล")
-        form.addRow("เลือกคอลัมน์แกน X", self.cbo_x)
-        form.addRow("เลือกคอลัมน์แกน Y", self.cbo_y)
-        form.addRow("ความหนาเส้น", self.spin_width)
-        form.addRow("", self.chk_points)
-        outer.addLayout(form)
+        self.chk_points.setMinimumHeight(26)
+        outer.addWidget(self.chk_points)
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
-        self.btn_line = QPushButton("แสดงกราฟเส้น")
-        self.btn_scatter = QPushButton("แสดงกราฟจุด (Scatter)")
+        self.btn_line = QPushButton("พล็อตเส้น")
+        self.btn_scatter = QPushButton("พล็อตจุด")
         self.btn_clear = QPushButton("ล้างกราฟ")
-        self.btn_fit = QPushButton("Curve Fit...")
+        self.btn_fit = QPushButton("Curve Fit…")
         for button in (self.btn_line, self.btn_scatter, self.btn_clear, self.btn_fit):
-            button.setMinimumHeight(32)
+            button.setMinimumHeight(34)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         grid.addWidget(self.btn_line, 0, 0)
         grid.addWidget(self.btn_scatter, 0, 1)
@@ -801,10 +812,22 @@ class CompactPlotPanel(QWidget):
         self.setStyleSheet(
             """
             QWidget#PlotPanel QComboBox, QWidget#PlotPanel QSpinBox {
-                padding: 2px 6px; min-height: 24px; border-radius: 6px;
+                padding: 3px 8px; min-height: 26px; border-radius: 6px;
             }
             QWidget#PlotPanel QPushButton {
-                padding: 4px 10px; min-height: 28px; border-radius: 8px;
+                padding: 5px 10px; min-height: 30px; border-radius: 8px;
+            }
+            QWidget#PlotPanel QLabel {
+                padding-top: 2px;
+            }
+            QWidget#PlotPanel QPushButton#PlotPrimary {
+                background: #4F9CF9; color: #ffffff; border: 1px solid #4F9CF9;
+                font-weight: 600;
+            }
+            QWidget#PlotPanel QPushButton#PlotPrimary:hover {
+                background: #5fa8fb; border-color: #5fa8fb;
             }
             """
         )
+        # เน้นปุ่มพล็อตหลักให้เด่น (ขั้น ② ของ workflow)
+        self.btn_line.setObjectName("PlotPrimary")
