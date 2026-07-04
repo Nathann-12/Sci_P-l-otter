@@ -54,22 +54,22 @@
 - ☐ Dataset filter
 - ☐ Dataset search
 
-## B. Data Cleaning — 🟡 มีพื้นฐาน ขาดชุดทำความสะอาดมาตรฐาน
+## B. Data Cleaning — 🟢 ชุดทำความสะอาดมาตรฐานครบ (เมนู Process → Data Cleaning)
 - 🟡 Remove NaN
-- ☐ Fill missing value
-- ☐ Interpolate missing value
-- ☐ Remove duplicates
-- ☐ Outlier detection
-- ☐ Outlier removal
-- ☐ Normalize
-- ☐ Standardize
-- ☐ Min-max scale
-- ☐ Baseline subtraction
-- 🟡 Detrend linear
-- ☐ Detrend polynomial
+- ✅ Fill missing value
+- ✅ Interpolate missing value
+- ✅ Remove duplicates
+- ✅ Outlier detection
+- ✅ Outlier removal
+- ✅ Normalize
+- ✅ Standardize
+- ✅ Min-max scale
+- ✅ Baseline subtraction
+- ✅ Detrend linear
+- ✅ Detrend polynomial
 - ✅ Smooth data (moving average)
-- ☐ Resample
-- ☐ Sort data
+- ✅ Resample
+- ✅ Sort data
 - 🟡 Crop range (export visible range)
 - ✅ Convert units
 - 🟡 Time alignment (add Bangkok time +7h)
@@ -118,16 +118,16 @@
 - ☐ Batch export
 - ☐ Save figure template
 
-## D. Analysis Engine — 🟢 fitting แข็ง ขาดสถิติเชิงพรรณนา/ขั้นสูง
-- 🟡 Mean
-- 🟡 Median
-- ☐ Mode
-- 🟡 Standard deviation
-- 🟡 Variance
-- ☐ Skewness
-- ☐ Kurtosis
+## D. Analysis Engine — 🟢 fitting แข็ง + สถิติเชิงพรรณนาครบ (เมนู Analysis → Descriptive Statistics)
+- ✅ Mean
+- ✅ Median
+- ✅ Mode
+- ✅ Standard deviation
+- ✅ Variance
+- ✅ Skewness
+- ✅ Kurtosis
 - ✅ Correlation (cross-correlation)
-- ☐ Covariance
+- ✅ Covariance
 - ✅ Linear regression
 - ✅ Polynomial regression
 - ✅ Exponential fit
@@ -150,11 +150,11 @@
 - 🟡 Chi-square
 - 🟡 Confidence interval
 
-## E. Signal Processing — 🟢 FFT/peak/wavelet มี ขาดชุด filter
+## E. Signal Processing — 🟢 FFT/PSD/ชุด filter ครบ (เมนู Process → Filters)
 - ✅ FFT
-- ☐ IFFT
-- ☐ PSD
-- ☐ Welch PSD
+- 🟡 IFFT (logic+test ใน `analysis/signal_filters.py` — ยังไม่มี UI)
+- ✅ PSD
+- ✅ Welch PSD
 - 🟡 STFT
 - ✅ Spectrogram
 - ✅ Wavelet transform
@@ -164,26 +164,26 @@
 - 🟡 Auto-correlation
 - ☐ Convolution
 - ☐ Deconvolution
-- ☐ Low-pass filter
-- ☐ High-pass filter
-- ☐ Band-pass filter
-- ☐ Band-stop filter
-- ☐ Butterworth filter
-- ☐ Savitzky-Golay
+- ✅ Low-pass filter
+- ✅ High-pass filter
+- ✅ Band-pass filter
+- ✅ Band-stop filter
+- ✅ Butterworth filter
+- ✅ Savitzky-Golay
 - ✅ Moving average
-- ☐ Median filter
-- ☐ Gaussian filter
-- 🟡 Window function
+- ✅ Median filter
+- ✅ Gaussian filter
+- 🟡 Window function (`apply_window` logic+test — FFT dialog ใช้ hann/hamming)
 - 🟡 Hann window
 - 🟡 Hamming window
-- ☐ Blackman window
-- ☐ Kaiser window
-- ☐ Zero padding
+- 🟡 Blackman window (logic+test — ยังไม่มี UI)
+- 🟡 Kaiser window (logic+test — ยังไม่มี UI)
+- 🟡 Zero padding (logic+test — ยังไม่มี UI)
 - ✅ Peak detection
-- ☐ Peak area
-- ☐ FWHM
-- ☐ Noise floor
-- ☐ SNR
+- 🟡 Peak area (logic+test — ยังไม่มี UI)
+- 🟡 FWHM (logic+test — ยังไม่มี UI)
+- 🟡 Noise floor (logic+test — ยังไม่มี UI)
+- 🟡 SNR (logic+test — ยังไม่มี UI)
 - ☐ Harmonic analysis
 - ☐ Frequency tracking
 

@@ -81,6 +81,16 @@ class MainWindowViewAccessMixin:
         """Modal single-choice picker. Returns (value, ok)."""
         return QInputDialog.getItem(self, title, label, list(options), current, False)
 
+    def ask_number(self, title: str, label: str, value: float = 0.0,
+                   minimum: float = -1e12, maximum: float = 1e12, decimals: int = 4):
+        """Modal float input. Returns (value, ok)."""
+        return QInputDialog.getDouble(self, title, label, value, minimum, maximum, decimals)
+
+    def ask_int(self, title: str, label: str, value: int = 0,
+                minimum: int = -1_000_000_000, maximum: int = 1_000_000_000, step: int = 1):
+        """Modal integer input. Returns (value, ok)."""
+        return QInputDialog.getInt(self, title, label, value, minimum, maximum, step)
+
     def ask_save_path(self, title: str, default_name: str, file_filter: str) -> str:
         path, _ = QFileDialog.getSaveFileName(self, title, default_name, file_filter)
         return path

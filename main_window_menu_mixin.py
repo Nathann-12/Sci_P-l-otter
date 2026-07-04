@@ -98,10 +98,28 @@ class MainWindowMenuMixin:
 
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
+        procMenu.addAction("PSD (Welch)…").triggered.connect(self.run_psd_dialog)
         procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
         procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
         procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
         procMenu.addAction("Aggregate…").triggered.connect(self.run_aggregate_dialog)  # UI-REFINE
+
+        # Data cleaning (ROADMAP B) — column ops add a new column; row ops swap the df
+        procMenu.addSeparator()
+        cleanMenu = procMenu.addMenu("Data Cleaning")
+        cleanMenu.addAction("เติมค่าที่หาย (Fill Missing)…").triggered.connect(self.feature_clean_fill_missing)
+        cleanMenu.addAction("เติมค่าด้วย Interpolation").triggered.connect(self.feature_clean_interpolate)
+        cleanMenu.addAction("ลบแถวซ้ำ (Remove Duplicates)").triggered.connect(self.feature_clean_remove_duplicates)
+        cleanMenu.addAction("ตัด Outliers…").triggered.connect(self.feature_clean_remove_outliers)
+        cleanMenu.addAction("Normalize / Standardize…").triggered.connect(self.feature_clean_normalize)
+        cleanMenu.addAction("ลบ Baseline / Detrend…").triggered.connect(self.feature_clean_detrend)
+        cleanMenu.addAction("เรียงข้อมูล (Sort)…").triggered.connect(self.feature_clean_sort)
+        cleanMenu.addAction("Resample เป็นกริดสม่ำเสมอ…").triggered.connect(self.feature_clean_resample)
+
+        # Signal filters (ROADMAP E)
+        filterMenu = procMenu.addMenu("Filters")
+        filterMenu.addAction("Butterworth (Low/High/Band)…").triggered.connect(self.feature_filter_butterworth)
+        filterMenu.addAction("Smooth (Savitzky-Golay/Median/Gaussian)…").triggered.connect(self.feature_filter_smooth)
 
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
@@ -274,6 +292,11 @@ class MainWindowMenuMixin:
             analysisMenu.addAction(act)
             act.triggered.connect(lambda _, k=kind: open_overlay(k))
 
+        analysisMenu.addSeparator()
+        analysisMenu.addAction("สถิติเชิงพรรณนา (Descriptive Statistics)…").triggered.connect(
+            self.feature_show_statistics)
+        analysisMenu.addAction("Covariance Matrix…").triggered.connect(
+            self.feature_show_covariance)
         analysisMenu.addSeparator()
         fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
         self.actNonlinearFit = analysisMenu.addAction(fit_icon, "Nonlinear Curve Fit…")
