@@ -8,7 +8,7 @@
 
 /* Card containers */
 QGroupBox[class="card"], QFrame[class="card"] {
-    background-color: #1f2124; /* slightly lighter than window bg */
+    background-color: #22262d; /* one step above the panel bg (#1b1e23) */
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 12px;
     /* Reserve space for the title so it does not overlap content */
@@ -36,12 +36,12 @@ QGroupBox[class="card"]::title {
     height: 16px;
     border-radius: 4px;
     border: 1px solid rgba(255,255,255,0.20);
-    background: #2a2d31;
+    background: #262b33;
 }
 
 #SidePanel QCheckBox::indicator:checked {
-    border: 1px solid #3b82f6;
-    background: #3b82f6;
+    border: 1px solid #4F9CF9;
+    background: #4F9CF9;
 }
 
 /* Primary and secondary buttons */
@@ -56,39 +56,39 @@ QPushButton[class="btn-secondary"] {
 }
 
 QPushButton[class="btn-primary"] {
-    background: #3b82f6; /* blue */
+    background: #4F9CF9; /* app accent */
     color: #ffffff;
-    border: 1px solid #3b82f6;
+    border: 1px solid #4F9CF9;
 }
 
 QPushButton[class="btn-primary"]:hover {
-    background: #4c8ff7;
-    border-color: #4c8ff7;
+    background: #5fa8fb;
+    border-color: #5fa8fb;
 }
 
 QPushButton[class="btn-primary"]:pressed {
-    background: #2f6ed1;
-    border-color: #2f6ed1;
+    background: #3f86e0;
+    border-color: #3f86e0;
 }
 
 QPushButton[class="btn-primary"]:disabled {
-    background: #2a2d31;
-    border-color: #2a2d31;
+    background: #262b33;
+    border-color: #262b33;
     color: #9aa0a6;
 }
 
 QPushButton[class="btn-secondary"] {
-    background: #2a2d31;
+    background: #262b33;
     color: #e6e6e6;
     border: 1px solid rgba(255,255,255,0.08);
 }
 
 QPushButton[class="btn-secondary"]:hover {
-    background: #32363b;
+    background: #2f3540;
 }
 
 QPushButton[class="btn-secondary"]:pressed {
-    background: #25282c;
+    background: #22262d;
 }
 
 /* Focus ring for accessibility */
@@ -96,7 +96,7 @@ QPushButton[class="btn-secondary"]:pressed {
 #SidePanel QCheckBox:focus,
 #SidePanel QListWidget:focus {
     outline: none;
-    border: 1px solid #6aa0ff;
+    border: 1px solid #5fa8fb;
 }
 
 /* Ensure any button in SidePanel can shrink */
@@ -125,7 +125,7 @@ QListWidget#StagingList::item:hover {
 }
 
 QListWidget#StagingList::item:selected {
-    background: rgba(59,130,246,0.25);
+    background: rgba(79,156,249,0.25);
     color: #ffffff;
 }
 

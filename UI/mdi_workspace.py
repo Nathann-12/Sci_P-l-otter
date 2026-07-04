@@ -53,6 +53,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QMdiArea,
     QMdiSubWindow,
@@ -76,18 +77,24 @@ logger = logging.getLogger(__name__)
 
 # Dark styling for the MDI area + sub-window frames, matching shell.qss /
 # dark_modern.qss palette (bg #1e2126, surface #23272e, border #3a3f44,
-# accent #4F9CF9, text #e6e6e6).
+# accent #4F9CF9, text #e6e6e6). The backdrop sits one step darker than the
+# shell panels so Book/Graph windows visibly float above it.
 _MDI_STYLESHEET = """
 #MdiWorkspace {
     background-color: #1e2126;
 }
 QMdiArea#MdiArea {
-    background-color: #181b20;
+    background-color: #15181d;
     border: none;
 }
 QMdiSubWindow {
     background-color: #23272e;
     border: 1px solid #3a3f44;
+    /* QStyleSheetStyle resolves the title-bar Highlight from
+       selection-background-color, overriding any widget palette — this is
+       what actually sets the active title bar tone (muted Origin navy). */
+    selection-background-color: #2b4066;
+    selection-color: #e8eef7;
 }
 QMdiSubWindow:focus,
 QMdiSubWindow[active="true"] {
@@ -180,6 +187,23 @@ class MdiWorkspace(QWidget):
         layout.addWidget(self.mdi)
 
         self.setStyleSheet(_MDI_STYLESHEET)
+        # Origin-like muted title bars: the style draws QMdiSubWindow titles
+        # from QPalette.Highlight/HighlightedText, which the base theme sets to
+        # the bright accent blue. Override on the MDI area (inherited by every
+        # sub-window) with a deep desaturated navy for active windows and a
+        # neutral frame tone for inactive ones.
+        try:
+            # Fusion lightens Highlight when painting the title gradient, so
+            # these are set a step darker than the tone we actually want on
+            # screen (~#2b4066 for the active bar).
+            pal = self.mdi.palette()
+            pal.setColor(QPalette.Active, QPalette.Highlight, QColor("#253853"))
+            pal.setColor(QPalette.Inactive, QPalette.Highlight, QColor("#242a33"))
+            pal.setColor(QPalette.Active, QPalette.HighlightedText, QColor("#e8eef7"))
+            pal.setColor(QPalette.Inactive, QPalette.HighlightedText, QColor("#9aa3af"))
+            self.mdi.setPalette(pal)
+        except Exception:
+            logger.debug("MDI title palette override skipped", exc_info=True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.mdi.subWindowActivated.connect(self._on_sub_window_activated)

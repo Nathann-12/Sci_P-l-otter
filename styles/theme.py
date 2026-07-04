@@ -10,6 +10,39 @@ from typing import Optional
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# SciPlotter dark palette handed to qdarktheme so its generated theme (menus,
+# buttons, combos, scrollbars, tabs, dialogs, status/toolbar strips) lands in
+# the same blue-graphite family as our hand-written QSS. Keep in sync with:
+# shell.qss / sidepanel.qss / toolbar.qss / widgets/workbook.py /
+# UI/mdi_workspace.py (bg #1e2126, surface #23272e, border #3a3f44,
+# accent #4F9CF9, text #e6e6e6).
+DARK_CUSTOM_COLORS = {
+    "primary": "#4F9CF9",
+    "background": "#1e2126",
+    "border": "#3a3f44",
+    "foreground": "#e6e6e6",
+    "input.background": "#262b33",
+    "statusBar.background": "#181b20",
+    "toolbar.background": "#1b1e23",
+}
+
+
+def _setup_qdarktheme(app: QApplication, extra_qss: str) -> None:
+    """Apply qdarktheme with our palette; degrade gracefully on old versions."""
+    import qdarktheme
+
+    try:
+        qdarktheme.setup_theme(
+            "dark", custom_colors=DARK_CUSTOM_COLORS, additional_qss=extra_qss
+        )
+    except TypeError:
+        # older signature without custom_colors/additional_qss
+        try:
+            qdarktheme.setup_theme("dark", additional_qss=extra_qss)
+        except TypeError:
+            qdarktheme.setup_theme("dark")
+            app.setStyleSheet((app.styleSheet() or "") + "\n" + extra_qss)
+
 def _setup_thai_fonts() -> Optional[str]:
     """Ensure Matplotlib can render Thai text consistently.
     Tries bundled fonts first, then common system fonts.
@@ -115,14 +148,8 @@ def apply_qss(app: QApplication, qss_path: str = None):
 
     # Base theme: qdarktheme if installed
     try:
-        import qdarktheme
-        try:
-            qdarktheme.setup_theme("dark", additional_qss=extra_qss)
-        except TypeError:
-            # signature without additional_qss — apply then append
-            qdarktheme.setup_theme("dark")
-            app.setStyleSheet((app.styleSheet() or "") + "\n" + extra_qss)
-        logger.info(f"Theme: qdarktheme dark + overrides ({len(extra_qss)} chars)")
+        _setup_qdarktheme(app, extra_qss)
+        logger.info(f"Theme: qdarktheme dark + custom colors + overrides ({len(extra_qss)} chars)")
         return
     except Exception as e:
         logger.warning(f"qdarktheme unavailable, using dark_modern.qss: {e}")
@@ -409,13 +436,8 @@ def apply_theme_from_config(app: QApplication, config):
         extra_qss = _read_override_qss()
         applied = False
         try:
-            import qdarktheme
-            try:
-                qdarktheme.setup_theme("dark", additional_qss=extra_qss)
-            except TypeError:
-                qdarktheme.setup_theme("dark")
-                app.setStyleSheet((app.styleSheet() or "") + "\n" + extra_qss)
-            logger.info(f"Theme: qdarktheme dark + overrides ({len(extra_qss)} chars)")
+            _setup_qdarktheme(app, extra_qss)
+            logger.info(f"Theme: qdarktheme dark + custom colors + overrides ({len(extra_qss)} chars)")
             applied = True
         except Exception as e:
             logger.warning(f"qdarktheme unavailable, using {os.path.basename(path)}: {e}")

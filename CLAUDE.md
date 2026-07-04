@@ -46,7 +46,7 @@
 - **worksheet แบบ Excel** ([widgets/workbook.py](widgets/workbook.py) `WorkbookWidget`) — คอลัมน์ A(X)/B(Y), แถว Long Name/Units/Comments/F(x)=; `self.workbook` มิเรอร์ `self._df` (ดู `_refresh_workbook`)
 - **Project Explorer** ([UI/project_explorer.py](UI/project_explorer.py)) — dock ซ้าย ต้นไม้ Book/Graph, sync ผ่าน signal `subWindowAdded/Removed/Renamed` ของ `MdiWorkspace`
 - **shell/docks** — `UI/shell/app_shell.py` (activity rail + command palette Ctrl+K), `UI/docks/` (AI/Log), `UI/welcome.py`, `widgets/activity_rail.py`, `widgets/command_palette.py`
-- **ธีม** — ฐานคือ **qdarktheme** (ตั้งใน `styles/theme.py::apply_theme_from_config`) + override `shell.qss`/`sidepanel.qss`/`toolbar.qss`; ไอคอนใช้ **qtawesome** ผ่าน `_icon()` (map ที่ `_QTA_ICON_MAP` ใน main.py)
+- **ธีม** — ฐานคือ **qdarktheme** (ตั้งใน `styles/theme.py::apply_theme_from_config`) + override `shell.qss`/`sidepanel.qss`/`toolbar.qss`; ไอคอนใช้ **qtawesome** ผ่าน `_icon()` (map ที่ `_QTA_ICON_MAP` ใน main.py). **สีทั้งแอปมี source of truth เดียว** = `styles/theme.py::DARK_CUSTOM_COLORS` (accent `#4F9CF9`, bg `#1e2126`, border `#3a3f44`) — QSS ทุกไฟล์/สีฝังใน widget ต้องอยู่ family นี้; title bar ของ QMdiSubWindow คุมด้วย `selection-background-color` ใน `_MDI_STYLESHEET` (ไม่ใช่ QPalette เพราะ QStyleSheetStyle ทับ)
 - **view-access seam** ([main_window_view_access_mixin.py](main_window_view_access_mixin.py)) — logic เรียก `self.notify/ask_choice/selected_x_column/active_axes` แทนแตะ widget ตรง (ทำให้สลับ UI ได้)
 
 **โมดูล/แพ็กเกจอื่น**
