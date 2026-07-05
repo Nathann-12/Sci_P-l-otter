@@ -94,6 +94,7 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
+from main_window_gassensor_mixin import MainWindowGasSensorMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
@@ -135,6 +136,7 @@ _QTA_ICON_MAP = {
     "fit": "fa5s.chart-area",
     "crosshair": "fa5s.crosshairs",
     "boxzoom": "fa5s.search-plus",
+    "gas": "fa5s.wind",
 }
 
 from core.plot_mode import PlotMode  # re-exported here for backward compatibility
@@ -178,6 +180,7 @@ class MainWindow(
     MainWindowSettingsMixin,
     MainWindowFeaturesMixin,
     MainWindowActionsMixin,
+    MainWindowGasSensorMixin,
     MainWindowViewAccessMixin,
     QMainWindow,
 ):
@@ -313,6 +316,12 @@ class MainWindow(
         
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
+
+        # โมดูลเฉพาะทางตัวแรก: Gas Sensor (activity rail โผล่เองเมื่อลงทะเบียน)
+        try:
+            self.init_gas_sensor_module()
+        except Exception:
+            logger.debug("gas sensor module init skipped", exc_info=True)
 
         # Command palette (Ctrl+K) - searchable list of all menu/toolbar actions
         try:

@@ -226,7 +226,7 @@
 - ☐ Generate Origin-like workflow
 - ☐ Chat กับ dataset
 
-## H. Gas Sensor Module — ☐ ยังไม่เริ่ม ⭐ (โมดูลขายจริง — ให้ priority สูง)
+## H. Gas Sensor Module — 🟡 แกนวิเคราะห์เสร็จ ⭐ (เมนู/rail "Gas Sensor"; เหลือฝั่ง real-time ESP32)
 - ☐ Real-time serial data จาก ESP32
 - ☐ Serial port monitor
 - ☐ Live resistance plot
@@ -234,39 +234,39 @@
 - ☐ Live temperature plot
 - ☐ Live humidity plot
 - ☐ Gas exposure marker
-- ☐ Baseline selection
+- ✅ Baseline selection
 - ☐ Baseline correction
-- ☐ Response calculation
-- ☐ Response %
-- ☐ Sensitivity
-- ☐ Recovery %
-- ☐ Response time
-- ☐ Recovery time
-- ☐ Rise time
-- ☐ Decay time
+- ✅ Response calculation
+- ✅ Response %
+- ✅ Sensitivity
+- 🟡 Recovery %
+- ✅ Response time
+- ✅ Recovery time
+- 🟡 Rise time (t90 = response time)
+- 🟡 Decay time (t90 = recovery time)
 - ☐ Repeatability analysis
 - ☐ Reproducibility analysis
 - ☐ Stability analysis
 - ☐ Selectivity chart
 - ☐ Multi-gas comparison
-- ☐ Concentration calibration
-- ☐ Calibration curve
-- ☐ Limit of detection
-- ☐ Limit of quantification
-- ☐ Signal-to-noise ratio
+- ✅ Concentration calibration
+- ✅ Calibration curve
+- ✅ Limit of detection
+- ✅ Limit of quantification
+- 🟡 Signal-to-noise ratio (estimate_snr ใน analysis/signal_filters.py)
 - ☐ Drift correction
 - ☐ Humidity compensation
 - ☐ Temperature compensation
 - ☐ Sensor aging analysis
-- ☐ Cycle detection
-- ☐ Auto detect gas ON/OFF
+- ✅ Cycle detection
+- ✅ Auto detect gas ON/OFF
 - ☐ Baseline drift warning
 - ☐ Abnormal sensor warning
 - ☐ Resistance range checker
 - ☐ Heater temperature log
 - ☐ Test chamber volume calculator
-- ☐ Gas dilution calculator
-- ☐ ppm conversion
+- ✅ Gas dilution calculator
+- ✅ ppm conversion
 - ☐ Response table export
 - ☐ Sensor performance report
 - ☐ Gas sensor paper figure template

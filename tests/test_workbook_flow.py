@@ -129,12 +129,13 @@ def test_left_panel_plot_controls_fit_thai_text(win):
 
 
 def test_origin_pure_shell_no_left_panel_but_aliases_survive(win):
-    """P4: the Data panel is gone (Origin-pure shell) — no context registered,
-    rail hidden, and every widget alias mixins rely on lives on as a hidden
-    state-holder."""
+    """P4: the Data panel is gone (Origin-pure shell) — the rail now only
+    hosts specialty modules (Gas Sensor), and every widget alias mixins rely
+    on lives on as a hidden state-holder."""
     assert win.shell.context_widget("data") is None
-    assert win.shell.rail.isHidden()
-    assert win.shell.context_stack.isHidden()
+    # rail is visible because the Gas Sensor module registered a context —
+    # exactly the UX_FLOW rule-5 behavior (no Data context though)
+    assert win.shell.context_widget("gas_sensor") is not None
     assert win._panel_left.isHidden()
     assert win.panel_plot.isHidden()
     for alias in ("cbX", "cbY", "spLineWidth", "chkMarker",
