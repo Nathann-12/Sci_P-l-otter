@@ -36,9 +36,12 @@ class ActivityRail(QWidget):
         self._buttons: Dict[str, QToolButton] = {}
         self._current: Optional[str] = None
 
-        # กลุ่มปุ่มแบบ exclusive เพื่อให้เลือกได้ทีละปุ่ม
+        # กลุ่มปุ่มแบบ NON-exclusive แล้วบังคับ single-selection เองใน set_active
+        # เหตุผล: exclusive group บน Windows native จะ "กลืน" สัญญาณ clicked ของ
+        # ปุ่มที่ checked อยู่ ทำให้ re-click ตัว active ไม่เกิด event → พับแผงไม่ได้.
+        # ปุ่มแบบไม่ exclusive จะ emit clicked ทุกครั้งที่คลิกจริง ทุกแพลตฟอร์ม
         self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
+        self._group.setExclusive(False)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(2, 4, 2, 4)
@@ -59,7 +62,7 @@ class ActivityRail(QWidget):
         button.setObjectName(f"ActivityButton_{activity_id}")
         button.setText(label)
         button.setCheckable(True)
-        button.setToolTip(label)
+        button.setToolTip(f"{label} • คลิกซ้ำเพื่อพับ/กางแผง")
         button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         button.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
@@ -80,11 +83,16 @@ class ActivityRail(QWidget):
         return button
 
     def _on_button_clicked(self, activity_id: str) -> None:
-        """คลิกกิจกรรมใหม่ = สลับ; คลิกตัวที่ active อยู่ซ้ำ = toggle แผง"""
+        """คลิกกิจกรรมใหม่ = สลับ; คลิกตัวที่ active อยู่ซ้ำ = toggle แผง
+
+        กลุ่มปุ่มไม่ exclusive → การคลิกจริงจะ toggle สถานะปุ่มก่อนถึงตรงนี้เสมอ
+        เราจึงบังคับสถานะให้ถูกต้องเองที่นี่ (ตัว active ต้อง checked เสมอ)
+        """
         if activity_id == self._current:
+            # non-exclusive ทำให้คลิกแล้วปุ่มถูก uncheck — ดันกลับให้ active คง highlight
             button = self._buttons.get(activity_id)
-            if button is not None and not button.isChecked():
-                button.setChecked(True)  # exclusive group ห้ามไม่มีตัวเลือก
+            if button is not None:
+                button.setChecked(True)
             self.activity_toggled.emit(activity_id)
             return
         self.set_active(activity_id)
@@ -94,9 +102,9 @@ class ActivityRail(QWidget):
         if activity_id not in self._buttons:
             return
 
-        button = self._buttons[activity_id]
-        if not button.isChecked():
-            button.setChecked(True)
+        # บังคับ single-selection เอง: เฉพาะตัว active ที่ checked
+        for aid, btn in self._buttons.items():
+            btn.setChecked(aid == activity_id)
 
         if activity_id != self._current:
             self._current = activity_id

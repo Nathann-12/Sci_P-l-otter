@@ -75,6 +75,42 @@ def test_clicking_button_changes_activity(qapp):
     assert received == ["plot"]
 
 
+def test_reclicking_active_button_toggles_and_keeps_it_checked(qapp):
+    """Regression: on Windows native an exclusive QButtonGroup swallowed the
+    re-click on the already-checked button, so the panel never collapsed. The
+    rail now enforces selection manually and must emit activity_toggled while
+    keeping the active button highlighted."""
+    rail = ActivityRail()
+    changed, toggled = [], []
+    rail.activity_changed.connect(changed.append)
+    rail.activity_toggled.connect(toggled.append)
+
+    rail.add_activity("gas", "Gas")
+    changed.clear()
+
+    btn = rail.button_for("gas")
+    btn.click()  # re-click the active button
+    assert toggled == ["gas"]
+    assert changed == []               # not a switch
+    assert btn.isChecked()             # stays highlighted
+    assert rail.current_activity() == "gas"
+
+    btn.click()  # and again
+    assert toggled == ["gas", "gas"]
+    assert btn.isChecked()
+
+
+def test_single_selection_enforced_without_exclusive_group(qapp):
+    rail = ActivityRail()
+    rail.add_activity("a", "A")
+    rail.add_activity("b", "B")
+    rail.add_activity("c", "C")
+
+    rail.button_for("c").click()
+    checked = [aid for aid in ("a", "b", "c") if rail.button_for(aid).isChecked()]
+    assert checked == ["c"]  # exactly one selected even though group is non-exclusive
+
+
 def test_unknown_id_and_duplicate_add(qapp):
     rail = ActivityRail()
     first = rail.add_activity("data", "ข้อมูล")
