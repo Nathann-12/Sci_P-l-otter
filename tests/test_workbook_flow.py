@@ -88,6 +88,11 @@ def test_plot_from_workbook_creates_new_graph_with_typed_data(win):
 
 
 def test_overlay_plots_into_current_graph_without_new_window(win):
+    from core.plot_mode import PlotMode
+    # overlay must ADD a series → force OVERLAY mode (don't depend on ambient
+    # plot_mode left over from other tests; REPLACE mode would clear first)
+    win.plot_mode = PlotMode.OVERLAY
+
     _type_into_book1(win, [(0, 4.0), (1, 5.0)])
     win.plot_from_workbook("line")  # creates a graph first
     graphs_before = win.tabs.count()

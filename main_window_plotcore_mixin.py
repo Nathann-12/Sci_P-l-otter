@@ -243,13 +243,7 @@ class MainWindowPlotCoreMixin:
         # Add keyboard shortcuts
         self.actOpen.setShortcut("Ctrl+O")
         self.actSettings.setShortcut("Ctrl+,")
-
-        # UI-DERIVED: เพิ่มคีย์ลัดสำหรับ Create Derived Column
-        data_menu = getattr(self, "dataMenu", None)
-        if data_menu and not hasattr(self, "_actDataDerived"):
-            self._actDataDerived = data_menu.addAction("สร้างคอลัมน์ใหม่…")
-            self._actDataDerived.setShortcut("Ctrl+D")
-            self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
+        # (Derived Column action + คีย์ลัด ย้ายไปอยู่ใน _init_menu แล้ว — เมนู Data)
 
         # Load saved plot style preference
         self._load_plot_style_config()

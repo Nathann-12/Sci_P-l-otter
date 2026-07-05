@@ -34,8 +34,8 @@ class MainWindowMenuMixin:
         self.actOpen.triggered.connect(lambda: getattr(self, 'open_file', lambda: None)())
         actBatch = fileMenu.addAction("เปิดหลายไฟล์ (Batch Import)…")
         actBatch.triggered.connect(lambda: getattr(self, 'stage_add_files', lambda: None)())
-        actExport = fileMenu.addAction("Export PNG..."); actExport.triggered.connect(self.on_action_export_figure)
         fileMenu.addSeparator()
+        # Export PNG อยู่ในเมนู Export (ไม่ซ้ำที่นี่ — on_action_export_figure เรียก export_png ตัวเดียวกัน)
         actExit = fileMenu.addAction("ออกจากโปรแกรม"); actExit.triggered.connect(self.close)
 
         viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
@@ -55,15 +55,6 @@ class MainWindowMenuMixin:
                 viewMenu.addAction(self.actToggleInspector)
             except Exception:
                 pass
-
-        # Test Error menu
-        test_action = viewMenu.addAction("Raise Test Error")
-        def _raise_test_error():
-            try:
-                raise RuntimeError("นี่คือเออเรอร์ทดสอบจากเมนู")
-            except Exception:
-                logging.getLogger("Demo").exception("เกิดข้อผิดพลาดทดสอบ")
-        test_action.triggered.connect(_raise_test_error)
 
         # Plot Style submenu
         plotStyleMenu = viewMenu.addMenu("Plot Style")
@@ -108,6 +99,12 @@ class MainWindowMenuMixin:
             except Exception:
                 pass
         self.dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
+        # Derived column (ย้ายมาจาก plotcore ให้อยู่ที่เดียวกับเมนูอื่น); Ctrl+Shift+D
+        # เพื่อไม่ชนกับ Ctrl+D ของ Peak "Detect in Range"
+        if not hasattr(self, "_actDataDerived"):
+            self._actDataDerived = self.dataMenu.addAction("สร้างคอลัมน์ใหม่ (Derived Column)…")
+            self._actDataDerived.setShortcut("Ctrl+Shift+D")
+            self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
 
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
         procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
@@ -158,11 +155,11 @@ class MainWindowMenuMixin:
         except Exception:
             logging.getLogger(__name__).debug("Window menu setup skipped", exc_info=True)
 
-        # Settings menu for plotting mode
+        # Plotting Mode → อยู่ใน Tools (เดิมเป็น top-menu "Settings" แยกซ้ำซ้อน
+        # กับ Tools ที่มี Settings dialog อยู่แล้ว)
         try:
             from PySide6.QtGui import QActionGroup
-            settings_menu = m.addMenu("&Settings")
-            plot_mode_menu = settings_menu.addMenu("Plotting Mode")
+            plot_mode_menu = toolsMenu.addMenu("Plotting Mode")
             grp = QActionGroup(self); grp.setExclusive(True)
             act_overlay = QAction("Overlay (default)", self, checkable=True)
             act_replace = QAction("Replace", self, checkable=True)
@@ -185,25 +182,24 @@ class MainWindowMenuMixin:
         helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
         actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
         # อัปเดตช็อตคัตให้ครอบคลุมฟีเจอร์ใหม่ (Annotation/Analysis)
+        # คีย์ลัดจริงที่ลงทะเบียนในแอป (ตรวจให้ตรงกับ setShortcut จริง)
         help_shortcuts = (
-            "CTRL+O: Open\n"
-            "CTRL+R: Reset View\n"
-            "CTRL+SHIFT+L: Add Line (overlay)\n"
-            "CTRL+SHIFT+S: Add Scatter (overlay)\n"
-            "CTRL+E: Export PNG (ภาพกราฟ)\n"
-            "CTRL+, : Settings\n"
+            "[ทั่วไป]\n"
+            "Ctrl+O: เปิดไฟล์\n"
+            "Ctrl+K: Command Palette (ค้นหาคำสั่ง)\n"
+            "Ctrl+, : ตั้งค่า (Settings)\n"
+            "Ctrl+Shift+D: สร้างคอลัมน์ใหม่ (Derived Column)\n"
+            "\n[Plot]\n"
+            "Ctrl+Shift+L: เพิ่มเส้นลงกราฟปัจจุบัน (overlay)\n"
+            "Ctrl+Shift+S: เพิ่มจุดลงกราฟปัจจุบัน (overlay)\n"
             "\n[Annotation]\n"
-            "T/W/L/R/E/C: Add Text/Arrow/Line/Rect/Ellipse/Callout\n"
-            "Double-Click Text: Edit content\n"
-            "CTRL+Z / CTRL+Y: Undo / Redo\n"
+            "T/W/L/R/E/C: Text/Arrow/Line/Rect/Ellipse/Callout\n"
+            "Ctrl+Z / Ctrl+Y: Undo / Redo\n"
             "\n[Analysis]\n"
-            "CTRL+Shift+X: Toggle Multi-Cursor\n"
-            "CTRL+Shift+P: Toggle Peak Detection\n"
-            "CTRL+D: Detect Peaks in Range\n"
-            "CTRL+E: Export Peak Table (CSV/Excel)\n"
-            "\n[Other]\n"
-            "F: FFT Dialog\n"
-            "I: Toggle Inspector"
+            "Ctrl+Shift+X: สลับโหมด Multi-Cursor\n"
+            "Ctrl+Shift+P: สลับ Peak Detection\n"
+            "Ctrl+D: ตรวจจับพีคในช่วง\n"
+            "Ctrl+E: ส่งออกตารางพีค (CSV/Excel)"
         )
 
         # Charts gallery menu (Excel-like)
@@ -293,21 +289,20 @@ class MainWindowMenuMixin:
             dlg = _ChartOptionsDialogPro(kind=kind, get_df=_get_df, apply_to_main=_apply_to_main, parent=self)
             dlg.exec()
 
+        # ชนิดกราฟที่ Plot menu (พล็อตจากชีต) ไม่มี — เปิดกล่องเลือกคอลัมน์ให้
+        # (Line/Scatter/Bar/Histogram ตัดออกเพราะซ้ำกับ Plot menu โดยตรงแล้ว)
+        # NOTE: เติมเป็น submenu ของ "Plot" ไม่ใช่ Analysis — การทำกราฟรวมอยู่ที่ Plot
+        advChartsMenu = plotMenu.addMenu("ชนิดกราฟเพิ่มเติม (Area/Box/Pie/3D)…")
         for title, kind in [
-            ("Line…", "line"),
-            ("Scatter…", "scatter"),
-            ("Bar…", "bar"),
             ("Area…", "area"),
             ("Box…", "box"),
             ("Pie…", "pie"),
-            ("Histogram…", "hist"),
             ("3D Scatter…", "3d_scatter"),
         ]:
             act = QAction(title, self)
-            analysisMenu.addAction(act)
+            advChartsMenu.addAction(act)
             act.triggered.connect(lambda _, k=kind: open_overlay(k))
 
-        analysisMenu.addSeparator()
         analysisMenu.addAction("สถิติเชิงพรรณนา (Descriptive Statistics)…").triggered.connect(
             self.feature_show_statistics)
         analysisMenu.addAction("Covariance Matrix…").triggered.connect(
@@ -325,7 +320,7 @@ class MainWindowMenuMixin:
 # Peak Detection submenu
         pkMenu = analysisMenu.addMenu("Peak Detection")
         self.actPkEnable = pkMenu.addAction("Enable Peak Detection"); self.actPkEnable.setCheckable(True); self.actPkEnable.setShortcut("Ctrl+Shift+P")
-        self.actPkSettings = pkMenu.addAction("Settings…")
+        self.actPkSettings = pkMenu.addAction("Peak Settings…")
         self.actPkDetect = pkMenu.addAction("Detect in Range"); self.actPkDetect.setShortcut("Ctrl+D")
         self.actPkAnnotate = pkMenu.addAction("Annotate Peaks"); self.actPkAnnotate.setCheckable(True)
         self.actPkExport = pkMenu.addAction("Export Peak Table (CSV/Excel)"); self.actPkExport.setShortcut("Ctrl+E")
