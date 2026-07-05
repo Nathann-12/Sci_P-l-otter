@@ -131,6 +131,7 @@ class MainWindowMenuMixin:
         filterMenu = procMenu.addMenu("Filters")
         filterMenu.addAction("Butterworth (Low/High/Band)…").triggered.connect(self.feature_filter_butterworth)
         filterMenu.addAction("Smooth (Savitzky-Golay/Median/Gaussian)…").triggered.connect(self.feature_filter_smooth)
+        filterMenu.addAction("Apply Window (Hann/Hamming/Blackman/Kaiser)…").triggered.connect(self.feature_apply_window)
 
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
@@ -308,6 +309,10 @@ class MainWindowMenuMixin:
             self.feature_show_statistics)
         analysisMenu.addAction("Covariance Matrix…").triggered.connect(
             self.feature_show_covariance)
+        analysisMenu.addAction("Peak Metrics (FWHM / พื้นที่พีค)…").triggered.connect(
+            self.feature_peak_metrics)
+        analysisMenu.addAction("Signal Quality (SNR / Noise floor)…").triggered.connect(
+            self.feature_signal_quality)
         analysisMenu.addSeparator()
         fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
         self.actNonlinearFit = analysisMenu.addAction(fit_icon, "Nonlinear Curve Fit…")

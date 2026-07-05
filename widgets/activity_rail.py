@@ -18,10 +18,12 @@ class ActivityRail(QWidget):
     """แถบกิจกรรมแนวตั้ง (activity bar) — ปุ่มไอคอน/ข้อความแบบ checkable
 
     มีปุ่มได้หลายปุ่ม แต่เลือก active ได้ทีละปุ่มเดียว เมื่อเปลี่ยนปุ่มที่ active
-    (จากการคลิกหรือเรียก ``set_active``) จะส่งสัญญาณ ``activity_changed``
+    (จากการคลิกหรือเรียก ``set_active``) จะส่งสัญญาณ ``activity_changed``;
+    คลิกปุ่มที่ active อยู่ซ้ำ → ``activity_toggled`` (ให้ shell ใช้ยุบ/กางแผง)
     """
 
     activity_changed = Signal(str)
+    activity_toggled = Signal(str)
 
     #: ขนาดไอคอนของปุ่มกิจกรรม (ดูพอดีกับปุ่มสูง ~56px)
     ICON_SIZE = 24
@@ -64,7 +66,7 @@ class ActivityRail(QWidget):
         if icon is not None:
             button.setIcon(icon if isinstance(icon, QIcon) else QIcon(icon))
 
-        button.clicked.connect(lambda _checked=False, aid=activity_id: self.set_active(aid))
+        button.clicked.connect(lambda _checked=False, aid=activity_id: self._on_button_clicked(aid))
 
         self._group.addButton(button)
         self._layout.addWidget(button)
@@ -76,6 +78,16 @@ class ActivityRail(QWidget):
             self.set_active(activity_id)
 
         return button
+
+    def _on_button_clicked(self, activity_id: str) -> None:
+        """คลิกกิจกรรมใหม่ = สลับ; คลิกตัวที่ active อยู่ซ้ำ = toggle แผง"""
+        if activity_id == self._current:
+            button = self._buttons.get(activity_id)
+            if button is not None and not button.isChecked():
+                button.setChecked(True)  # exclusive group ห้ามไม่มีตัวเลือก
+            self.activity_toggled.emit(activity_id)
+            return
+        self.set_active(activity_id)
 
     def set_active(self, activity_id: str) -> None:
         """ตั้งให้กิจกรรมที่ระบุเป็น active และส่งสัญญาณถ้ามีการเปลี่ยนแปลง"""

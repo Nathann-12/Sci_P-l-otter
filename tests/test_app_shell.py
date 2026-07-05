@@ -130,6 +130,29 @@ def test_rail_hidden_until_a_context_is_registered(qapp):
     assert not shell.context_stack.isHidden()
 
 
+def test_reselecting_active_activity_toggles_the_panel(qapp):
+    shell = AppShell()
+    shell.register_context("gas", "Gas", QLabel("gas"))
+    shell.register_context("data", "Data", QLabel("data"))
+    assert not shell.context_stack.isHidden()
+
+    # click the active activity again → panel collapses (rail stays)
+    shell.rail.button_for("gas").click()
+    assert shell.context_stack.isHidden()
+    assert not shell.rail.isHidden()
+
+    # click once more → panel comes back
+    shell.rail.button_for("gas").click()
+    assert not shell.context_stack.isHidden()
+
+    # collapse, then switch to another activity → panel reopens on it
+    shell.rail.button_for("gas").click()
+    assert shell.context_stack.isHidden()
+    shell.rail.button_for("data").click()
+    assert not shell.context_stack.isHidden()
+    assert shell.current_context_id() == "data"
+
+
 def test_set_inspector_visible_collapses_the_column(qapp):
     shell = AppShell()
 

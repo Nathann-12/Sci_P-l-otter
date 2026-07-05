@@ -173,17 +173,17 @@
 - ✅ Moving average
 - ✅ Median filter
 - ✅ Gaussian filter
-- 🟡 Window function (`apply_window` logic+test — FFT dialog ใช้ hann/hamming)
-- 🟡 Hann window
-- 🟡 Hamming window
-- 🟡 Blackman window (logic+test — ยังไม่มี UI)
-- 🟡 Kaiser window (logic+test — ยังไม่มี UI)
+- ✅ Window function (Process → Filters → Apply Window)
+- ✅ Hann window
+- ✅ Hamming window
+- ✅ Blackman window
+- ✅ Kaiser window
 - 🟡 Zero padding (logic+test — ยังไม่มี UI)
 - ✅ Peak detection
-- 🟡 Peak area (logic+test — ยังไม่มี UI)
-- 🟡 FWHM (logic+test — ยังไม่มี UI)
-- 🟡 Noise floor (logic+test — ยังไม่มี UI)
-- 🟡 SNR (logic+test — ยังไม่มี UI)
+- ✅ Peak area (Analysis → Peak Metrics)
+- ✅ FWHM (Analysis → Peak Metrics)
+- ✅ Noise floor (Analysis → Signal Quality)
+- ✅ SNR (Analysis → Signal Quality)
 - ☐ Harmonic analysis
 - ☐ Frequency tracking
 
@@ -253,7 +253,7 @@
 - ✅ Calibration curve
 - ✅ Limit of detection
 - ✅ Limit of quantification
-- 🟡 Signal-to-noise ratio (estimate_snr ใน analysis/signal_filters.py)
+- ✅ Signal-to-noise ratio (Analysis → Signal Quality)
 - ☐ Drift correction
 - ☐ Humidity compensation
 - ☐ Temperature compensation

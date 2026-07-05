@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import pandas as pd
 from PySide6.QtWidgets import QDialog
 
 from dialogs import AggregateDialog, ColumnTypeDialog, DerivedColumnDialog
@@ -19,7 +20,8 @@ from analysis.cleaning import (
     remove_duplicates, remove_outliers, resample_uniform, sort_dataframe,
 )
 from analysis.signal_filters import (
-    BUTTER_KINDS, butterworth_filter, gaussian_smooth, median_filter,
+    BUTTER_KINDS, WINDOW_KINDS, apply_window, butterworth_filter, estimate_snr,
+    fwhm, gaussian_smooth, median_filter, noise_floor, peak_area,
     savitzky_golay, welch_psd,
 )
 from analysis.descriptive import covariance_matrix, describe_series, format_describe
@@ -338,6 +340,86 @@ class MainWindowFeaturesMixin:
             self.notify(f"smooth ({method}) แล้ว: {new_col}")
         except Exception as e:
             self.error_box("Smooth ไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # ---------- Peak & signal-quality metrics (ROADMAP E) ----------
+    def _finite_xy_for_metrics(self):
+        """(x, y, x_name, y_name) เป็น float ที่ finite ทั้งคู่ — สำหรับ FWHM/พื้นที่พีค"""
+        import numpy as np
+
+        y_name = self.selected_y_column()
+        y = pd.to_numeric(self._df[y_name], errors="coerce").to_numpy(dtype=float)
+        x_name = self.selected_x_column()
+        if x_name in [str(c) for c in self._df.columns]:
+            ser = self._df[x_name]
+            if pd.api.types.is_datetime64_any_dtype(ser):
+                x = (ser - ser.iloc[0]).dt.total_seconds().to_numpy(dtype=float)
+            else:
+                x = pd.to_numeric(ser, errors="coerce").to_numpy(dtype=float)
+        else:
+            x_name = "index"
+            x = np.arange(y.size, dtype=float)
+        mask = np.isfinite(x) & np.isfinite(y)
+        return x[mask], y[mask], x_name, y_name
+
+    def feature_peak_metrics(self):
+        """FWHM + พื้นที่ใต้พีคของคอลัมน์ Y ที่เลือก (เทียบแกน X)"""
+        if not self._has_y_data():
+            return
+        try:
+            x, y, x_name, y_name = self._finite_xy_for_metrics()
+            area = peak_area(x, y)
+            lines = [f"คอลัมน์: {y_name} (X = {x_name})",
+                     f"พื้นที่ใต้กราฟ (trapezoid): {area:.6g}"]
+            try:
+                width = fwhm(x, y)
+                lines.append(f"FWHM ของพีคหลัก: {width:.6g}")
+            except ValueError as e:
+                lines.append(f"FWHM: คำนวณไม่ได้ ({e})")
+            self.inform("Peak Metrics", "\n".join(lines))
+            self.notify(f"Peak metrics ของ {y_name} คำนวณแล้ว")
+        except Exception as e:
+            self.error_box("คำนวณไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    def feature_signal_quality(self):
+        """SNR + noise floor (จาก Welch PSD) ของคอลัมน์ Y ที่เลือก"""
+        if not self._has_y_data():
+            return
+        y_col = self.selected_y_column()
+        fs = self._sampling_rate_or_ask()
+        if fs is None:
+            return
+        try:
+            snr_db = estimate_snr(self._df[y_col], fs=fs)
+            floor = noise_floor(self._df[y_col], fs=fs)
+            self.inform(
+                f"Signal Quality — {y_col}",
+                f"fs ≈ {fs:.6g} Hz\nSNR (พีคเทียบ median PSD): {snr_db:.4g} dB\n"
+                f"Noise floor (median Welch PSD): {floor:.6g}")
+            self.notify(f"SNR ของ {y_col}: {snr_db:.4g} dB")
+        except Exception as e:
+            self.error_box("คำนวณไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    def feature_apply_window(self):
+        """คูณสัญญาณด้วย window (hann/hamming/blackman/kaiser) → คอลัมน์ใหม่"""
+        if not self._has_y_data():
+            return
+        y_col = self.selected_y_column()
+        window, ok = self.ask_choice("Apply Window", "ชนิด window:", list(WINDOW_KINDS), 0)
+        if not ok:
+            return
+        beta = 14.0
+        if window == "kaiser":
+            beta, ok = self.ask_number("Kaiser Window", "beta:", 14.0, 0.0, 100.0, 2)
+            if not ok:
+                return
+        try:
+            tapered = apply_window(self._df[y_col], window=window, beta=float(beta))
+            new_col = f"{y_col}_{window}"
+            self._df[new_col] = tapered
+            self.add_y_column_option(new_col)
+            self.notify(f"ใส่ window ({window}) แล้ว: {new_col}")
+        except Exception as e:
+            self.error_box("ใส่ window ไม่สำเร็จ", f"สาเหตุ: {e}")
 
     # ---------- Statistics & spectra (ROADMAP D/E) ----------
     def feature_show_statistics(self):

@@ -195,6 +195,69 @@ def test_feature_filter_smooth_median_kills_spike():
     assert win._df["y_median"].iloc[25] == 1.0
 
 
+# ---------- peak & signal-quality metrics (ROADMAP E leftovers) ----------
+
+class _ReportDummy(DummyFeatures):
+    """Capture full inform() text for content assertions."""
+
+    def inform(self, title, text):
+        self.messages.append(f"{title}||{text}")
+
+
+def test_feature_peak_metrics_gaussian_fwhm_and_area():
+    sigma = 2.0
+    x = np.linspace(-15, 15, 3001)
+    y = np.exp(-x**2 / (2 * sigma**2))
+    df = pd.DataFrame({"x": x, "y": y})
+    win = _ReportDummy(df, x_sel="x", y_sel="y")
+
+    win.feature_peak_metrics()
+
+    assert not win.errors
+    joined = "\n".join(win.messages)
+    expected_fwhm = 2 * np.sqrt(2 * np.log(2)) * sigma  # ≈ 4.71
+    assert "FWHM" in joined
+    assert f"{expected_fwhm:.3g}"[:3] in joined  # "4.7..."
+    expected_area = sigma * np.sqrt(2 * np.pi)  # ≈ 5.01
+    assert "5.01" in joined
+
+
+def test_feature_signal_quality_reports_snr():
+    fs = 100.0
+    t = np.arange(0, 10, 1 / fs)
+    df = pd.DataFrame({"t": t, "y": np.sin(2 * np.pi * 5 * t)})
+    win = _ReportDummy(df, x_sel="t", y_sel="y")
+
+    win.feature_signal_quality()
+
+    assert not win.errors
+    joined = "\n".join(win.messages)
+    assert "SNR" in joined and "dB" in joined and "Noise floor" in joined
+
+
+def test_feature_apply_window_blackman_tapers_endpoints():
+    df = pd.DataFrame({"y": np.ones(64)})
+    win = DummyFeatures(df, y_sel="y", choices=[("blackman", True)])
+
+    win.feature_apply_window()
+
+    assert not win.errors
+    assert win.added_y == ["y_blackman"]
+    col = win._df["y_blackman"].to_numpy()
+    assert abs(col[0]) < 1e-6 and abs(col[-1]) < 1e-6
+    assert col.max() == pytest.approx(1.0, abs=0.05)
+
+
+def test_feature_apply_window_kaiser_asks_beta():
+    df = pd.DataFrame({"y": np.ones(32)})
+    win = DummyFeatures(df, y_sel="y", choices=[("kaiser", True), (14.0, True)])
+
+    win.feature_apply_window()
+
+    assert not win.errors
+    assert win.added_y == ["y_kaiser"]
+
+
 # ---------- statistics ----------
 
 def test_feature_show_covariance_reports_matrix():

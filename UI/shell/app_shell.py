@@ -51,6 +51,8 @@ class AppShell(QWidget):
         self.rail = ActivityRail(self)
         self.rail.setFixedWidth(RAIL_WIDTH)
         self.rail.activity_changed.connect(self._on_activity_changed)
+        # คลิกกิจกรรมที่ active ซ้ำ = ยุบ/กางแผง context (แบบ VS Code)
+        self.rail.activity_toggled.connect(self._toggle_context_panel)
         self.rail.hide()
 
         # --- context stack (เปลี่ยนตามกิจกรรมที่เลือกใน rail) ---
@@ -234,3 +236,12 @@ class AppShell(QWidget):
         index = self._context_index.get(activity_id)
         if index is not None:
             self.context_stack.setCurrentIndex(index)
+            # สลับไปโมดูลอื่นขณะแผงถูกยุบอยู่ → กางแผงกลับมาให้
+            if self._context_pages and self.context_stack.isHidden():
+                self.context_stack.show()
+
+    def _toggle_context_panel(self, _activity_id: str = "") -> None:
+        """ยุบ/กางแผง context (rail ยังอยู่ให้กดเรียกกลับ)"""
+        if not self._context_pages:
+            return
+        self.context_stack.setVisible(self.context_stack.isHidden())
