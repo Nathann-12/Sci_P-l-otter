@@ -19,6 +19,12 @@ class MainWindowSessionMixin:
     """Reusable session and staging actions extracted from MainWindow."""
 
     def _load_staged_dataframe(self, path: str):
+        # ใช้ตัวโหลดรวมของ data mixin (รองรับทุกฟอร์แมต รวม JSON/HDF5/MAT/XML)
+        loader = getattr(self, "_load_dataframe_for_path", None)
+        if callable(loader):
+            df, kind, _note = loader(path)
+            return df, kind
+        # legacy fallback (สำหรับสตับ/เทสต์เก่าที่ mix เฉพาะ session mixin)
         ext = os.path.splitext(path)[1].lower()
         if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
             df, _ = load_tabular(path, ext)
@@ -73,11 +79,13 @@ class MainWindowSessionMixin:
         self.statusBar().showMessage(f"เตรียมข้อมูล: {name}")
 
     def stage_add_files(self):
+        """Batch import: เลือกหลายไฟล์ → เปิดเป็น Book ไฟล์ละบาน (โมเดล Origin)"""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "เลือกไฟล์เพื่อเตรียมไว้",
+            "เลือกไฟล์ข้อมูล (เลือกได้หลายไฟล์)",
             "",
-            "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf);;All Files (*.*)",
+            "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf *.json *.h5 *.hdf5 *.hdf *.mat *.xml)"
+            ";;All Files (*.*)",
         )
         if not paths:
             return
@@ -89,7 +97,8 @@ class MainWindowSessionMixin:
                 self._stage_insert(name, df, path)
             except ValueError as exc:
                 ext = os.path.splitext(path)[1].lower()
-                if ext not in [".csv", ".txt", ".tsv", ".xlsx", ".nc", ".cdf"]:
+                if ext not in [".csv", ".txt", ".tsv", ".xlsx", ".nc", ".cdf",
+                               ".json", ".h5", ".hdf5", ".hdf", ".mat", ".xml"]:
                     QMessageBox.information(self, "ข้ามไฟล์", f"นามสกุลไม่รองรับ: {path}")
                     continue
                 if ext in [".nc", ".cdf"]:

@@ -30,8 +30,10 @@ class MainWindowMenuMixin:
     def _init_menu(self):
         m = self.menuBar()
         fileMenu = m.addMenu("&File")  # UI-REFINE: File
-        self.actOpen = fileMenu.addAction("Open Data (CSV/TSV/TXT/XLSX/NC/CDF)...")
+        self.actOpen = fileMenu.addAction("Open Data (CSV/Excel/JSON/HDF5/MAT/XML/NC/CDF)...")
         self.actOpen.triggered.connect(lambda: getattr(self, 'open_file', lambda: None)())
+        actBatch = fileMenu.addAction("เปิดหลายไฟล์ (Batch Import)…")
+        actBatch.triggered.connect(lambda: getattr(self, 'stage_add_files', lambda: None)())
         actExport = fileMenu.addAction("Export PNG..."); actExport.triggered.connect(self.on_action_export_figure)
         fileMenu.addSeparator()
         actExit = fileMenu.addAction("ออกจากโปรแกรม"); actExit.triggered.connect(self.close)

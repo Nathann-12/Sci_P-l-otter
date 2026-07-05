@@ -118,6 +118,123 @@ def _read_csv_chunked_simple(path: str, sep: str = None, encoding: str = "utf-8"
     except Exception as e:
         raise RuntimeError(f"เกิดข้อผิดพลาดในการอ่านไฟล์แบบ chunking: {e}")
 
+# ---------------- JSON / HDF5 / MAT / XML (ROADMAP A) ----------------
+def load_json(path: str | Path) -> tuple[pd.DataFrame, str]:
+    """อ่าน JSON เป็นตาราง: list-of-records, dict-of-lists หรือ nested
+    (ผ่าน ``pd.json_normalize``)"""
+    import json as _json
+
+    with open(str(path), "r", encoding="utf-8-sig") as f:
+        data = _json.load(f)
+    if isinstance(data, list):
+        df = pd.json_normalize(data)
+        note = "json (records)"
+    elif isinstance(data, dict):
+        values = list(data.values())
+        if values and all(isinstance(v, (list, tuple)) for v in values) \
+                and len({len(v) for v in values}) == 1:
+            df = pd.DataFrame(data)
+            note = "json (columns)"
+        else:
+            df = pd.json_normalize(data)
+            note = "json (normalized)"
+    else:
+        raise ValueError("โครงสร้าง JSON ไม่ใช่ตาราง (ต้องเป็น list ของ records หรือ dict ของ lists)")
+    if df.empty:
+        raise ValueError("ไฟล์ JSON ไม่มีข้อมูลที่แปลงเป็นตารางได้")
+    return df, note
+
+
+def _frame_from_1d_arrays(arrays: Dict[str, np.ndarray]) -> Optional[pd.DataFrame]:
+    """รวม array 1 มิติที่ยาวเท่ากัน (กลุ่มที่ใหญ่ที่สุด) เป็น DataFrame"""
+    one_d = {name: np.asarray(arr).ravel()
+             for name, arr in arrays.items()
+             if np.asarray(arr).ndim == 1 and np.asarray(arr).size > 1}
+    if not one_d:
+        return None
+    from collections import Counter
+    best_len = Counter(len(a) for a in one_d.values()).most_common(1)[0][0]
+    cols: Dict[str, np.ndarray] = {}
+    for name, arr in one_d.items():
+        if len(arr) != best_len:
+            continue
+        leaf = name.split("/")[-1] or name
+        cols[name if leaf in cols else leaf] = arr
+    return pd.DataFrame(cols)
+
+
+def load_hdf5(path: str | Path) -> tuple[pd.DataFrame, str]:
+    """อ่าน HDF5: pandas-format (pytables) ก่อน แล้วค่อย h5py แบบ generic —
+    เก็บ dataset 1 มิติที่ยาวเท่ากันเป็นคอลัมน์ ไม่งั้นใช้ dataset 2 มิติตัวแรก"""
+    path = str(path)
+    try:
+        obj = pd.read_hdf(path)
+        if isinstance(obj, pd.DataFrame) and not obj.empty:
+            return obj.reset_index(), "hdf5 (pandas)"
+    except Exception:
+        logger.debug("pandas read_hdf failed; trying h5py", exc_info=True)
+
+    try:
+        import h5py
+    except ImportError as e:
+        raise RuntimeError("ต้องติดตั้ง h5py ก่อน (pip install h5py)") from e
+
+    datasets: Dict[str, np.ndarray] = {}
+    with h5py.File(path, "r") as f:
+        def _visit(name, obj):
+            if isinstance(obj, h5py.Dataset) and obj.size > 0:
+                datasets[name] = obj[()]
+        f.visititems(_visit)
+    if not datasets:
+        raise ValueError("ไม่พบ dataset ในไฟล์ HDF5")
+
+    df = _frame_from_1d_arrays(datasets)
+    if df is not None and not df.empty:
+        return df, f"hdf5 ({len(df.columns)} คอลัมน์ × {len(df)})"
+    for name, arr in datasets.items():
+        arr = np.asarray(arr)
+        if arr.ndim == 2 and np.issubdtype(arr.dtype, np.number):
+            leaf = name.split("/")[-1] or "col"
+            df = pd.DataFrame(arr, columns=[f"{leaf}[{i}]" for i in range(arr.shape[1])])
+            return df, f"hdf5 (2D {arr.shape[0]}×{arr.shape[1]})"
+    raise ValueError("ไม่มี dataset 1D/2D ที่แปลงเป็นตารางได้ใน HDF5")
+
+
+def load_mat(path: str | Path) -> tuple[pd.DataFrame, str]:
+    """อ่าน MATLAB .mat — v7 ผ่าน scipy.io.loadmat; v7.3 (HDF5) ผ่าน h5py"""
+    from scipy.io import loadmat
+
+    try:
+        raw = loadmat(str(path), squeeze_me=True)
+    except NotImplementedError:
+        # MATLAB v7.3 เก็บเป็น HDF5
+        df, _note = load_hdf5(path)
+        return df, "mat (v7.3/hdf5)"
+    arrays = {k: np.asarray(v) for k, v in raw.items()
+              if not k.startswith("__") and isinstance(v, (list, tuple, np.ndarray))}
+    if not arrays:
+        raise ValueError("ไม่พบตัวแปร array ในไฟล์ MAT")
+    df = _frame_from_1d_arrays(arrays)
+    if df is not None and not df.empty:
+        return df, f"mat ({len(df.columns)} ตัวแปร × {len(df)})"
+    for name, arr in arrays.items():
+        if arr.ndim == 2 and np.issubdtype(arr.dtype, np.number):
+            df = pd.DataFrame(arr, columns=[f"{name}[{i}]" for i in range(arr.shape[1])])
+            return df, f"mat (2D {arr.shape[0]}×{arr.shape[1]})"
+    raise ValueError("ไม่มีตัวแปร 1D/2D ที่แปลงเป็นตารางได้ใน MAT")
+
+
+def load_xml(path: str | Path) -> tuple[pd.DataFrame, str]:
+    """อ่าน XML แบบตารางแบน (row-oriented) ผ่าน ``pd.read_xml`` (ต้องมี lxml)"""
+    try:
+        df = pd.read_xml(str(path))
+    except ImportError as e:
+        raise RuntimeError("ต้องติดตั้ง lxml ก่อน (pip install lxml)") from e
+    if df is None or df.empty:
+        raise ValueError("ไฟล์ XML ไม่มีข้อมูลที่แปลงเป็นตารางได้")
+    return df, f"xml ({len(df)} แถว)"
+
+
 # ---------------- Utils ----------------
 def _b2s(x: Any) -> str:
     if isinstance(x,(bytes,bytearray)):

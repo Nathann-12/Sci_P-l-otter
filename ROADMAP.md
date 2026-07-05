@@ -22,19 +22,19 @@
 
 ---
 
-## A. Core Data System — 🟢 ฐานแข็ง (ขาด JSON/HDF5/MAT/XML + dataset management)
+## A. Core Data System — 🟢 import ครบทุกฟอร์แมตหลัก (ขาด dataset management ขั้นสูง)
 - ✅ Import CSV
 - ✅ Import TXT
 - ✅ Import TSV
 - ✅ Import Excel (multi-sheet)
-- ☐ Import JSON
-- ☐ Import HDF5
+- ✅ Import JSON
+- ✅ Import HDF5
 - ✅ Import NetCDF
 - ✅ Import CDF
-- ☐ Import MAT file
-- ☐ Import XML
+- ✅ Import MAT file
+- ✅ Import XML
 - ✅ Drag & drop
-- ☐ Batch import
+- ✅ Batch import (File → เปิดหลายไฟล์ — Book ต่อไฟล์)
 - 🟡 Auto delimiter detection
 - 🟡 Encoding detection
 - 🟡 Missing value detection

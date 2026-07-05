@@ -7,7 +7,15 @@ import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from loaders import load_cdf_nc_on_demand, load_tabular
+from loaders import (
+    load_cdf_nc_on_demand, load_hdf5, load_json, load_mat, load_tabular, load_xml,
+)
+
+# ฟิลเตอร์ไฟล์ข้อมูลที่รองรับ (ใช้ทั้ง open เดี่ยวและ batch)
+DATA_FILE_FILTER = (
+    "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf *.json *.h5 *.hdf5 *.hdf *.mat *.xml)"
+    ";;All Files (*.*)"
+)
 
 
 class MainWindowDataMixin:
@@ -32,15 +40,23 @@ class MainWindowDataMixin:
             if df is None or df.empty:
                 raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
             return df, "CDF/NetCDF", None
+        if ext == ".json":
+            df, note = load_json(path)
+            return df, "JSON", note
+        if ext in (".h5", ".hdf5", ".hdf"):
+            df, note = load_hdf5(path)
+            return df, "HDF5", note
+        if ext == ".mat":
+            df, note = load_mat(path)
+            return df, "MAT", note
+        if ext == ".xml":
+            df, note = load_xml(path)
+            return df, "XML", note
         raise ValueError("นามสกุลไฟล์ไม่รองรับ")
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self,
-            "เลือกไฟล์ข้อมูล",
-            "",
-            "Data Files (*.csv *.tsv *.txt *.xlsx *.nc *.cdf);;All Files (*.*)",
-        )
+            self, "เลือกไฟล์ข้อมูล", "", DATA_FILE_FILTER)
         if not path:
             return
         try:
