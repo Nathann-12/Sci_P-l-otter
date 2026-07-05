@@ -141,6 +141,7 @@ class MainWindowMenuMixin:
 
         toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
         toolsMenu.addAction(self.actSettings)
+        self.toolsMenu = toolsMenu  # โมดูลอื่น (เช่น workflow) เติมรายการต่อได้
 
         # Window menu (Origin-style): arrange MDI sub-windows
         try:

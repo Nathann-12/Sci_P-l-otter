@@ -95,6 +95,10 @@ class MainWindowViewAccessMixin:
         path, _ = QFileDialog.getSaveFileName(self, title, default_name, file_filter)
         return path
 
+    def ask_open_path(self, title: str, file_filter: str) -> str:
+        path, _ = QFileDialog.getOpenFileName(self, title, "", file_filter)
+        return path
+
     # --- plotting surface ----------------------------------------------------
     def active_axes(self):
         """Return the matplotlib Axes of the active tab/canvas, or None."""

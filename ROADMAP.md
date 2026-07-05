@@ -187,22 +187,22 @@
 - ☐ Harmonic analysis
 - ☐ Frequency tracking
 
-## F. Reproducibility System — 🟡 มี session/undo ขาด workflow/script gen
-- ☐ Analysis history
-- 🟡 Operation log
-- 🟡 Parameter log
-- ☐ Version stamp
-- ☐ Dataset checksum
-- ☐ Export workflow
-- ☐ Import workflow
-- ☐ Re-run analysis
-- ☐ Auto-generate Python script
+## F. Reproducibility System — 🟢 workflow ครบวงจร (เมนู Tools; core/history.py)
+- ✅ Analysis history
+- ✅ Operation log
+- ✅ Parameter log
+- ✅ Version stamp
+- ✅ Dataset checksum
+- ✅ Export workflow
+- ✅ Import workflow
+- ✅ Re-run analysis
+- ✅ Auto-generate Python script
 - 🟡 Auto-generate report
 - 🟡 Save project file (session save/restore)
 - 🟡 Project snapshot
 - ✅ Undo/redo (annotations)
 - ☐ Compare versions
-- ☐ Audit trail
+- 🟡 Audit trail (history + checksum + op log — ยังไม่ immutable)
 
 ## G. AI Assistant — ☐ ยังไม่เริ่ม (ตัวสร้างความต่างหลัก)
 - ☐ สั่งงานด้วยภาษาไทย

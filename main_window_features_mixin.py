@@ -95,6 +95,7 @@ class MainWindowFeaturesMixin:
         try:
             new_col = add_moving_average(self._df, y_col, window=25)
             self.add_y_column_option(new_col)
+            self._log_workflow("add_moving_average", col=y_col, window=25)
             self.notify(f"เพิ่มคอลัมน์ Moving Average แล้ว: {new_col}")
         except Exception as e:
             self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -114,6 +115,17 @@ class MainWindowFeaturesMixin:
             self.notify("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
         except Exception as e:
             self.error_box("แปลงไม่สำเร็จ", f"สาเหตุ: {e}")
+
+    # ---------- Reproducibility hook (ROADMAP F) ----------
+    def _log_workflow(self, op: str, **params):
+        """ส่งต่อไปยัง workflow recorder ถ้ามี (stub ในเทสต์ไม่มี → เงียบ)"""
+        recorder = getattr(self, "_record_op", None)
+        if callable(recorder):
+            try:
+                recorder(op, **params)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug("workflow record failed", exc_info=True)
 
     # ---------- Data cleaning (ROADMAP B) ----------
     def _has_y_data(self) -> bool:
@@ -149,6 +161,7 @@ class MainWindowFeaturesMixin:
         try:
             new_col = fill_missing(self._df, y_col, method=method, value=value)
             self.add_y_column_option(new_col)
+            self._log_workflow("fill_missing", col=y_col, method=method, value=value)
             self.notify(f"เติมค่าที่หายแล้ว: {new_col} (วิธี {method})")
         except Exception as e:
             self.error_box("เติมค่าไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -160,6 +173,7 @@ class MainWindowFeaturesMixin:
         try:
             new_col = interpolate_missing(self._df, y_col)
             self.add_y_column_option(new_col)
+            self._log_workflow("interpolate_missing", col=y_col)
             self.notify(f"เติมค่าด้วย interpolation แล้ว: {new_col}")
         except Exception as e:
             self.error_box("Interpolate ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -171,6 +185,7 @@ class MainWindowFeaturesMixin:
         try:
             new_df, removed = remove_duplicates(self._df)
             self._swap_dataframe(new_df)
+            self._log_workflow("remove_duplicates")
             self.notify(f"ลบแถวซ้ำแล้ว {removed} แถว (เหลือ {len(new_df)})")
         except Exception as e:
             self.error_box("ลบแถวซ้ำไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -189,6 +204,7 @@ class MainWindowFeaturesMixin:
         try:
             new_df, removed = remove_outliers(self._df, y_col, method=method, threshold=threshold)
             self._swap_dataframe(new_df)
+            self._log_workflow("remove_outliers", col=y_col, method=method, threshold=threshold)
             self.notify(f"ตัด outliers ของ {y_col} แล้ว {removed} แถว (วิธี {method})")
         except Exception as e:
             self.error_box("ตัด outliers ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -203,6 +219,7 @@ class MainWindowFeaturesMixin:
         try:
             new_col = normalize_column(self._df, y_col, method=method)
             self.add_y_column_option(new_col)
+            self._log_workflow("normalize_column", col=y_col, method=method)
             self.notify(f"สร้างคอลัมน์ normalize แล้ว: {new_col}")
         except Exception as e:
             self.error_box("Normalize ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -220,6 +237,7 @@ class MainWindowFeaturesMixin:
         try:
             new_col = detrend_polynomial(self._df, y_col, order=int(order), x_col=x_col)
             self.add_y_column_option(new_col)
+            self._log_workflow("detrend_polynomial", col=y_col, order=int(order), x_col=x_col)
             self.notify(f"ลบ baseline/trend อันดับ {order} แล้ว: {new_col}")
         except Exception as e:
             self.error_box("Detrend ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -236,8 +254,10 @@ class MainWindowFeaturesMixin:
         if not ok:
             return
         try:
-            new_df = sort_dataframe(self._df, col, ascending=(direction == "น้อย→มาก"))
+            ascending = (direction == "น้อย→มาก")
+            new_df = sort_dataframe(self._df, col, ascending=ascending)
             self._swap_dataframe(new_df)
+            self._log_workflow("sort_dataframe", col=col, ascending=ascending)
             self.notify(f"เรียงข้อมูลตาม {col} แล้ว")
         except Exception as e:
             self.error_box("เรียงไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -256,6 +276,7 @@ class MainWindowFeaturesMixin:
         try:
             new_df = resample_uniform(self._df, x_col, n_points=int(n_points))
             self._swap_dataframe(new_df)
+            self._log_workflow("resample_uniform", x_col=x_col, n_points=int(n_points))
             self.notify(f"resample เป็นกริดสม่ำเสมอ {n_points} จุดแล้ว (คงเฉพาะคอลัมน์ตัวเลข)")
         except Exception as e:
             self.error_box("Resample ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -303,6 +324,10 @@ class MainWindowFeaturesMixin:
             new_col = f"{y_col}_{kind}"
             self._df[new_col] = filtered
             self.add_y_column_option(new_col)
+            self._log_workflow(
+                "butterworth_filter", col=y_col, fs=float(fs), kind=kind,
+                cutoff=list(cutoff) if isinstance(cutoff, tuple) else float(cutoff),
+                order=4, new_col=new_col)
             self.notify(f"กรองสัญญาณ ({kind}) แล้ว: {new_col} (fs≈{fs:.4g} Hz)")
         except Exception as e:
             self.error_box("กรองไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -323,20 +348,24 @@ class MainWindowFeaturesMixin:
                     return
                 smoothed = savitzky_golay(self._df[y_col], window_length=int(window))
                 new_col = f"{y_col}_savgol"
+                op, params = "savitzky_golay", {"col": y_col, "window": int(window)}
             elif method == "median":
                 kernel, ok = self.ask_int("Median Filter", "ขนาด kernel (คี่):", 5, 1, 9999)
                 if not ok:
                     return
                 smoothed = median_filter(self._df[y_col], kernel_size=int(kernel))
                 new_col = f"{y_col}_median"
+                op, params = "median_filter", {"col": y_col, "kernel": int(kernel)}
             else:
                 sigma, ok = self.ask_number("Gaussian Filter", "sigma (จุด):", 2.0, 0.01, 1e6, 2)
                 if not ok:
                     return
                 smoothed = gaussian_smooth(self._df[y_col], sigma=float(sigma))
                 new_col = f"{y_col}_gauss"
+                op, params = "gaussian_smooth", {"col": y_col, "sigma": float(sigma)}
             self._df[new_col] = smoothed
             self.add_y_column_option(new_col)
+            self._log_workflow(op, new_col=new_col, **params)
             self.notify(f"smooth ({method}) แล้ว: {new_col}")
         except Exception as e:
             self.error_box("Smooth ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -417,6 +446,8 @@ class MainWindowFeaturesMixin:
             new_col = f"{y_col}_{window}"
             self._df[new_col] = tapered
             self.add_y_column_option(new_col)
+            self._log_workflow("apply_window", col=y_col, window=window,
+                               beta=float(beta), new_col=new_col)
             self.notify(f"ใส่ window ({window}) แล้ว: {new_col}")
         except Exception as e:
             self.error_box("ใส่ window ไม่สำเร็จ", f"สาเหตุ: {e}")

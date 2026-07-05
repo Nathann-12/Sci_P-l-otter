@@ -230,6 +230,21 @@ class MainWindowDataMixin:
         self.cbY.clear()
         self.cbX.addItems(cols)
         self.cbY.addItems(cols)
+        # ค่าเริ่มต้นอัจฉริยะ: X = คอลัมน์เวลา (ถ้ามี) ไม่งั้นคอลัมน์แรก,
+        # Y = คอลัมน์แรกที่ไม่ใช่ X — ไม่งั้น operation ต่าง ๆ (cleaning/filter/
+        # สถิติ) จะไปลงคอลัมน์เวลาแทนสัญญาณจริง
+        try:
+            time_like = [c for c in cols
+                         if str(c).lower() == "t"
+                         or any(k in str(c).lower() for k in ("time", "timestamp", "datetime", "date"))]
+            x_guess = time_like[0] if time_like else cols[0]
+            self.cbX.setCurrentText(x_guess)
+            y_pref = [c for c in cols if c != x_guess]
+            if y_pref:
+                self.cbY.setCurrentText(y_pref[0])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("smart X/Y default skipped", exc_info=True)
 
         try:
             self.cbHist.clear()

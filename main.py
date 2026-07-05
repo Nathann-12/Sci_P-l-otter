@@ -95,6 +95,7 @@ from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
+from main_window_workflow_mixin import MainWindowWorkflowMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
@@ -181,6 +182,7 @@ class MainWindow(
     MainWindowFeaturesMixin,
     MainWindowActionsMixin,
     MainWindowGasSensorMixin,
+    MainWindowWorkflowMixin,
     MainWindowViewAccessMixin,
     QMainWindow,
 ):
@@ -322,6 +324,12 @@ class MainWindow(
             self.init_gas_sensor_module()
         except Exception:
             logger.debug("gas sensor module init skipped", exc_info=True)
+
+        # Reproducibility: ประวัติการวิเคราะห์ + workflow (เมนู Tools)
+        try:
+            self.init_workflow_module()
+        except Exception:
+            logger.debug("workflow module init skipped", exc_info=True)
 
         # Command palette (Ctrl+K) - searchable list of all menu/toolbar actions
         try:
