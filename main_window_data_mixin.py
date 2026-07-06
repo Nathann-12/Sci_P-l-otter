@@ -342,17 +342,13 @@ class MainWindowDataMixin:
             return False, f"เกิดข้อผิดพลาดในการตรวจสอบคอลัมน์ '{col_name}': {e}"
 
     def _get_xy(self):
-        print("Debug: _get_xy() called")
         if self._df is None:
-            print("Debug: _get_xy() - no DataFrame (_df is None)")
             QMessageBox.warning(
                 self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์/เลือกตัวแปร แล้วกด 'โหลดคอลัมน์'"
             )
             return None, None
-        print(f"Debug: _get_xy() - DataFrame shape: {self._df.shape}")
 
         if self.cbX.count() == 0 or self.cbY.count() == 0:
-            print(f"Debug: _get_xy() - cbX count: {self.cbX.count()}, cbY count: {self.cbY.count()}")
             QMessageBox.information(self, "ยังไม่ได้โหลดคอลัมน์", "กดปุ่ม 'โหลดคอลัมน์จากข้อมูล' ก่อน")
             return None, None
 
@@ -379,63 +375,23 @@ class MainWindowDataMixin:
             x = self._df[x_col].values
             y = self._df[y_col].values
 
-            print(
-                f"Debug: X column '{x_col}' - dtype: {self._df[x_col].dtype}, sample: {x[:3] if len(x) > 0 else 'empty'}"
-            )
-            print(
-                f"Debug: Y column '{y_col}' - dtype: {self._df[y_col].dtype}, sample: {y[:3] if len(y) > 0 else 'empty'}"
-            )
-
-            if len(x) > 0 and len(y) > 0:
-                print(f"Debug: Data range - X: {x.min()} to {x.max()}, Y: {y.min():.6f} to {y.max():.6f}")
-
-                try:
-                    if pd.api.types.is_datetime64_any_dtype(x) or isinstance(x[0], str):
-                        print("Debug: X is datetime/string, skipping range calculation")
-                    else:
-                        print(f"Debug: Data variation - X range: {x.max() - x.min()}, Y range: {y.max() - y.min():.6f}")
-                except Exception as e:
-                    print(f"Debug: Error calculating X range: {e}")
-
-                if len(y) > 1:
-                    y_diff = np.diff(y)
-                    print(
-                        f"Debug: Y variation - min diff: {y_diff.min():.6f}, max diff: {y_diff.max():.6f}, std: {y_diff.std():.6f}"
-                    )
-
             try:
-                y_original_count = len(y)
                 y = pd.to_numeric(y, errors="coerce")
-                y_nan_count = pd.isna(y).sum()
-                print(
-                    f"Debug: Y conversion - original: {y_original_count}, NaN after conversion: {y_nan_count}, valid: {y_original_count - y_nan_count}"
-                )
-            except Exception as e:
-                print(f"Y column conversion error: {e}")
+            except Exception:
                 y = pd.to_numeric(y, errors="coerce")
 
             if len(x) > 0 and (
                 np.issubdtype(type(x[0]), np.datetime64)
                 or pd.api.types.is_datetime64_any_dtype(self._df[x_col])
             ):
-                print("Debug: X is datetime, filtering by Y NaN only")
                 mask = ~pd.isna(y)
                 x = x[mask]
                 y = y[mask]
-                print(f"Debug: After datetime filtering - X: {len(x)}, Y: {len(y)}")
-
                 try:
                     x_dt = self._coerce_datetime(x)
-                    x_rel = (x_dt - x_dt[0]).dt.total_seconds()
-                    x = x_rel.values
-                    print(f"Debug: Converted datetime X to relative seconds - range: {x.min():.3f} to {x.max():.3f}")
-                except Exception as e:
-                    print(f"Debug: Failed to convert datetime to relative seconds: {e}")
-                    try:
-                        x = np.arange(len(x))
-                        print(f"Debug: Fallback to array index as X - range: {x.min()} to {x.max()}")
-                    except Exception as e2:
-                        print(f"Debug: All datetime conversion methods failed: {e2}")
+                    x = (x_dt - x_dt[0]).dt.total_seconds().values
+                except Exception:
+                    x = np.arange(len(x))
             else:
                 try:
                     # Numeric X (float/int) must NOT be coerced to datetime — pandas
@@ -444,31 +400,15 @@ class MainWindowDataMixin:
                         raise ValueError("X is numeric; skip datetime coercion")
                     x_dt = self._coerce_datetime(x)
                     if x_dt.notna().sum() > 0:
-                        print("Debug: X is datetime string, converting to relative seconds")
-                        x_rel = (x_dt - x_dt[0]).total_seconds()
-                        x = x_rel.values
-                        print(
-                            f"Debug: Converted datetime string X to relative seconds - range: {x.min():.3f} to {x.max():.3f}"
-                        )
+                        x = (x_dt - x_dt[0]).total_seconds().values
                     else:
                         raise ValueError("Not a valid datetime string")
-                except Exception as e:
-                    print(f"Debug: X is not datetime string, trying numeric conversion: {e}")
-                    try:
-                        x_original_count = len(x)
-                        x = pd.to_numeric(x, errors="coerce")
-                        x_nan_count = pd.isna(x).sum()
-                        print(
-                            f"Debug: X conversion - original: {x_original_count}, NaN after conversion: {x_nan_count}, valid: {x_original_count - x_nan_count}"
-                        )
-                    except Exception as e2:
-                        print(f"X column conversion error: {e2}")
-                        x = pd.to_numeric(x, errors="coerce")
+                except Exception:
+                    x = pd.to_numeric(x, errors="coerce")
 
-                    mask = ~(pd.isna(x) | pd.isna(y))
-                    x = x[mask]
-                    y = y[mask]
-                    print(f"Debug: After NaN filtering - X: {len(x)}, Y: {len(y)}")
+                mask = ~(pd.isna(x) | pd.isna(y))
+                x = x[mask]
+                y = y[mask]
 
             if len(x) == 0 or len(y) == 0:
                 x_col_info = f"X column '{x_col}' (dtype: {self._df[x_col].dtype})"
@@ -517,30 +457,6 @@ class MainWindowDataMixin:
                 QMessageBox.warning(self, "ข้อมูลไม่ตรงกัน", f"จำนวนข้อมูล X ({len(x)}) และ Y ({len(y)}) ไม่เท่ากัน")
                 return None, None
 
-            if len(y) > 0:
-                y_mean = np.mean(y)
-                y_std = np.std(y)
-                y_median = np.median(y)
-
-                print(f"Debug: Y statistics - mean: {y_mean:.6f}, std: {y_std:.6f}, median: {y_median:.6f}")
-
-                q1, q3 = np.percentile(y, [25, 75])
-                iqr = q3 - q1
-                lower_bound = q1 - 1.5 * iqr
-                upper_bound = q3 + 1.5 * iqr
-
-                outliers = np.where((y < lower_bound) | (y > upper_bound))[0]
-                if len(outliers) > 0:
-                    print(
-                        f"Debug: Found {len(outliers)} outliers in Y data (indices: {outliers[:10]}{'...' if len(outliers) > 10 else ''})"
-                    )
-                    print(f"Debug: Outlier percentage: {len(outliers)/len(y)*100:.2f}%")
-                    outlier_values = y[outliers[:5]]
-                    print(f"Debug: Sample outlier values: {outlier_values}")
-                else:
-                    print("Debug: No outliers detected in Y data")
-
-            print(f"Debug: Final data ready for plotting - X: {len(x)}, Y: {len(y)}")
             return x, y
         except Exception as e:
             QMessageBox.critical(self, "เกิดข้อผิดพลาดในการประมวลผลข้อมูล", f"สาเหตุ: {e}")

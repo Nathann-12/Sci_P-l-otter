@@ -805,21 +805,14 @@ class MdiWorkspace(QWidget):
                 except Exception:
                     pass
                 clamp_date_limits(ax)
+                # Defer the render: schedule a redraw instead of forcing a full
+                # figure render here. The plot mixin (_update_tabs_after_plot)
+                # renders once at the end, so a blocking draw here plus tight_layout
+                # meant every plot rendered the figure 2–3× (the "laggy" slowdown).
                 try:
-                    tab.canvas.fig.tight_layout()
+                    tab.canvas.draw_idle()
                 except Exception:
                     pass
-                clamp_date_limits(ax)
-                try:
-                    tab.draw()
-                except Exception:
-                    try:
-                        tab.canvas.draw()
-                    except Exception:
-                        try:
-                            tab.canvas.fig.canvas.draw_idle()
-                        except Exception:
-                            pass
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)

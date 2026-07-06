@@ -157,6 +157,16 @@ DESIGNATIONS = ("X", "Y", "ignore")
 _TIME_LIKE_KEYS = ("time", "timestamp", "datetime", "date", "epoch", "t")
 
 
+def _format_column(series) -> List[str]:
+    """Column values → list of display strings ('' for NaN), fast single pass."""
+    try:
+        is_na = pd.isna(series).to_numpy()
+        values = series.to_numpy()
+        return ["" if is_na[i] else str(values[i]) for i in range(len(values))]
+    except Exception:
+        return ["" if pd.isna(v) else str(v) for v in series.tolist()]
+
+
 def column_label(index: int) -> str:
     """Spreadsheet-style letter label for a column index (0 -> A, 25 -> Z, 26 -> AA)."""
     if index < 0:
@@ -217,6 +227,14 @@ class WorkbookWidget(QWidget):
         self._loading = False
         # Per-column designation ("X"/"Y"/"ignore") — Origin's Set As.
         self._designations: List[str] = []
+
+        # Shared brushes/fonts — reused for every cell so filling a big sheet
+        # doesn't allocate thousands of QBrush/QColor/QFont objects.
+        self._brush_meta = QBrush(QColor(_META_BG))
+        self._brush_data = QBrush(QColor(_SURFACE))
+        self._brush_muted = QBrush(QColor(_MUTED))
+        self._font_meta = QFont()
+        self._font_meta.setItalic(True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -343,10 +361,10 @@ class WorkbookWidget(QWidget):
         self._dirty = False
 
     def _meta_brush(self) -> QBrush:
-        return QBrush(QColor(_META_BG))
+        return self._brush_meta
 
     def _data_brush(self) -> QBrush:
-        return QBrush(QColor(_SURFACE))
+        return self._brush_data
 
     def _apply_row_headers(self, data_row_count: int) -> None:
         """Set vertical header labels: meta names then 1..N for data rows."""
@@ -435,13 +453,11 @@ class WorkbookWidget(QWidget):
     def _make_item(self, text: str, is_meta: bool) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
         if is_meta:
-            item.setBackground(self._meta_brush())
-            font = QFont()
-            font.setItalic(True)
-            item.setFont(font)
-            item.setForeground(QBrush(QColor(_MUTED)))
-        else:
-            item.setBackground(self._data_brush())
+            item.setBackground(self._brush_meta)
+            item.setFont(self._font_meta)
+            item.setForeground(self._brush_muted)
+        # data cells: no per-cell brush — the #WorkbookTable stylesheet already
+        # paints the surface colour, so skipping it saves work on big sheets
         return item
 
     def _populate_empty_cells(self) -> None:
@@ -539,27 +555,38 @@ class WorkbookWidget(QWidget):
 
         self.source_df = df
         self._auto_designations(df)  # X = คอลัมน์เวลา (ถ้ามี) ไม่งั้นคอลัมน์แรก
-        with self._loading_guard():
-            n_cols = max(1, int(df.shape[1]))
-            n_rows = int(df.shape[0])
+        n_cols = max(1, int(df.shape[1]))
+        n_rows = int(df.shape[0])
 
+        # Bulk fill: block per-cell signals + repaints and reuse shared brushes.
+        # Each data cell is set exactly once (no populate-then-overwrite), and
+        # column values are pre-formatted to strings in one pass.
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        prev_loading = self._loading
+        self._loading = True
+        try:
             self.table.clear()
             self.table.setColumnCount(n_cols)
             self.table.setRowCount(META_ROW_COUNT + n_rows)
             self._apply_column_headers(n_cols)
             self._apply_row_headers(n_rows)
-            self._populate_empty_cells()
 
+            make = self._make_item
+            set_item = self.table.setItem
             for c, col_name in enumerate(df.columns):
-                # Long Name meta row holds the source column name.
-                self.set_meta(c, long_name=str(col_name))
-                series = df.iloc[:, c]
+                # meta rows: Long Name holds the source column name, the rest blank
+                set_item(0, c, make(str(col_name), True))
+                for mr in range(1, META_ROW_COUNT):
+                    set_item(mr, c, make("", True))
+                # data rows: format the whole column once, then place cells
+                texts = _format_column(df.iloc[:, c])
                 for r in range(n_rows):
-                    value = series.iat[r]
-                    text = "" if pd.isna(value) else str(value)
-                    self.table.setItem(
-                        r + META_ROW_COUNT, c, self._make_item(text, False)
-                    )
+                    set_item(r + META_ROW_COUNT, c, make(texts[r], False))
+        finally:
+            self._loading = prev_loading
+            self.table.setUpdatesEnabled(True)
+            self.table.blockSignals(False)
         self._dirty = False
 
     def dataframe(self) -> pd.DataFrame:

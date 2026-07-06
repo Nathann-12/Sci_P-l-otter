@@ -1,8 +1,11 @@
 # processors.py
+import logging
 import numpy as np
 import pandas as pd
 import re
 import warnings
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numexpr as ne
@@ -200,8 +203,8 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
             # ปรับแต่งระยะห่างของป้ายกำกับ
             ax.tick_params(axis='x', which='major', labelsize=9)
             
-        except Exception as e:
-            print(f"Debug: DateTime formatting failed: {e}")
+        except Exception:
+            logger.debug("DateTime formatting failed", exc_info=True)
             # Fallback to basic datetime formatting
             try:
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
@@ -243,20 +246,9 @@ def beautify_axes(ax, title=None, x_is_datetime=False):
             # If all methods fail, just continue without legend styling
             pass
     
-    # Ensure tight layout and redraw with better error handling
-    try:
-        ax.figure.tight_layout()
-    except Exception:
-        pass  # Continue without tight layout
-    
-    try:
-        # Try multiple redraw methods
-        if hasattr(ax.figure, 'canvas') and hasattr(ax.figure.canvas, 'draw'):
-            ax.figure.canvas.draw()
-        elif hasattr(ax, 'figure') and hasattr(ax.figure, 'draw'):
-            ax.figure.draw()
-    except Exception:
-        pass  # Continue without redraw
+    # NOTE: no tight_layout() or canvas.draw() here. The canvas figure uses the
+    # 'tight' layout engine, so layout happens inside the caller's single draw —
+    # calling tight_layout()+draw() here rendered every plot 2–3× (slow).
 
 # ---- Derived Column Expression Evaluation ----
 def _coerce_numeric_series(value, length=None, name="value"):

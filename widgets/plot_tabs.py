@@ -41,6 +41,12 @@ from widgets.layer_manager import LayerManagerWidget
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None):
         self.fig = Figure(figsize=(6, 4), dpi=100)
+        # Tight layout applied by the draw itself (deferred layout engine) so
+        # we don't pay a separate full render for tight_layout() on every plot.
+        try:
+            self.fig.set_layout_engine("tight")
+        except Exception:
+            pass
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
@@ -65,7 +71,7 @@ class PlotCanvas(FigureCanvas):
                 self.ax.grid(True, alpha=grid_alpha, linestyle=grid_ls, color=grid_col)
         except Exception:
             pass
-        self.fig.tight_layout()
+        # layout handled by the 'tight' layout engine at draw time
 
     def draw(self):
         try:
