@@ -45,12 +45,36 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_plotcanvas_uses_deferred_tight_layout(qapp):
+def test_plotcanvas_applies_tight_layout_without_live_engine(qapp):
+    """__init__ tight-lays out the figure once. It must NOT leave a live
+    TightLayoutEngine (that re-runs a full layout on every draw); tight_layout()
+    leaves a harmless PlaceHolderLayoutEngine instead."""
+    from matplotlib.layout_engine import TightLayoutEngine
     from widgets.plot_tabs import PlotCanvas
     c = PlotCanvas()
     engine = c.fig.get_layout_engine()
-    # a layout engine is set (tight) so layout happens inside the single draw
     assert engine is not None
+    assert not isinstance(engine, TightLayoutEngine)
+
+
+def test_plotcanvas_draw_does_not_recurse_on_failure(qapp, monkeypatch):
+    """A failing render must attempt the real draw exactly once and swallow the
+    error. The old fallback called self.fig.canvas.draw() (== self.draw()) and
+    recursed ~1000×, turning one bad axis into a multi-second hang."""
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+    from widgets.plot_tabs import PlotCanvas
+
+    c = PlotCanvas()
+    calls = {"n": 0}
+
+    def boom(self, *a, **k):
+        calls["n"] += 1
+        raise ValueError("simulated bad axis (date locator on numeric data)")
+
+    monkeypatch.setattr(FigureCanvasQTAgg, "draw", boom)
+    # must not raise and must not recurse
+    c.draw()
+    assert calls["n"] == 1
 
 
 def test_workbook_data_cells_have_no_per_cell_brush(qapp):

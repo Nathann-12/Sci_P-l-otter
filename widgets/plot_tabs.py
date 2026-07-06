@@ -41,12 +41,6 @@ from widgets.layer_manager import LayerManagerWidget
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None):
         self.fig = Figure(figsize=(6, 4), dpi=100)
-        # Tight layout applied by the draw itself (deferred layout engine) so
-        # we don't pay a separate full render for tight_layout() on every plot.
-        try:
-            self.fig.set_layout_engine("tight")
-        except Exception:
-            pass
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
@@ -71,20 +65,22 @@ class PlotCanvas(FigureCanvas):
                 self.ax.grid(True, alpha=grid_alpha, linestyle=grid_ls, color=grid_col)
         except Exception:
             pass
-        # layout handled by the 'tight' layout engine at draw time
+        try:
+            self.fig.tight_layout()
+        except Exception:
+            pass
 
     def draw(self):
         try:
             super().draw()
         except Exception:
-            try:
-                self.fig.canvas.draw()
-            except Exception:
-                try:
-                    self.fig.canvas.draw_idle()
-                except Exception:
-                    import traceback
-                    traceback.print_exc()
+            # NOTE: self.fig.canvas IS self, so the old fallback
+            # (self.fig.canvas.draw()/draw_idle()) recursed ~1000× and turned a
+            # single bad axis into a multi-second hang. Never re-enter draw here;
+            # just log. The caller is responsible for not putting invalid state
+            # (e.g. a date locator on a numeric axis) on the axes.
+            import logging
+            logging.getLogger(__name__).debug("PlotCanvas.draw failed", exc_info=True)
 
     def clear(self):
         try:
@@ -97,10 +93,7 @@ class PlotCanvas(FigureCanvas):
             self.fig.patch.set_facecolor(current_facecolor)
             self.ax.set_facecolor(current_axes_facecolor)
             self.fig.tight_layout()
-            try:
-                self.draw()
-            except Exception:
-                self.fig.canvas.draw()
+            self.draw()
         except Exception:
             try:
                 import matplotlib

@@ -111,6 +111,12 @@ class MainWindowPlotMixin:
                 beautify_axes(ax, title=title or None, x_is_datetime=x_is_datetime)
             except Exception:
                 logger.debug("Failed to beautify axes", exc_info=True)
+            # single tight_layout here (once), then one draw — NOT a per-draw
+            # layout engine, which recursed ~990× on wide/large tick labels
+            try:
+                ax.figure.tight_layout()
+            except Exception:
+                logger.debug("tight_layout skipped", exc_info=True)
             self._draw_tab(tab, attempts=draw_attempts)
 
     def plot_from_workbook(self, style: str = "line", new_graph: bool = True):

@@ -471,6 +471,14 @@ class MainWindowDataMixin:
         try:
             if pd.api.types.is_datetime64_any_dtype(self._df[col_name]):
                 return True
+            # Numeric columns are never datetime. pd.to_datetime() happily reads
+            # a large number as an epoch offset (e.g. 5.5e7 -> 1970-01-01), which
+            # would flag the column as datetime and put a DATE locator on a
+            # numeric axis. On draw, num2date(5.5e7) overflows the year range
+            # (year 152500) and raises, blanking/hanging the graph. This mirrors
+            # the numeric guard in _get_xy.
+            if pd.api.types.is_numeric_dtype(self._df[col_name]):
+                return False
             sample = self._df[col_name].dropna().iloc[:5] if not self._df[col_name].empty else pd.Series()
             if not sample.empty:
                 self._coerce_datetime(sample)

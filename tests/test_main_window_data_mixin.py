@@ -174,6 +174,26 @@ def test_convert_to_datetime_if_possible_requires_majority_parseable_values():
     assert parsed_text is None
 
 
+def test_is_datetime_column_rejects_large_numeric_epoch_lookalikes():
+    """Regression: a big numeric column (e.g. 5.5e7) must NOT be treated as
+    datetime. pd.to_datetime would read it as an epoch offset and succeed, which
+    put a DATE locator on a numeric axis -> num2date(5.5e7) overflows the year
+    range on draw and blanks/hangs the graph."""
+    window = _WindowStub()
+    window._df = pd.DataFrame(
+        {
+            "big": [5.498e7, 5.499e7, 5.500e7, 5.501e7],
+            "small_int": [1, 2, 3, 4],
+            "real_dates": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+        }
+    )
+
+    assert window._is_datetime_column("big") is False
+    assert window._is_datetime_column("small_int") is False
+    # genuine string dates are still detected
+    assert window._is_datetime_column("real_dates") is True
+
+
 def test_check_column_numeric_accepts_datetime_and_rejects_sparse_numeric():
     window = _WindowStub()
     window._df = pd.DataFrame(
