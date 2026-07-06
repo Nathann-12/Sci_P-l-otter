@@ -35,13 +35,12 @@ def win(qapp):
     w.close()
 
 
-def _stub_prompts(win, choices=(), numbers=()):
-    """Replace seam prompts with scripted answers; capture inform() calls."""
+def _stub_prompts(win, forms=()):
+    """Feed scripted form results (one dict per ask_form call) and capture
+    inform() calls."""
     reports = []
-    choice_iter = iter(choices)
-    number_iter = iter(numbers)
-    win.ask_choice = lambda *a, **k: next(choice_iter)
-    win.ask_number = lambda *a, **k: next(number_iter)
+    form_iter = iter(forms)
+    win.ask_form = lambda *a, **k: next(form_iter)
     win.inform = lambda title, text: reports.append((title, text))
     return reports
 
@@ -68,10 +67,7 @@ def test_gs_analyze_response_end_to_end(win):
     win._stage_insert("gas.csv [ตาราง]", df, None)
 
     reports = _stub_prompts(
-        win,
-        choices=[("resistance", True)],
-        numbers=[(50.0, True), (150.0, True)],
-    )
+        win, forms=[{"y_col": "resistance", "t_on": 50.0, "t_off": 150.0}])
     win.gs_analyze_response()
 
     assert reports, "analysis must report via inform()"
@@ -90,7 +86,7 @@ def test_gs_detect_cycles_reports_three_pulses(win):
     win._stage_insert("cycles.csv [ตาราง]", df, None)
 
     reports = _stub_prompts(
-        win, choices=[("r", True)], numbers=[(5.0, True)])
+        win, forms=[{"y_col": "r", "threshold_pct": 5.0}])
     win.gs_detect_cycles()
 
     assert reports
@@ -105,11 +101,8 @@ def test_gs_calibration_plots_new_graph_and_reports_lod(win):
     win._stage_insert("calib.csv [ตาราง]", df, None)
 
     graphs_before = win.tabs.count()
-    reports = _stub_prompts(
-        win,
-        choices=[("conc", True), ("resp", True), ("linear", True)],
-        numbers=[(0.2, True)],
-    )
+    reports = _stub_prompts(win, forms=[{
+        "conc_col": "conc", "resp_col": "resp", "model": "linear", "noise_std": 0.2}])
     win.gs_calibration()
 
     assert win.tabs.count() == graphs_before + 1  # new calibration Graph
@@ -120,8 +113,8 @@ def test_gs_calibration_plots_new_graph_and_reports_lod(win):
 
 
 def test_gs_dilution_computes_ppm(win):
-    reports = _stub_prompts(
-        win, numbers=[(1000.0, True), (2.0, True), (100.0, True)])
+    reports = _stub_prompts(win, forms=[{
+        "source_ppm": 1000.0, "flow_gas": 2.0, "flow_total": 100.0}])
     win.gs_dilution()
 
     _title, text = reports[-1]

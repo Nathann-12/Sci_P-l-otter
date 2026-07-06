@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
-
 import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QStyle
@@ -60,29 +58,17 @@ class MainWindowGasSensorMixin:
             return (ser - ser.iloc[0]).dt.total_seconds().to_numpy(dtype=float)
         return pd.to_numeric(ser, errors="coerce").to_numpy(dtype=float)
 
-    def _gs_pick_txy(self) -> Optional[Tuple[np.ndarray, np.ndarray, str, str]]:
-        """Resolve (t, y, x_name, y_name) from the active Book, prompting for Y."""
-        if self._df is None or getattr(self._df, "empty", True):
-            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์หรือคลิก Book ที่มีข้อมูลก่อน")
-            return None
+    def _gs_x_and_options(self):
+        """(x_name, y_options, cols) โดยเดา X = คอลัมน์เวลา/แกน X ที่เลือก (ไม่ prompt)."""
         cols = [str(c) for c in self._df.columns]
         x_name = self.selected_x_column()
         if x_name not in cols:
-            x_name, ok = self.ask_choice("เลือกคอลัมน์เวลา", "เวลา/X:", cols, 0)
-            if not ok:
-                return None
+            time_like = [c for c in cols if str(c).lower() == "t"
+                         or any(k in str(c).lower()
+                                for k in ("time", "timestamp", "datetime", "date", "epoch"))]
+            x_name = time_like[0] if time_like else cols[0]
         y_options = [c for c in cols if c != x_name]
-        if not y_options:
-            self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์สัญญาณ (เช่น resistance) นอกจากคอลัมน์เวลา")
-            return None
-        y_default = self.selected_y_column()
-        y_idx = y_options.index(y_default) if y_default in y_options else 0
-        y_name, ok = self.ask_choice("เลือกคอลัมน์สัญญาณ", "สัญญาณ/Y:", y_options, y_idx)
-        if not ok:
-            return None
-        t = self._gs_time_seconds(x_name)
-        y = pd.to_numeric(self._df[y_name], errors="coerce").to_numpy(dtype=float)
-        return t, y, x_name, y_name
+        return x_name, y_options, cols
 
     def _gs_log(self, text: str) -> None:
         try:
@@ -94,26 +80,35 @@ class MainWindowGasSensorMixin:
 
     # ------------------------------------------------------------------ flows
     def gs_analyze_response(self):
-        picked = self._gs_pick_txy()
-        if picked is None:
+        if self._df is None or getattr(self._df, "empty", True):
+            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์หรือคลิก Book ที่มีข้อมูลก่อน")
             return
-        t, y, _x_name, y_name = picked
+        x_name, y_options, _cols = self._gs_x_and_options()
+        if not y_options:
+            self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์สัญญาณ (เช่น resistance) นอกจากคอลัมน์เวลา")
+            return
+        t = self._gs_time_seconds(x_name)
         finite_t = t[np.isfinite(t)]
         if finite_t.size < 3:
             self.inform("ข้อมูลไม่พอ", "คอลัมน์เวลาไม่มีค่าที่ใช้ได้")
             return
         t0, t1 = float(finite_t.min()), float(finite_t.max())
         span = t1 - t0
-        t_on, ok = self.ask_number("เวลาเปิดแก๊ส", "t_on (วินาที):",
-                                   t0 + 0.25 * span, t0, t1, 4)
-        if not ok:
+        y_sel = self.selected_y_column()
+        res_form = self.ask_form("วิเคราะห์ Response (t90)", [
+            {"name": "y_col", "label": "สัญญาณ (Y)", "kind": "choice", "options": y_options,
+             "default": y_sel if y_sel in y_options else y_options[0]},
+            {"name": "t_on", "label": "เวลาเปิดแก๊ส t_on (s)", "kind": "float",
+             "default": round(t0 + 0.25 * span, 4), "min": t0, "max": t1, "decimals": 4},
+            {"name": "t_off", "label": "เวลาปิดแก๊ส t_off (s)", "kind": "float",
+             "default": round(t0 + 0.75 * span, 4), "min": t0, "max": t1, "decimals": 4},
+        ], description=f"ช่วงเวลา {t0:.4g}–{t1:.4g} s (แกน X = {x_name})")
+        if res_form is None:
             return
-        t_off, ok = self.ask_number("เวลาปิดแก๊ส", "t_off (วินาที):",
-                                    t0 + 0.75 * span, t0, t1, 4)
-        if not ok:
-            return
+        y_name = res_form["y_col"]
+        y = pd.to_numeric(self._df[y_name], errors="coerce").to_numpy(dtype=float)
         try:
-            res = analyze_response(t, y, float(t_on), float(t_off))
+            res = analyze_response(t, y, float(res_form["t_on"]), float(res_form["t_off"]))
         except Exception as e:
             self.error_box("วิเคราะห์ไม่สำเร็จ", f"สาเหตุ: {e}")
             return
@@ -125,14 +120,26 @@ class MainWindowGasSensorMixin:
                     f"(sensitivity {res.sensitivity:.4g})")
 
     def gs_detect_cycles(self):
-        picked = self._gs_pick_txy()
-        if picked is None:
+        if self._df is None or getattr(self._df, "empty", True):
+            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์หรือคลิก Book ที่มีข้อมูลก่อน")
             return
-        t, y, _x_name, y_name = picked
-        threshold_pct, ok = self.ask_number(
-            "ตรวจจับรอบแก๊ส", "เกณฑ์การเบี่ยงเบนจาก baseline (%):", 5.0, 0.1, 500.0, 2)
-        if not ok:
+        x_name, y_options, _cols = self._gs_x_and_options()
+        if not y_options:
+            self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์สัญญาณนอกจากคอลัมน์เวลา")
             return
+        y_sel = self.selected_y_column()
+        res_form = self.ask_form("ตรวจจับรอบเปิด-ปิดแก๊ส", [
+            {"name": "y_col", "label": "สัญญาณ (Y)", "kind": "choice", "options": y_options,
+             "default": y_sel if y_sel in y_options else y_options[0]},
+            {"name": "threshold_pct", "label": "เกณฑ์เบี่ยงเบนจาก baseline (%)", "kind": "float",
+             "default": 5.0, "min": 0.1, "max": 500.0, "decimals": 2},
+        ], description=f"หาช่วงที่สัญญาณเปลี่ยนเกินเกณฑ์ (แกน X = {x_name})")
+        if res_form is None:
+            return
+        y_name = res_form["y_col"]
+        threshold_pct = res_form["threshold_pct"]
+        t = self._gs_time_seconds(x_name)
+        y = pd.to_numeric(self._df[y_name], errors="coerce").to_numpy(dtype=float)
         try:
             cycles = detect_gas_cycles(t, y, rel_threshold=float(threshold_pct) / 100.0)
         except Exception as e:
@@ -163,19 +170,22 @@ class MainWindowGasSensorMixin:
         if len(cols) < 2:
             self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์ความเข้มข้นและคอลัมน์ response")
             return
-        conc_col, ok = self.ask_choice("Calibration", "คอลัมน์ความเข้มข้น:", cols, 0)
-        if not ok:
+        res_form = self.ask_form("Calibration Curve + LOD", [
+            {"name": "conc_col", "label": "คอลัมน์ความเข้มข้น", "kind": "choice",
+             "options": cols, "default": cols[0]},
+            {"name": "resp_col", "label": "คอลัมน์ response", "kind": "choice",
+             "options": cols, "default": cols[1]},
+            {"name": "model", "label": "โมเดล", "kind": "choice",
+             "options": ["linear", "power"], "default": "linear"},
+            {"name": "noise_std", "label": "σ ของ noise (0 = ข้าม LOD)", "kind": "float",
+             "default": 0.0, "min": 0.0, "max": 1e12, "decimals": 6},
+        ], description="ฟิตเส้น calibration + คำนวณ LOD/LOQ แล้วพล็อตกราฟใหม่")
+        if res_form is None:
             return
-        resp_options = [c for c in cols if c != conc_col]
-        resp_col, ok = self.ask_choice("Calibration", "คอลัมน์ response:", resp_options, 0)
-        if not ok:
-            return
-        model, ok = self.ask_choice("Calibration", "โมเดล:", ["linear", "power"], 0)
-        if not ok:
-            return
-        noise_std, ok = self.ask_number(
-            "Limit of Detection", "σ ของ noise (0 = ข้าม LOD):", 0.0, 0.0, 1e12, 6)
-        if not ok:
+        conc_col, resp_col = res_form["conc_col"], res_form["resp_col"]
+        model, noise_std = res_form["model"], res_form["noise_std"]
+        if conc_col == resp_col:
+            self.inform("เลือกคอลัมน์ซ้ำ", "คอลัมน์ความเข้มข้นและ response ต้องคนละคอลัมน์")
             return
         conc = pd.to_numeric(self._df[conc_col], errors="coerce").to_numpy(dtype=float)
         resp = pd.to_numeric(self._df[resp_col], errors="coerce").to_numpy(dtype=float)
@@ -223,18 +233,19 @@ class MainWindowGasSensorMixin:
         self._gs_log(f"Calibration {resp_col} vs {conc_col}: R²={fit['r_squared']:.4g}")
 
     def gs_dilution(self):
-        source_ppm, ok = self.ask_number(
-            "การเจือจางแก๊ส", "ความเข้มข้นถังต้นทาง (ppm):", 1000.0, 0.0, 1e12, 4)
-        if not ok:
+        res_form = self.ask_form("คำนวณการเจือจางแก๊ส (ppm)", [
+            {"name": "source_ppm", "label": "ความเข้มข้นถังต้นทาง (ppm)", "kind": "float",
+             "default": 1000.0, "min": 0.0, "max": 1e12, "decimals": 4},
+            {"name": "flow_gas", "label": "อัตราไหลแก๊ส (sccm)", "kind": "float",
+             "default": 10.0, "min": 1e-9, "max": 1e12, "decimals": 4},
+            {"name": "flow_total", "label": "อัตราไหลรวมทั้งหมด (sccm)", "kind": "float",
+             "default": 100.0, "min": 1e-9, "max": 1e12, "decimals": 4},
+        ], description="ppm หลังเจือจาง = source × (flow_gas / flow_total)")
+        if res_form is None:
             return
-        flow_gas, ok = self.ask_number(
-            "การเจือจางแก๊ส", "อัตราไหลแก๊ส (sccm):", 10.0, 1e-9, 1e12, 4)
-        if not ok:
-            return
-        flow_total, ok = self.ask_number(
-            "การเจือจางแก๊ส", "อัตราไหลรวมทั้งหมด (sccm):", 100.0, 1e-9, 1e12, 4)
-        if not ok:
-            return
+        source_ppm = res_form["source_ppm"]
+        flow_gas = res_form["flow_gas"]
+        flow_total = res_form["flow_total"]
         try:
             ppm = dilution_ppm(float(source_ppm), float(flow_gas), float(flow_total))
         except Exception as e:

@@ -75,12 +75,17 @@ class MainWindowFeaturesMixin:
         if self._df is None or self.y_column_count() == 0:
             self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
         cols = [str(c) for c in self._df.columns]
-        bx, ok = self.ask_choice("เลือกคอลัมน์ Bx", "Bx:", cols, 0)
-        if not ok: return
-        by, ok = self.ask_choice("เลือกคอลัมน์ By", "By:", cols, 0)
-        if not ok: return
-        bz, ok = self.ask_choice("เลือกคอลัมน์ Bz", "Bz:", cols, 0)
-        if not ok: return
+        res = self.ask_form("เพิ่มคอลัมน์ |B| จาก 3 แกน", [
+            {"name": "bx", "label": "แกน X (Bx)", "kind": "choice", "options": cols,
+             "default": cols[0]},
+            {"name": "by", "label": "แกน Y (By)", "kind": "choice", "options": cols,
+             "default": cols[1] if len(cols) > 1 else cols[0]},
+            {"name": "bz", "label": "แกน Z (Bz)", "kind": "choice", "options": cols,
+             "default": cols[2] if len(cols) > 2 else cols[0]},
+        ], description="สร้างคอลัมน์ขนาดเวกเตอร์ |B| = √(Bx²+By²+Bz²)")
+        if res is None:
+            return
+        bx, by, bz = res["bx"], res["by"], res["bz"]
         try:
             new_col = add_magnitude(self._df, bx, by, bz, new_col="B_mag")
             self.add_y_column_option(new_col)
@@ -150,14 +155,16 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        method, ok = self.ask_choice("เติมค่าที่หาย (Fill Missing)", "วิธี:", list(FILL_METHODS), 1)
-        if not ok:
+        res = self.ask_form("เติมค่าที่หาย (Fill Missing)", [
+            {"name": "method", "label": "วิธี", "kind": "choice",
+             "options": list(FILL_METHODS), "default": "mean"},
+            {"name": "value", "label": "ค่าที่ใช้เติม", "kind": "float",
+             "default": 0.0, "show_if": ("method", "value")},
+        ], description=f"เติมค่าที่หายในคอลัมน์ '{y_col}' → สร้างคอลัมน์ใหม่")
+        if res is None:
             return
-        value = None
-        if method == "value":
-            value, ok = self.ask_number("เติมค่าที่หาย", "ค่าที่ใช้เติม:", 0.0)
-            if not ok:
-                return
+        method = res["method"]
+        value = res["value"] if method == "value" else None
         try:
             new_col = fill_missing(self._df, y_col, method=method, value=value)
             self.add_y_column_option(new_col)
@@ -194,13 +201,15 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        method, ok = self.ask_choice("ตัด Outliers", "วิธีตรวจ:", list(OUTLIER_METHODS), 0)
-        if not ok:
+        res = self.ask_form("ตัด Outliers", [
+            {"name": "method", "label": "วิธีตรวจ", "kind": "choice",
+             "options": list(OUTLIER_METHODS), "default": "zscore"},
+            {"name": "threshold", "label": "threshold", "kind": "float",
+             "default": 3.0, "min": 0.1, "max": 100.0, "decimals": 2},
+        ], description=f"ตัดแถวที่ '{y_col}' เป็น outlier (zscore≈3, iqr≈1.5)")
+        if res is None:
             return
-        default_thr = 3.0 if method == "zscore" else 1.5
-        threshold, ok = self.ask_number("ตัด Outliers", "threshold:", default_thr, 0.1, 100.0, 2)
-        if not ok:
-            return
+        method, threshold = res["method"], res["threshold"]
         try:
             new_df, removed = remove_outliers(self._df, y_col, method=method, threshold=threshold)
             self._swap_dataframe(new_df)
@@ -213,9 +222,13 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        method, ok = self.ask_choice("Normalize / Standardize", "วิธี:", list(NORMALIZE_METHODS), 0)
-        if not ok:
+        res = self.ask_form("Normalize / Standardize", [
+            {"name": "method", "label": "วิธี", "kind": "choice",
+             "options": list(NORMALIZE_METHODS), "default": "zscore"},
+        ], description=f"ปรับสเกลคอลัมน์ '{y_col}' (zscore = ค่าเฉลี่ย 0 / minmax = 0–1)")
+        if res is None:
             return
+        method = res["method"]
         try:
             new_col = normalize_column(self._df, y_col, method=method)
             self.add_y_column_option(new_col)
@@ -228,9 +241,13 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        order, ok = self.ask_int("Detrend / Baseline", "อันดับพหุนาม (1 = เชิงเส้น):", 1, 0, 10)
-        if not ok:
+        res = self.ask_form("Detrend / Baseline", [
+            {"name": "order", "label": "อันดับพหุนาม", "kind": "int",
+             "default": 1, "min": 0, "max": 10},
+        ], description=f"ลบแนวโน้ม/เส้นฐานจาก '{y_col}' (1 = เชิงเส้น, สูงขึ้น = baseline โค้ง)")
+        if res is None:
             return
+        order = res["order"]
         x_col = self.selected_x_column()
         if x_col not in getattr(self._df, "columns", []):
             x_col = None
@@ -247,14 +264,17 @@ class MainWindowFeaturesMixin:
             self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
             return
         cols = [str(c) for c in self._df.columns]
-        col, ok = self.ask_choice("เรียงข้อมูล (Sort)", "ตามคอลัมน์:", cols, 0)
-        if not ok:
+        res = self.ask_form("เรียงข้อมูล (Sort)", [
+            {"name": "col", "label": "ตามคอลัมน์", "kind": "choice",
+             "options": cols, "default": cols[0]},
+            {"name": "direction", "label": "ทิศทาง", "kind": "choice",
+             "options": ["น้อย→มาก", "มาก→น้อย"], "default": "น้อย→มาก"},
+        ])
+        if res is None:
             return
-        direction, ok = self.ask_choice("เรียงข้อมูล", "ทิศทาง:", ["น้อย→มาก", "มาก→น้อย"], 0)
-        if not ok:
-            return
+        col = res["col"]
         try:
-            ascending = (direction == "น้อย→มาก")
+            ascending = (res["direction"] == "น้อย→มาก")
             new_df = sort_dataframe(self._df, col, ascending=ascending)
             self._swap_dataframe(new_df)
             self._log_workflow("sort_dataframe", col=col, ascending=ascending)
@@ -270,9 +290,13 @@ class MainWindowFeaturesMixin:
             self.inform("เลือกแกน X ก่อน", "resample ต้องมีคอลัมน์ X ที่เป็นตัวเลข")
             return
         n_default = len(self._df)
-        n_points, ok = self.ask_int("Resample", "จำนวนจุดบนกริดใหม่:", n_default, 2, 10_000_000)
-        if not ok:
+        res = self.ask_form("Resample เป็นกริดสม่ำเสมอ", [
+            {"name": "n_points", "label": "จำนวนจุด", "kind": "int",
+             "default": n_default, "min": 2, "max": 10_000_000},
+        ], description=f"สุ่มใหม่บนแกน '{x_col}' ให้ระยะห่างเท่ากัน (interpolate เชิงเส้น)")
+        if res is None:
             return
+        n_points = res["n_points"]
         try:
             new_df = resample_uniform(self._df, x_col, n_points=int(n_points))
             self._swap_dataframe(new_df)
@@ -296,29 +320,46 @@ class MainWindowFeaturesMixin:
         fs, ok = self.ask_number("Sampling rate", "fs (Hz):", 100.0, 1e-9, 1e12, 6)
         return float(fs) if ok else None
 
+    def _infer_fs_default(self, fallback: float = 100.0) -> float:
+        """Inferred sampling rate for pre-filling a form (never prompts)."""
+        try:
+            x_col = self.selected_x_column()
+            if x_col and x_col in getattr(self._df, "columns", []):
+                fs = _infer_sampling_rate(self._df[x_col])
+                if fs and fs > 0:
+                    return float(fs)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("fs inference failed", exc_info=True)
+        return float(fallback)
+
     def feature_filter_butterworth(self):
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        kind, ok = self.ask_choice("Butterworth Filter", "ชนิด:", list(BUTTER_KINDS), 0)
-        if not ok:
+        fs_guess = self._infer_fs_default()
+        res = self.ask_form("Butterworth Filter", [
+            {"name": "kind", "label": "ชนิด", "kind": "choice",
+             "options": list(BUTTER_KINDS), "default": "lowpass"},
+            {"name": "fs", "label": "fs (Hz)", "kind": "float",
+             "default": round(fs_guess, 6), "min": 1e-9, "max": 1e12, "decimals": 6},
+            {"name": "cutoff_lo", "label": "cutoff ต่ำ (Hz)", "kind": "float",
+             "default": round(fs_guess / 10, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
+             "show_if": ("kind", ("bandpass", "bandstop"))},
+            {"name": "cutoff_hi", "label": "cutoff สูง (Hz)", "kind": "float",
+             "default": round(fs_guess / 5, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
+             "show_if": ("kind", ("bandpass", "bandstop"))},
+            {"name": "cutoff", "label": "cutoff (Hz)", "kind": "float",
+             "default": round(fs_guess / 10, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
+             "show_if": ("kind", ("lowpass", "highpass"))},
+        ], description=f"กรองสัญญาณ '{y_col}' แบบ zero-phase (fs เดาจากแกน X ให้แล้ว)")
+        if res is None:
             return
-        fs = self._sampling_rate_or_ask()
-        if fs is None:
-            return
+        kind, fs = res["kind"], float(res["fs"])
         if kind in ("bandpass", "bandstop"):
-            lo, ok = self.ask_number("Butterworth Filter", "cutoff ต่ำ (Hz):", fs / 20, 1e-12, fs / 2, 6)
-            if not ok:
-                return
-            hi, ok = self.ask_number("Butterworth Filter", "cutoff สูง (Hz):", fs / 5, 1e-12, fs / 2, 6)
-            if not ok:
-                return
-            cutoff = (lo, hi)
+            cutoff = (float(res["cutoff_lo"]), float(res["cutoff_hi"]))
         else:
-            c, ok = self.ask_number("Butterworth Filter", "cutoff (Hz):", fs / 10, 1e-12, fs / 2, 6)
-            if not ok:
-                return
-            cutoff = c
+            cutoff = float(res["cutoff"])
         try:
             filtered = butterworth_filter(self._df[y_col], fs, kind=kind, cutoff=cutoff)
             new_col = f"{y_col}_{kind}"
@@ -336,33 +377,32 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        method, ok = self.ask_choice(
-            "Smooth", "วิธี:", ["savitzky-golay", "median", "gaussian"], 0
-        )
-        if not ok:
+        res = self.ask_form("Smooth (ลดสัญญาณรบกวน)", [
+            {"name": "method", "label": "วิธี", "kind": "choice",
+             "options": ["savitzky-golay", "median", "gaussian"], "default": "savitzky-golay"},
+            {"name": "window", "label": "ความยาวหน้าต่าง (คี่)", "kind": "int",
+             "default": 11, "min": 3, "max": 9999, "show_if": ("method", "savitzky-golay")},
+            {"name": "kernel", "label": "ขนาด kernel (คี่)", "kind": "int",
+             "default": 5, "min": 1, "max": 9999, "show_if": ("method", "median")},
+            {"name": "sigma", "label": "sigma (จุด)", "kind": "float",
+             "default": 2.0, "min": 0.01, "max": 1e6, "decimals": 2, "show_if": ("method", "gaussian")},
+        ], description=f"ปรับเรียบสัญญาณ '{y_col}' → สร้างคอลัมน์ใหม่")
+        if res is None:
             return
+        method = res["method"]
         try:
             if method == "savitzky-golay":
-                window, ok = self.ask_int("Savitzky-Golay", "ความยาวหน้าต่าง (คี่):", 11, 3, 9999)
-                if not ok:
-                    return
-                smoothed = savitzky_golay(self._df[y_col], window_length=int(window))
+                smoothed = savitzky_golay(self._df[y_col], window_length=int(res["window"]))
                 new_col = f"{y_col}_savgol"
-                op, params = "savitzky_golay", {"col": y_col, "window": int(window)}
+                op, params = "savitzky_golay", {"col": y_col, "window": int(res["window"])}
             elif method == "median":
-                kernel, ok = self.ask_int("Median Filter", "ขนาด kernel (คี่):", 5, 1, 9999)
-                if not ok:
-                    return
-                smoothed = median_filter(self._df[y_col], kernel_size=int(kernel))
+                smoothed = median_filter(self._df[y_col], kernel_size=int(res["kernel"]))
                 new_col = f"{y_col}_median"
-                op, params = "median_filter", {"col": y_col, "kernel": int(kernel)}
+                op, params = "median_filter", {"col": y_col, "kernel": int(res["kernel"])}
             else:
-                sigma, ok = self.ask_number("Gaussian Filter", "sigma (จุด):", 2.0, 0.01, 1e6, 2)
-                if not ok:
-                    return
-                smoothed = gaussian_smooth(self._df[y_col], sigma=float(sigma))
+                smoothed = gaussian_smooth(self._df[y_col], sigma=float(res["sigma"]))
                 new_col = f"{y_col}_gauss"
-                op, params = "gaussian_smooth", {"col": y_col, "sigma": float(sigma)}
+                op, params = "gaussian_smooth", {"col": y_col, "sigma": float(res["sigma"])}
             self._df[new_col] = smoothed
             self.add_y_column_option(new_col)
             self._log_workflow(op, new_col=new_col, **params)
@@ -433,14 +473,17 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        window, ok = self.ask_choice("Apply Window", "ชนิด window:", list(WINDOW_KINDS), 0)
-        if not ok:
+        res = self.ask_form("Apply Window", [
+            {"name": "window", "label": "ชนิด window", "kind": "choice",
+             "options": list(WINDOW_KINDS), "default": "hann"},
+            {"name": "beta", "label": "beta (Kaiser)", "kind": "float",
+             "default": 14.0, "min": 0.0, "max": 100.0, "decimals": 2,
+             "show_if": ("window", "kaiser")},
+        ], description=f"คูณสัญญาณ '{y_col}' ด้วย taper window → คอลัมน์ใหม่")
+        if res is None:
             return
-        beta = 14.0
-        if window == "kaiser":
-            beta, ok = self.ask_number("Kaiser Window", "beta:", 14.0, 0.0, 100.0, 2)
-            if not ok:
-                return
+        window = res["window"]
+        beta = res["beta"] if window == "kaiser" else 14.0
         try:
             tapered = apply_window(self._df[y_col], window=window, beta=float(beta))
             new_col = f"{y_col}_{window}"
@@ -477,13 +520,16 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         cols = [str(c) for c in self._df.columns]
-        y_default = max(0, self.selected_y_index())
-        y_col, ok = self.ask_choice("เลือกคอลัมน์ Y สำหรับ PSD", "Y:", cols, y_default)
-        if not ok:
+        y_sel = self.selected_y_column()
+        res = self.ask_form("PSD (Welch)", [
+            {"name": "y_col", "label": "คอลัมน์ Y", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "fs", "label": "fs (Hz)", "kind": "float",
+             "default": round(self._infer_fs_default(), 6), "min": 1e-9, "max": 1e12, "decimals": 6},
+        ], description="ความหนาแน่นสเปกตรัมกำลัง (fs เดาจากแกน X ให้แล้ว) → พล็อตกราฟใหม่")
+        if res is None:
             return
-        fs = self._sampling_rate_or_ask()
-        if fs is None:
-            return
+        y_col, fs = res["y_col"], float(res["fs"])
         try:
             freqs, pxx = welch_psd(self._df[y_col], fs=fs)
             try:
@@ -505,15 +551,17 @@ class MainWindowFeaturesMixin:
             return
 
         cols = [str(c) for c in self._df.columns]
-        y_default = max(0, self.selected_y_index())
-        y_col, ok = self.ask_choice("เลือกคอลัมน์ Y สำหรับ FFT", "Y:", cols, y_default)
-        if not ok: return
-
-        window, ok = self.ask_choice("หน้าต่าง (window)", "ชนิด:", ["hanning", "hamming", "none"], 0)
-        if not ok: return
-        detrend_choice, ok = self.ask_choice("ลบค่าเฉลี่ยก่อนคำนวณ?", "detrend:", ["True", "False"], 0)
-        if not ok: return
-        detrend = (detrend_choice == "True")
+        y_sel = self.selected_y_column()
+        res = self.ask_form("FFT", [
+            {"name": "y_col", "label": "คอลัมน์ Y", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "window", "label": "หน้าต่าง (window)", "kind": "choice",
+             "options": ["hanning", "hamming", "none"], "default": "hanning"},
+            {"name": "detrend", "label": "ลบค่าเฉลี่ยก่อนคำนวณ", "kind": "bool", "default": True},
+        ], description="แปลงฟูริเยร์ (fs เดาจากแกน X) → พล็อตสเปกตรัมกราฟใหม่")
+        if res is None:
+            return
+        y_col, window, detrend = res["y_col"], res["window"], bool(res["detrend"])
 
         x_col = self.selected_x_column()
 

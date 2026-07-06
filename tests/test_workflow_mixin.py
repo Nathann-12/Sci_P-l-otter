@@ -43,7 +43,7 @@ def _load_book(win, name, df):
 
 def test_operations_are_recorded_into_history(win):
     _load_book(win, "wf.csv [ตาราง]", pd.DataFrame({"t": [0, 1, 2], "y": [1.0, 2.0, 3.0]}))
-    win.ask_choice = lambda *a, **k: ("minmax", True)
+    win.ask_form = lambda *a, **k: {"method": "minmax"}
     assert len(win.analysis_history) == 0
 
     win.feature_clean_normalize()
@@ -60,7 +60,7 @@ def test_export_import_rerun_roundtrip(win, tmp_path):
     df = pd.DataFrame({"t": np.arange(6, dtype=float),
                        "y": [1.0, np.nan, 3.0, 4.0, np.nan, 6.0]})
     _load_book(win, "src.csv [ตาราง]", df)
-    win.ask_choice = lambda *a, **k: ("mean", True)
+    win.ask_form = lambda *a, **k: {"method": "mean", "value": 0.0}
     win.feature_clean_fill_missing()
 
     out = tmp_path / "workflow.json"
@@ -86,7 +86,7 @@ def test_export_import_rerun_roundtrip(win, tmp_path):
 def test_generate_script_writes_runnable_python(win, tmp_path):
     _load_book(win, "scr.csv [ตาราง]",
                pd.DataFrame({"t": [0.0, 1.0, 2.0], "y": [5.0, 6.0, 7.0]}))
-    win.ask_choice = lambda *a, **k: ("zscore", True)
+    win.ask_form = lambda *a, **k: {"method": "zscore"}
     win.feature_clean_normalize()
 
     out = tmp_path / "wf_script.py"
@@ -107,7 +107,7 @@ def test_generate_script_writes_runnable_python(win, tmp_path):
 
 def test_history_view_and_clear(win):
     _load_book(win, "hv.csv [ตาราง]", pd.DataFrame({"t": [0, 1], "y": [1.0, 2.0]}))
-    win.ask_choice = lambda *a, **k: ("minmax", True)
+    win.ask_form = lambda *a, **k: {"method": "minmax"}
     win.feature_clean_normalize()
 
     reports = []

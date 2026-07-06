@@ -23,11 +23,13 @@ from main_window_features_mixin import MainWindowFeaturesMixin
 class DummyFeatures(MainWindowFeaturesMixin):
     """Feature logic with the view seam stubbed — no real widgets/dialogs."""
 
-    def __init__(self, df: pd.DataFrame, x_sel: str = "", y_sel: str = "", choices=()):
+    def __init__(self, df: pd.DataFrame, x_sel: str = "", y_sel: str = "",
+                 choices=(), forms=()):
         self._df = df
         self._x_sel = x_sel
         self._y_sel = y_sel
         self._choices = iter(choices)
+        self._forms = iter(forms)
         self.messages: list[str] = []
         self.errors: list[tuple] = []
         self.added_x: list[str] = []
@@ -73,6 +75,9 @@ class DummyFeatures(MainWindowFeaturesMixin):
     def ask_int(self, title, label, value=0, minimum=-10**9, maximum=10**9, step=1):
         return next(self._choices)
 
+    def ask_form(self, title, fields, description=None):
+        return next(self._forms)
+
     def load_columns_from_df(self):
         self.messages.append("columns-reloaded")
 
@@ -92,7 +97,8 @@ def test_feature_add_moving_average_creates_column():
 
 def test_feature_add_magnitude_creates_b_mag():
     df = pd.DataFrame({"Bx": [3.0, 0.0], "By": [4.0, 0.0], "Bz": [0.0, 5.0]})
-    win = DummyFeatures(df, y_sel="Bx", choices=[("Bx", True), ("By", True), ("Bz", True)])
+    win = DummyFeatures(df, y_sel="Bx",
+                        forms=[{"bx": "Bx", "by": "By", "bz": "Bz"}])
 
     win.feature_add_magnitude()
 
@@ -105,7 +111,7 @@ def test_feature_add_magnitude_creates_b_mag():
 
 def test_feature_add_magnitude_cancel_stops_early():
     df = pd.DataFrame({"Bx": [1.0], "By": [2.0], "Bz": [2.0]})
-    win = DummyFeatures(df, y_sel="Bx", choices=[("Bx", False)])
+    win = DummyFeatures(df, y_sel="Bx", forms=[None])  # cancelled form
 
     win.feature_add_magnitude()
 
@@ -117,7 +123,7 @@ def test_feature_add_magnitude_cancel_stops_early():
 
 def test_feature_clean_fill_missing_with_value():
     df = pd.DataFrame({"y": [1.0, np.nan, 3.0]})
-    win = DummyFeatures(df, y_sel="y", choices=[("value", True), (-9.0, True)])
+    win = DummyFeatures(df, y_sel="y", forms=[{"method": "value", "value": -9.0}])
 
     win.feature_clean_fill_missing()
 
@@ -128,7 +134,8 @@ def test_feature_clean_fill_missing_with_value():
 
 def test_feature_clean_remove_outliers_swaps_dataframe():
     df = pd.DataFrame({"y": [1.0] * 10 + [999.0]})
-    win = DummyFeatures(df, y_sel="y", choices=[("zscore", True), (3.0, True)])
+    win = DummyFeatures(df, y_sel="y",
+                        forms=[{"method": "zscore", "threshold": 3.0}])
 
     win.feature_clean_remove_outliers()
 
@@ -140,7 +147,7 @@ def test_feature_clean_remove_outliers_swaps_dataframe():
 
 def test_feature_clean_normalize_minmax_adds_column():
     df = pd.DataFrame({"y": [10.0, 20.0, 30.0]})
-    win = DummyFeatures(df, y_sel="y", choices=[("minmax", True)])
+    win = DummyFeatures(df, y_sel="y", forms=[{"method": "minmax"}])
 
     win.feature_clean_normalize()
 
@@ -152,7 +159,7 @@ def test_feature_clean_normalize_minmax_adds_column():
 def test_feature_clean_detrend_uses_x_column():
     x = np.arange(30, dtype=float)
     df = pd.DataFrame({"t": x, "y": 3.0 * x + 1.0})
-    win = DummyFeatures(df, x_sel="t", y_sel="y", choices=[(1, True)])
+    win = DummyFeatures(df, x_sel="t", y_sel="y", forms=[{"order": 1}])
 
     win.feature_clean_detrend()
 
@@ -170,8 +177,9 @@ def test_feature_filter_butterworth_lowpass_adds_column():
         "t": t,
         "y": np.sin(2 * np.pi * 2 * t) + np.sin(2 * np.pi * 20 * t),
     })
-    # x column provides fs by inference, so prompts are: kind, cutoff
-    win = DummyFeatures(df, x_sel="t", y_sel="y", choices=[("lowpass", True), (5.0, True)])
+    # single form: kind + fs (inferred) + cutoff
+    win = DummyFeatures(df, x_sel="t", y_sel="y",
+                        forms=[{"kind": "lowpass", "fs": fs, "cutoff": 5.0}])
 
     win.feature_filter_butterworth()
 
@@ -186,7 +194,7 @@ def test_feature_filter_smooth_median_kills_spike():
     y = np.ones(50)
     y[25] = 100.0
     df = pd.DataFrame({"y": y})
-    win = DummyFeatures(df, y_sel="y", choices=[("median", True), (5, True)])
+    win = DummyFeatures(df, y_sel="y", forms=[{"method": "median", "kernel": 5}])
 
     win.feature_filter_smooth()
 
@@ -237,7 +245,7 @@ def test_feature_signal_quality_reports_snr():
 
 def test_feature_apply_window_blackman_tapers_endpoints():
     df = pd.DataFrame({"y": np.ones(64)})
-    win = DummyFeatures(df, y_sel="y", choices=[("blackman", True)])
+    win = DummyFeatures(df, y_sel="y", forms=[{"window": "blackman"}])
 
     win.feature_apply_window()
 
@@ -250,7 +258,7 @@ def test_feature_apply_window_blackman_tapers_endpoints():
 
 def test_feature_apply_window_kaiser_asks_beta():
     df = pd.DataFrame({"y": np.ones(32)})
-    win = DummyFeatures(df, y_sel="y", choices=[("kaiser", True), (14.0, True)])
+    win = DummyFeatures(df, y_sel="y", forms=[{"window": "kaiser", "beta": 14.0}])
 
     win.feature_apply_window()
 

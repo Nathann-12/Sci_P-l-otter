@@ -91,6 +91,13 @@ class MainWindowViewAccessMixin:
         """Modal integer input. Returns (value, ok)."""
         return QInputDialog.getInt(self, title, label, value, minimum, maximum, step)
 
+    def ask_form(self, title, fields, description: str = None):
+        """One consolidated dialog for multi-field input (replaces chained
+        QInputDialog popups). Returns a dict of {name: value}, or None if
+        cancelled. See dialogs.form_dialog for the field spec."""
+        from dialogs.form_dialog import run_form
+        return run_form(self, title, fields, description=description)
+
     def ask_save_path(self, title: str, default_name: str, file_filter: str) -> str:
         path, _ = QFileDialog.getSaveFileName(self, title, default_name, file_filter)
         return path
