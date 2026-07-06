@@ -199,7 +199,7 @@
 - ✅ Re-run analysis
 - ✅ Auto-generate Python script
 - 🟡 Auto-generate report
-- 🟡 Save project file (session save/restore)
+- ✅ Save project file (*.sciproj — File → Save/Open Project, ฝังข้อมูลในตัว)
 - 🟡 Project snapshot
 - ✅ Undo/redo (annotations)
 - ☐ Compare versions

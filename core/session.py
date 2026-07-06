@@ -38,7 +38,20 @@ def _serialize_float_list(values) -> List[float]:
             return []
 
 
-def save_session(window: Any) -> None:
+def _df_to_records(df):
+    """DataFrame → JSON-safe list of row dicts (or None)."""
+    try:
+        import pandas as pd
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            return json.loads(df.to_json(orient="records", date_format="iso"))
+    except Exception:
+        LOG.debug("dataframe embed skipped", exc_info=True)
+    return None
+
+
+def save_session(window: Any, path=None, embed_data: bool = False) -> None:
+    """Persist the app state. ``path`` defaults to the auto-session file;
+    ``embed_data=True`` stores each dataset's DataFrame inline (project file)."""
     try:
         tabs_widget = getattr(window, 'tabs', None)
         if tabs_widget is None:
@@ -51,7 +64,10 @@ def save_session(window: Any) -> None:
         if isinstance(datasets, dict):
             for name, info in datasets.items():
                 path_val = info.get('path') if isinstance(info, dict) else None
-                staging.append({'name': name, 'path': path_val})
+                entry = {'name': name, 'path': path_val}
+                if embed_data:
+                    entry['data'] = _df_to_records(info.get('df') if isinstance(info, dict) else None)
+                staging.append(entry)
 
         tabs_state: List[Dict[str, Any]] = []
         for index in range(tabs_widget.count()):
@@ -84,6 +100,8 @@ def save_session(window: Any) -> None:
             })
 
         state: Dict[str, Any] = {
+            'format': 'sciplotter_project' if embed_data else 'sciplotter_session',
+            'version': 1,
             'plot_mode': getattr(getattr(window, 'plot_mode', None), 'value', None),
             'current_tab': tabs_widget.get_current_tab_id() if hasattr(tabs_widget, 'get_current_tab_id') else None,
             'tabs': tabs_state,
@@ -101,20 +119,30 @@ def save_session(window: Any) -> None:
         except Exception:
             pass
 
-        session_path = session_file()
+        session_path = Path(path) if path is not None else session_file()
         session_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
     except Exception:  # pragma: no cover - best effort persistence
         LOG.warning('Failed to save session', exc_info=True)
 
 
-def load_session(window: Any) -> None:
-    path = session_file()
-    if not path.exists():
+def save_project(window: Any, path) -> None:
+    """Save a self-contained project file (embeds dataset data)."""
+    save_session(window, path=path, embed_data=True)
+
+
+def load_project(window: Any, path) -> None:
+    """Open a project file saved with :func:`save_project`."""
+    load_session(window, path=path)
+
+
+def load_session(window: Any, path=None) -> None:
+    src = Path(path) if path is not None else session_file()
+    if not src.exists():
         return
     try:
-        data = json.loads(path.read_text(encoding='utf-8'))
+        data = json.loads(src.read_text(encoding='utf-8'))
     except Exception:
-        LOG.error('Session file corrupted; skipping restore', exc_info=True)
+        LOG.error('Session/project file corrupted; skipping restore', exc_info=True)
         return
 
     try:
@@ -132,10 +160,26 @@ def load_session(window: Any) -> None:
         except Exception:
             pass
 
-        # Restore staging datasets
+        # Restore datasets — prefer embedded data (project files are
+        # self-contained), else reload from the original path.
         for entry in data.get('staging', []):
             name = entry.get('name')
             path_val = entry.get('path')
+            records = entry.get('data')
+            if records:
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame.from_records(records)
+                    opener = getattr(window, '_open_book_for_dataset', None)
+                    if callable(opener):
+                        if hasattr(window, '_datasets'):
+                            window._datasets[name] = {'df': df, 'path': path_val}
+                        opener(name, df, path_val)
+                    elif hasattr(window, '_stage_insert'):
+                        window._stage_insert(name, df, path_val)
+                    continue
+                except Exception:
+                    LOG.warning('Failed to restore embedded dataset %s', name, exc_info=True)
             if not path_val or not os.path.exists(path_val):
                 continue
             try:

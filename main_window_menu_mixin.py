@@ -35,6 +35,14 @@ class MainWindowMenuMixin:
         actBatch = fileMenu.addAction("Open Multiple Files (Batch Import)…")
         actBatch.triggered.connect(lambda: getattr(self, 'stage_add_files', lambda: None)())
         fileMenu.addSeparator()
+        # Project files (*.sciproj) — self-contained: data + graphs + styles
+        actOpenProj = fileMenu.addAction("Open Project… (*.sciproj)")
+        actOpenProj.setShortcut("Ctrl+Shift+O")
+        actOpenProj.triggered.connect(self.open_project)
+        actSaveProj = fileMenu.addAction("Save Project… (*.sciproj)")
+        actSaveProj.setShortcut("Ctrl+S")
+        actSaveProj.triggered.connect(self.save_project_as)
+        fileMenu.addSeparator()
         # Export PNG lives in the Export menu (not duplicated here — on_action_export_figure calls the same export_png)
         actExit = fileMenu.addAction("Exit"); actExit.triggered.connect(self.close)
 

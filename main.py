@@ -464,20 +464,10 @@ class MainWindow(
 
     # UI-REFINE: แยกสร้างแผงซ้าย (Staging) และแท็บ Inspector ขวา
     def _prompt_restore_session(self):
-        try:
-            if not session_store.session_available():
-                return
-            reply = QMessageBox.question(
-                self,
-                "Restore last session",
-                "พบเซสชันก่อนหน้าที่บันทึกไว้ ต้องการกู้คืนหรือไม่?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
-            )
-            if reply == QMessageBox.Yes:
-                session_store.load_session(self)
-        except Exception:
-            logger.warning('Session restore failed', exc_info=True)
+        # Removed: the "Restore last session" pop-up. Persistence is now
+        # explicit via File → Save/Open Project (*.sciproj). Kept as a no-op so
+        # the startup QTimer hook stays valid.
+        return
 
     # UI-REFINE: รวมการเชื่อมสัญญาณไว้ที่เดียว เพื่อให้แน่ใจว่าวิดเจ็ตถูกสร้างครบก่อน
     def _connect_signals(self):

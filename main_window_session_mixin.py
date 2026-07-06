@@ -142,9 +142,40 @@ class MainWindowSessionMixin:
         self.lstFiles.takeItem(row)
         self.statusBar().showMessage(f"นำออกจากรายการแล้ว: {name}")
 
+    # ---------------- Project files (*.sciproj) ----------------
+    PROJECT_FILTER = "SciPlotter Project (*.sciproj);;All Files (*.*)"
+
+    def save_project_as(self):
+        """Save the whole app state (data + graphs + styles) to a .sciproj file."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Project", "project.sciproj", self.PROJECT_FILTER)
+        if not path:
+            return
+        if not path.lower().endswith(".sciproj"):
+            path += ".sciproj"
+        try:
+            session_store.save_project(self, path)
+            self._current_project_path = path
+            self.statusBar().showMessage(f"Project saved: {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Project failed", f"Reason: {e}")
+
+    def open_project(self):
+        """Open a .sciproj file — restores Books (with embedded data) + graphs."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Project", "", self.PROJECT_FILTER)
+        if not path:
+            return
+        try:
+            session_store.load_project(self, path)
+            self._current_project_path = path
+            self.statusBar().showMessage(f"Project opened: {os.path.basename(path)}")
+        except Exception as e:
+            QMessageBox.critical(self, "Open Project failed", f"Reason: {e}")
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         try:
-            session_store.save_session(self)
+            session_store.save_session(self)  # silent crash-recovery snapshot
         except Exception:
             logger.warning("Failed to save session on close", exc_info=True)
         super().closeEvent(event)
