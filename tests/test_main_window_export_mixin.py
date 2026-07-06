@@ -240,5 +240,5 @@ def test_export_png_uses_canvas_figure_savefig(monkeypatch, tmp_path):
     assert window.canvas.fig.saved == [
         (str(out_path), {"dpi": 300, "bbox_inches": "tight"})
     ]
-    assert window.statusBar().messages[-1] == f"บันทึกรูปภาพแล้ว: {out_path}"
+    assert window.statusBar().messages[-1] == f"Image saved: {out_path}"
     assert recorder.calls == []

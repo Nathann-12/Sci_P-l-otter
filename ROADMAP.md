@@ -110,13 +110,13 @@
 - ✅ Journal figure preset (IEEE/Nature/Science/ACS/Thesis — Format Graph → Presets)
 - ✅ Save figure template (Format Graph → Presets && Templates)
 - ✅ Export PNG
-- 🟡 Export SVG
+- ✅ Export SVG (Export → Export Figure)
 - ✅ Export PDF
-- ☐ Export TIFF
-- ☐ Export EPS
-- ☐ Transparent background
-- ☐ High DPI export
-- ☐ Copy to clipboard
+- ✅ Export TIFF (Export → Export Figure)
+- ✅ Export EPS (Export → Export Figure)
+- ✅ Transparent background (Export Figure option)
+- ✅ High DPI export (Export Figure — DPI up to 2400)
+- ✅ Copy to clipboard (Export → Copy Graph / Ctrl+Shift+C)
 - ☐ Batch export
 
 ## D. Analysis Engine — 🟢 fitting แข็ง + สถิติเชิงพรรณนาครบ (เมนู Analysis → Descriptive Statistics)

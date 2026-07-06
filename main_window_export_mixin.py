@@ -247,19 +247,87 @@ class MainWindowExportMixin:
             df_view.to_csv(path, index=False)
             self.statusBar().showMessage(f"บันทึก CSV ช่วงที่เห็นแล้ว: {path}")
         except Exception as e:
-            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
     def export_png(self):
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "บันทึกรูปภาพเป็น",
+            "Save image as",
             "plot.png",
             "PNG Image (*.png)",
         )
         if not path:
             return
         try:
-            self.canvas.fig.savefig(path, dpi=300, bbox_inches="tight")
-            self.statusBar().showMessage(f"บันทึกรูปภาพแล้ว: {path}")
+            self._export_target_figure().savefig(path, dpi=300, bbox_inches="tight")
+            self.statusBar().showMessage(f"Image saved: {path}")
         except Exception as e:
-            QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Save failed", f"Reason: {e}")
+
+    # ---------------- advanced export (ROADMAP C) ----------------
+    _EXPORT_FORMATS = {
+        "PNG": ("png", "PNG Image (*.png)"),
+        "PDF": ("pdf", "PDF Document (*.pdf)"),
+        "SVG": ("svg", "SVG Vector (*.svg)"),
+        "TIFF": ("tiff", "TIFF Image (*.tiff)"),
+        "EPS": ("eps", "EPS Vector (*.eps)"),
+    }
+
+    def _export_target_figure(self):
+        """The active graph's figure (Origin multi-graph), else the legacy canvas."""
+        try:
+            tab = self.tabs.currentWidget()
+            if tab is not None and hasattr(tab, "get_figure"):
+                return tab.get_figure()
+        except Exception:
+            pass
+        return self.canvas.fig
+
+    def export_figure_advanced(self):
+        """Export the active graph with a chosen format / DPI / transparency."""
+        fig = self._export_target_figure()
+        if fig is None:
+            self.inform("No graph", "Open or select a graph window first")
+            return
+        res = self.ask_form("Export Figure", [
+            {"name": "fmt", "label": "Format", "kind": "choice",
+             "options": list(self._EXPORT_FORMATS.keys()), "default": "PNG"},
+            {"name": "dpi", "label": "DPI (raster)", "kind": "int",
+             "default": 300, "min": 30, "max": 2400},
+            {"name": "transparent", "label": "Transparent background",
+             "kind": "bool", "default": False},
+            {"name": "tight", "label": "Tight bounding box", "kind": "bool", "default": True},
+        ], description="Save the active graph (vector formats ignore DPI)")
+        if res is None:
+            return
+        ext, filt = self._EXPORT_FORMATS[res["fmt"]]
+        path = self.ask_save_path(f"Export as {res['fmt']}", f"figure.{ext}", filt)
+        if not path:
+            return
+        try:
+            fig.savefig(
+                path, format=ext, dpi=int(res["dpi"]),
+                transparent=bool(res["transparent"]),
+                bbox_inches="tight" if res["tight"] else None)
+            self.notify(f"Exported {res['fmt']}: {path}")
+        except Exception as e:
+            self.error_box("Export failed", f"Reason: {e}")
+
+    def copy_figure_to_clipboard(self):
+        """Copy the active graph to the clipboard as an image."""
+        import io
+        from PySide6.QtGui import QImage
+        from PySide6.QtWidgets import QApplication
+
+        fig = self._export_target_figure()
+        if fig is None:
+            self.inform("No graph", "Open or select a graph window first")
+            return
+        try:
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+            image = QImage.fromData(buf.getvalue(), "PNG")
+            QApplication.clipboard().setImage(image)
+            self.notify("Graph copied to clipboard")
+        except Exception as e:
+            self.error_box("Copy failed", f"Reason: {e}")

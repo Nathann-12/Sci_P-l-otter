@@ -150,6 +150,11 @@ class MainWindowMenuMixin:
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
         exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
+        exportMenu.addAction("Export Figure… (PNG/PDF/SVG/TIFF/EPS)").triggered.connect(
+            self.export_figure_advanced)
+        actCopyFig = exportMenu.addAction("Copy Graph to Clipboard")
+        actCopyFig.setShortcut("Ctrl+Shift+C")
+        actCopyFig.triggered.connect(self.copy_figure_to_clipboard)
         exportMenu.addSeparator()
         exportMenu.addAction("Export Report (PDF)...").triggered.connect(self.on_export_report)
 
