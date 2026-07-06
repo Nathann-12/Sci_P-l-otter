@@ -84,7 +84,8 @@ class MainWindowPlotStyleMixin:
         def _load_template(name):
             try:
                 tpl = plot_templates.load_template(name)
-                apply_style(ax, tpl, fig)
+                apply_style(ax, tpl, fig, live=True)
+                self._fit_figure_to_canvas(fig)
                 self._draw_active_graph(fig)
                 self.notify(f"Applied template: {name}")
             except Exception as e:
@@ -106,14 +107,23 @@ class MainWindowPlotStyleMixin:
 
     def _apply_plot_details(self, ax, fig, lines, dlg) -> None:
         try:
-            apply_style(ax, dlg.get_style(), fig)
+            style = dlg.get_style()
+            apply_style(ax, style, fig, live=True)   # on-screen: no size/dpi
             for ln, d in zip(lines, dlg.get_line_styles()):
                 apply_line_style(ln, d)
             # a legend may need rebuilding after labels/colors change
-            style = dlg.get_style()
             if style.get("legend", {}).get("visible"):
                 apply_style(ax, {"legend": style["legend"]})
+            # remember the chosen print size/dpi for export (not applied live)
             tab = self.tabs.currentWidget()
+            fig_style = style.get("figure", {})
+            if tab is not None and (fig_style.get("width_in") or fig_style.get("dpi")):
+                tab._print_figure = {
+                    "width_in": fig_style.get("width_in"),
+                    "height_in": fig_style.get("height_in"),
+                    "dpi": fig_style.get("dpi"),
+                }
+            self._fit_figure_to_canvas(fig)  # heal any previously-squashed figure
             if hasattr(tab, "draw"):
                 tab.draw()
             else:
@@ -121,3 +131,18 @@ class MainWindowPlotStyleMixin:
             self.notify("Applied graph formatting")
         except Exception as e:
             self.error_box("Formatting failed", f"Reason: {e}")
+
+    def _fit_figure_to_canvas(self, fig) -> None:
+        """Make the figure fill its Qt canvas at a screen DPI (undo any print
+        size/dpi that leaked onto the live figure)."""
+        canvas = getattr(fig, "canvas", None)
+        if canvas is None:
+            return
+        try:
+            cw, ch = canvas.get_width_height()
+            if cw > 0 and ch > 0:
+                dpi = 100.0
+                fig.set_dpi(dpi)
+                fig.set_size_inches(cw / dpi, ch / dpi, forward=False)
+        except Exception:
+            logger.debug("fit figure to canvas skipped", exc_info=True)

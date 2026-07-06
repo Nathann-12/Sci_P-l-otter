@@ -128,6 +128,35 @@ def test_apply_plot_details_changes_the_axes(win):
     assert ax.get_legend() is not None
 
 
+def test_apply_preset_does_not_shrink_onscreen_figure(win):
+    """Regression for the 'apply preset squashes the graph' bug: a journal
+    preset's tiny print size must NOT be applied to the live canvas."""
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+    canvas = fig.canvas
+    cw, ch = canvas.get_width_height()
+
+    # a preset-style figure block (small print size) as the dialog would return
+    style = {
+        "axes": {"label_size": 8, "title_size": 9, "tick_size": 7},
+        "grid": {}, "legend": {"visible": False},
+        "figure": {"width_in": 3.5, "height_in": 2.6, "dpi": 300},
+    }
+
+    class _Dlg:
+        def get_style(self): return style
+        def get_line_styles(self): return [{}]
+
+    win._apply_plot_details(ax, fig, lines, _Dlg())
+
+    # figure now fills the canvas (fit-to-canvas at 100 dpi), not 3.5x2.6
+    w_in, h_in = fig.get_size_inches()
+    assert abs(w_in - cw / 100.0) < 0.5
+    assert w_in > 3.5  # definitely not squashed to the print width
+    # but the print size is remembered for export
+    assert win.tabs.currentWidget()._print_figure["width_in"] == 3.5
+
+
 def test_format_action_wired(win):
     assert callable(getattr(win, "open_plot_details_dialog", None))
     assert hasattr(win, "actFormatGraph")

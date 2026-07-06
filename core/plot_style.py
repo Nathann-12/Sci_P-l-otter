@@ -150,8 +150,13 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
 
 
 # --- apply ------------------------------------------------------------------
-def apply_style(ax, style: Dict[str, Any], fig=None) -> None:
-    """Apply a style dict to ``ax`` (and ``fig``). Unknown keys are ignored."""
+def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
+    """Apply a style dict to ``ax`` (and ``fig``). Unknown keys are ignored.
+
+    ``live=True`` (on-screen, the default) never touches the figure size or DPI
+    — those are print/export concerns; changing them on an embedded Qt canvas
+    breaks the on-screen layout. Pass ``live=False`` for export rendering.
+    """
     a = style.get("axes", {})
     if "title" in a:
         ax.set_title(a["title"], fontsize=a.get("title_size"))
@@ -249,14 +254,16 @@ def apply_style(ax, style: Dict[str, Any], fig=None) -> None:
             fig.set_facecolor(f["fig_facecolor"])
         except Exception:
             pass
-    if fig is not None and (f.get("width_in") or f.get("height_in")):
+    # figure size / DPI are export-only: applying them to a live embedded Qt
+    # canvas squashes the on-screen layout (see the "apply preset" bug)
+    if not live and fig is not None and (f.get("width_in") or f.get("height_in")):
         try:
             cur_w, cur_h = fig.get_size_inches()
             fig.set_size_inches(float(f.get("width_in", cur_w)),
                                 float(f.get("height_in", cur_h)))
         except Exception:
             pass
-    if fig is not None and f.get("dpi"):
+    if not live and fig is not None and f.get("dpi"):
         try:
             fig.set_dpi(float(f["dpi"]))
         except Exception:

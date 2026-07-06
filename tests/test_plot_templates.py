@@ -51,12 +51,21 @@ def test_get_preset_style_is_a_copy():
         get_preset_style("nope")
 
 
-def test_apply_preset_sets_figure_size_and_fonts(axfig):
+def test_preset_sets_fonts_but_not_figure_size_when_live(axfig):
     ax, fig = axfig
-    apply_style(ax, get_preset_style("IEEE (single column)"), fig)
+    w0, h0 = fig.get_size_inches()
+    apply_style(ax, get_preset_style("IEEE (single column)"), fig, live=True)
+    # live (on-screen) must NOT resize the figure — that squashes an embedded
+    # Qt canvas; only fonts change
+    assert tuple(fig.get_size_inches()) == (w0, h0)
+    assert ax.xaxis.label.get_fontsize() == 8
+
+
+def test_preset_applies_figure_size_for_export(axfig):
+    ax, fig = axfig
+    apply_style(ax, get_preset_style("IEEE (single column)"), fig, live=False)
     w, h = fig.get_size_inches()
     assert round(w, 2) == 3.5
-    assert ax.xaxis.label.get_fontsize() == 8
 
 
 # ---------------- custom ticks ----------------

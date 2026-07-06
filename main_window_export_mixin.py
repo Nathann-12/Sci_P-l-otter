@@ -304,7 +304,15 @@ class MainWindowExportMixin:
         path = self.ask_save_path(f"Export as {res['fmt']}", f"figure.{ext}", filt)
         if not path:
             return
+        # honor a print size chosen in Plot Details (Figure tab) — applied only
+        # around savefig so the on-screen graph is never disturbed
+        saved_size = fig.get_size_inches().copy()
+        print_spec = getattr(self.tabs.currentWidget(), "_print_figure", None) \
+            if hasattr(self, "tabs") else None
         try:
+            if print_spec and print_spec.get("width_in"):
+                fig.set_size_inches(float(print_spec["width_in"]),
+                                    float(print_spec.get("height_in") or saved_size[1]))
             fig.savefig(
                 path, format=ext, dpi=int(res["dpi"]),
                 transparent=bool(res["transparent"]),
@@ -312,6 +320,12 @@ class MainWindowExportMixin:
             self.notify(f"Exported {res['fmt']}: {path}")
         except Exception as e:
             self.error_box("Export failed", f"Reason: {e}")
+        finally:
+            try:
+                fig.set_size_inches(*saved_size)
+                fig.canvas.draw_idle()
+            except Exception:
+                pass
 
     def copy_figure_to_clipboard(self):
         """Copy the active graph to the clipboard as an image."""
