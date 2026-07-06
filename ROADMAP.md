@@ -92,8 +92,9 @@
 - ☐ Phase plot
 - ☐ Nyquist plot
 - ☐ Bode plot
-- ☐ Error bar
-- ☐ Multi-axis plot
+- ✅ Error bar (Plot → Error Bar Plot)
+- ✅ Fill between / band (Plot → Fill Between)
+- ✅ Multi-axis plot (Plot → Add Secondary Y Axis)
 - ☐ Subplot grid
 - ✅ Log X (View → Format Graph → Axes → X scale)
 - ✅ Log Y (View → Format Graph → Axes → Y scale)
@@ -117,7 +118,6 @@
 - ☐ High DPI export
 - ☐ Copy to clipboard
 - ☐ Batch export
-- ✅ Save figure template (Format Graph → Presets && Templates)
 
 ## D. Analysis Engine — 🟢 fitting แข็ง + สถิติเชิงพรรณนาครบ (เมนู Analysis → Descriptive Statistics)
 - ✅ Mean

@@ -99,6 +99,11 @@ class MainWindowMenuMixin:
             pass
         actAddLine.triggered.connect(self.add_line_overlay)
         actAddScatter.triggered.connect(self.add_scatter_overlay)
+        plotMenu.addSeparator()
+        plotMenu.addAction("Error Bar Plot…").triggered.connect(self.plot_error_bars)
+        plotMenu.addAction("Fill Between (band)…").triggered.connect(self.plot_fill_between)
+        plotMenu.addAction("Add Secondary Y Axis…").triggered.connect(self.plot_secondary_axis)
+        plotMenu.addSeparator()
         if hasattr(self, 'actPlotEquation'):
             plotMenu.addAction(self.actPlotEquation)
         else:

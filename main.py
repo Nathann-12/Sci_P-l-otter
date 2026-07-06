@@ -97,6 +97,7 @@ from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
 from main_window_workflow_mixin import MainWindowWorkflowMixin
 from main_window_plotstyle_mixin import MainWindowPlotStyleMixin
+from main_window_plotextra_mixin import MainWindowPlotExtraMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
@@ -191,6 +192,7 @@ class MainWindow(
     MainWindowGasSensorMixin,
     MainWindowWorkflowMixin,
     MainWindowPlotStyleMixin,
+    MainWindowPlotExtraMixin,
     MainWindowViewAccessMixin,
     QMainWindow,
 ):
