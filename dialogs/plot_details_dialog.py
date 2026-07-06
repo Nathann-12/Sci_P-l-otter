@@ -9,7 +9,7 @@ live "Apply" without closing.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
@@ -30,8 +30,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtWidgets import QPushButton
+
 from widgets.color_button import ColorButton
 from core.plot_style import (
+    JOURNAL_PRESETS,
     LEGEND_LOCS,
     LINE_STYLES,
     MARKERS,
@@ -47,13 +50,17 @@ def _hex_to_qcolor(h: str) -> QColor:
 
 class PlotDetailsDialog(QDialog):
     applied = Signal()
+    # emitted with a template name to save / load; the mixin owns the store
+    save_template_requested = Signal(str)
+    load_template_requested = Signal(str)
 
     def __init__(self, style: Dict[str, Any], line_styles: List[Dict[str, Any]],
-                 parent=None):
+                 parent=None, template_names: Optional[List[str]] = None):
         super().__init__(parent)
         self.setWindowTitle("Plot Details")
         self.setModal(True)
         self._line_styles = [dict(d) for d in line_styles]
+        self._template_names = list(template_names or [])
 
         outer = QVBoxLayout(self)
         tabs = QTabWidget(self)
@@ -62,6 +69,7 @@ class PlotDetailsDialog(QDialog):
                                                 style.get("legend", {})), "Grid && Legend")
         tabs.addTab(self._build_lines_tab(), "Lines")
         tabs.addTab(self._build_figure_tab(style.get("figure", {})), "Figure")
+        tabs.addTab(self._build_preset_tab(), "Presets && Templates")
         outer.addWidget(tabs)
 
         buttons = QDialogButtonBox(
@@ -114,7 +122,77 @@ class PlotDetailsDialog(QDialog):
         form.addRow("", self.chk_invy)
         self.cb_tickdir = _combo(TICK_DIRECTIONS, a.get("tick_direction", "out"))
         form.addRow("Tick direction", self.cb_tickdir)
+
+        # custom tick spacing (0 = auto)
+        self.sp_xmajor = _dspin(a.get("x_major_spacing") or 0.0, 0.0, 1e12, decimals=4)
+        self.sp_xminor = _dspin(a.get("x_minor_spacing") or 0.0, 0.0, 1e12, decimals=4)
+        self.sp_ymajor = _dspin(a.get("y_major_spacing") or 0.0, 0.0, 1e12, decimals=4)
+        self.sp_yminor = _dspin(a.get("y_minor_spacing") or 0.0, 0.0, 1e12, decimals=4)
+        form.addRow("X major spacing (0=auto)", self.sp_xmajor)
+        form.addRow("X minor spacing (0=auto)", self.sp_xminor)
+        form.addRow("Y major spacing (0=auto)", self.sp_ymajor)
+        form.addRow("Y minor spacing (0=auto)", self.sp_yminor)
         return w
+
+    # ------------------------------------------------- Presets & Templates
+    def _build_preset_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        gb_preset = QGroupBox("Journal preset")
+        pf = QFormLayout(gb_preset)
+        self.cb_preset = QComboBox()
+        self.cb_preset.addItems(list(JOURNAL_PRESETS.keys()))
+        btn_preset = QPushButton("Apply preset")
+        btn_preset.clicked.connect(self._on_apply_preset)
+        pf.addRow("Preset", self.cb_preset)
+        pf.addRow("", btn_preset)
+        v.addWidget(gb_preset)
+
+        gb_tpl = QGroupBox("My templates")
+        tf = QFormLayout(gb_tpl)
+        self.cb_template = QComboBox()
+        self.cb_template.addItems(self._template_names)
+        btn_load = QPushButton("Load template")
+        btn_load.clicked.connect(
+            lambda: self._template_names and self.load_template_requested.emit(
+                self.cb_template.currentText()))
+        self.ed_tplname = QLineEdit()
+        self.ed_tplname.setPlaceholderText("template name…")
+        btn_save = QPushButton("Save current as template")
+        btn_save.clicked.connect(
+            lambda: self.ed_tplname.text().strip()
+            and self.save_template_requested.emit(self.ed_tplname.text().strip()))
+        tf.addRow("Template", self.cb_template)
+        tf.addRow("", btn_load)
+        tf.addRow("Save as", self.ed_tplname)
+        tf.addRow("", btn_save)
+        v.addWidget(gb_tpl)
+        v.addStretch(1)
+        return w
+
+    def _on_apply_preset(self) -> None:
+        """Merge the selected journal preset into the current widgets."""
+        from core.plot_style import get_preset_style
+        preset = get_preset_style(self.cb_preset.currentText())
+        a = preset.get("axes", {})
+        if "title_size" in a:
+            self.sp_title_size.setValue(int(a["title_size"]))
+        if "label_size" in a:
+            self.sp_label_size.setValue(int(a["label_size"]))
+        if "tick_size" in a:
+            self.sp_tick_size.setValue(int(a["tick_size"]))
+        leg = preset.get("legend", {})
+        if "fontsize" in leg:
+            self.sp_legsize.setValue(int(leg["fontsize"]))
+        f = preset.get("figure", {})
+        if "width_in" in f:
+            self.sp_figw.setValue(float(f["width_in"]))
+        if "height_in" in f:
+            self.sp_figh.setValue(float(f["height_in"]))
+        if "dpi" in f:
+            self.sp_figdpi.setValue(int(f["dpi"]))
+        self._on_apply()  # live preview
 
     # -------------------------------------------------------- Grid & Legend
     def _build_grid_legend_tab(self, g: Dict[str, Any], leg: Dict[str, Any]) -> QWidget:
@@ -223,8 +301,14 @@ class PlotDetailsDialog(QDialog):
         form = QFormLayout(w)
         self.btn_axesbg = ColorButton(_hex_to_qcolor(f.get("facecolor", "#1e2126")))
         self.btn_figbg = ColorButton(_hex_to_qcolor(f.get("fig_facecolor", "#1e2126")))
+        self.sp_figw = _dspin(f.get("width_in", 6.4), 0.5, 40.0, decimals=2, step=0.25)
+        self.sp_figh = _dspin(f.get("height_in", 4.8), 0.5, 40.0, decimals=2, step=0.25)
+        self.sp_figdpi = _spin(f.get("dpi", 100), 30, 1200)
         form.addRow("Axes background", self.btn_axesbg)
         form.addRow("Figure background", self.btn_figbg)
+        form.addRow("Width (in)", self.sp_figw)
+        form.addRow("Height (in)", self.sp_figh)
+        form.addRow("DPI", self.sp_figdpi)
         return w
 
     # ------------------------------------------------------------------ read
@@ -246,6 +330,10 @@ class PlotDetailsDialog(QDialog):
                 "yscale": self.cb_yscale.currentText(),
                 "invert_x": self.chk_invx.isChecked(),
                 "invert_y": self.chk_invy.isChecked(),
+                "x_major_spacing": self.sp_xmajor.value() or None,
+                "x_minor_spacing": self.sp_xminor.value() or None,
+                "y_major_spacing": self.sp_ymajor.value() or None,
+                "y_minor_spacing": self.sp_yminor.value() or None,
             },
             "grid": {
                 "major": self.chk_grid.isChecked(),
@@ -264,6 +352,9 @@ class PlotDetailsDialog(QDialog):
             "figure": {
                 "facecolor": self.btn_axesbg.color().name(),
                 "fig_facecolor": self.btn_figbg.color().name(),
+                "width_in": self.sp_figw.value(),
+                "height_in": self.sp_figh.value(),
+                "dpi": self.sp_figdpi.value(),
             },
         }
 

@@ -32,6 +32,46 @@ LEGEND_LOCS = [
     "upper center", "center",
 ]
 
+# Journal figure presets: publication-ready figure sizes + font sizes.
+# Widths are the common single-column sizes (inches). Merge onto a style
+# with get_preset_style(name).
+JOURNAL_PRESETS = {
+    "IEEE (single column)": {
+        "figure": {"width_in": 3.5, "height_in": 2.6, "dpi": 300},
+        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7},
+        "legend": {"fontsize": 7},
+    },
+    "Nature (single column)": {
+        "figure": {"width_in": 3.50, "height_in": 2.63, "dpi": 300},
+        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6},
+        "legend": {"fontsize": 6},
+    },
+    "Science (single column)": {
+        "figure": {"width_in": 2.24, "height_in": 2.0, "dpi": 300},
+        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6},
+        "legend": {"fontsize": 6},
+    },
+    "ACS (single column)": {
+        "figure": {"width_in": 3.33, "height_in": 2.5, "dpi": 300},
+        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7},
+        "legend": {"fontsize": 7},
+    },
+    "Thesis (large)": {
+        "figure": {"width_in": 6.5, "height_in": 4.5, "dpi": 300},
+        "axes": {"title_size": 14, "label_size": 12, "tick_size": 10},
+        "legend": {"fontsize": 11},
+    },
+}
+
+
+def get_preset_style(name: str) -> Dict[str, Any]:
+    """Return a deep copy of the named journal preset's style fragment."""
+    import copy
+    preset = JOURNAL_PRESETS.get(name)
+    if preset is None:
+        raise ValueError(f"unknown journal preset: {name!r}")
+    return copy.deepcopy(preset)
+
 
 def _num_or_none(v):
     try:
@@ -70,6 +110,10 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
             "invert_y": bool(ymin > ymax),
             "tick_size": float(ax.xaxis.get_ticklabels()[0].get_fontsize())
             if ax.xaxis.get_ticklabels() else 10.0,
+            "x_major_spacing": None,  # None = auto (custom locators aren't read back)
+            "x_minor_spacing": None,
+            "y_major_spacing": None,
+            "y_minor_spacing": None,
         },
         "grid": {
             "major": bool(grid_on),
@@ -88,6 +132,11 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
             "facecolor": _to_hex(ax.get_facecolor()),
         },
     }
+    if fig is not None:
+        w, h = fig.get_size_inches()
+        style["figure"]["width_in"] = float(w)
+        style["figure"]["height_in"] = float(h)
+        style["figure"]["dpi"] = float(fig.get_dpi())
     if legend is not None:
         try:
             texts = legend.get_texts()
@@ -110,6 +159,12 @@ def apply_style(ax, style: Dict[str, Any], fig=None) -> None:
         ax.set_xlabel(a["xlabel"], fontsize=a.get("label_size"))
     if "ylabel" in a:
         ax.set_ylabel(a["ylabel"], fontsize=a.get("label_size"))
+    # font sizes apply even when the text itself is unchanged (e.g. presets)
+    if a.get("title_size"):
+        ax.title.set_fontsize(a["title_size"])
+    if a.get("label_size"):
+        ax.xaxis.label.set_fontsize(a["label_size"])
+        ax.yaxis.label.set_fontsize(a["label_size"])
 
     # scales (guard log against non-positive limits)
     for axis, key in (("x", "xscale"), ("y", "yscale")):
@@ -142,6 +197,12 @@ def apply_style(ax, style: Dict[str, Any], fig=None) -> None:
         ax.tick_params(labelsize=a["tick_size"])
     if a.get("tick_direction") in TICK_DIRECTIONS:
         ax.tick_params(direction=a["tick_direction"])
+
+    # custom tick spacing (MultipleLocator); None/0 = leave matplotlib's auto
+    _apply_locator(ax.xaxis, a.get("x_major_spacing"), major=True)
+    _apply_locator(ax.xaxis, a.get("x_minor_spacing"), major=False)
+    _apply_locator(ax.yaxis, a.get("y_major_spacing"), major=True)
+    _apply_locator(ax.yaxis, a.get("y_minor_spacing"), major=False)
 
     g = style.get("grid", {})
     if g:
@@ -188,6 +249,33 @@ def apply_style(ax, style: Dict[str, Any], fig=None) -> None:
             fig.set_facecolor(f["fig_facecolor"])
         except Exception:
             pass
+    if fig is not None and (f.get("width_in") or f.get("height_in")):
+        try:
+            cur_w, cur_h = fig.get_size_inches()
+            fig.set_size_inches(float(f.get("width_in", cur_w)),
+                                float(f.get("height_in", cur_h)))
+        except Exception:
+            pass
+    if fig is not None and f.get("dpi"):
+        try:
+            fig.set_dpi(float(f["dpi"]))
+        except Exception:
+            pass
+
+
+def _apply_locator(axis, spacing, major: bool) -> None:
+    """Set a MultipleLocator at ``spacing`` on a matplotlib axis (major/minor).
+
+    ``spacing`` None or <= 0 leaves matplotlib's automatic locator in place.
+    """
+    s = _num_or_none(spacing)
+    if s is None or s <= 0:
+        return
+    from matplotlib.ticker import MultipleLocator
+    if major:
+        axis.set_major_locator(MultipleLocator(s))
+    else:
+        axis.set_minor_locator(MultipleLocator(s))
 
 
 # --- per-curve --------------------------------------------------------------

@@ -100,13 +100,14 @@
 - ☐ Broken axis
 - ✅ Reverse axis (Format Graph → Axes → Reverse X/Y)
 - ✅ Date axis
-- 🟡 Custom ticks (tick size/direction done; custom locations ยังไม่มี)
+- ✅ Custom ticks (size/direction + major/minor spacing ใน Format Graph → Axes)
 - ✅ Legend editor (Format Graph → Grid & Legend)
 - ✅ Label editor (Format Graph → Axes: title/x/y + font sizes)
 - ✅ Font editor (title/label/tick/legend sizes ใน Format Graph)
 - ✅ Color editor (per-curve color/style/marker ใน Format Graph → Lines)
 - ✅ Theme preset (dark/default)
-- ☐ Journal figure preset
+- ✅ Journal figure preset (IEEE/Nature/Science/ACS/Thesis — Format Graph → Presets)
+- ✅ Save figure template (Format Graph → Presets && Templates)
 - ✅ Export PNG
 - 🟡 Export SVG
 - ✅ Export PDF
@@ -116,7 +117,7 @@
 - ☐ High DPI export
 - ☐ Copy to clipboard
 - ☐ Batch export
-- ☐ Save figure template
+- ✅ Save figure template (Format Graph → Presets && Templates)
 
 ## D. Analysis Engine — 🟢 fitting แข็ง + สถิติเชิงพรรณนาครบ (เมนู Analysis → Descriptive Statistics)
 - ✅ Mean

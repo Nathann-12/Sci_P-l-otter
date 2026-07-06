@@ -55,6 +55,7 @@ class MainWindowPlotStyleMixin:
     def open_plot_details_dialog(self):
         """Open the Plot Details dialog for the active graph."""
         from dialogs.plot_details_dialog import PlotDetailsDialog
+        from core import plot_templates
 
         ax, fig, lines = self._active_graph_axes()
         if ax is None:
@@ -66,15 +67,42 @@ class MainWindowPlotStyleMixin:
 
         style = read_style(ax, fig)
         line_styles = [read_line_style(ln) for ln in lines]
-        dlg = PlotDetailsDialog(style, line_styles, parent=self)
+        dlg = PlotDetailsDialog(
+            style, line_styles, parent=self,
+            template_names=plot_templates.list_templates())
 
         def _apply():
             self._apply_plot_details(ax, fig, lines, dlg)
 
+        def _save_template(name):
+            try:
+                plot_templates.save_template(name, dlg.get_style())
+                self.notify(f"Saved template: {name}")
+            except Exception as e:
+                self.error_box("Save template failed", f"Reason: {e}")
+
+        def _load_template(name):
+            try:
+                tpl = plot_templates.load_template(name)
+                apply_style(ax, tpl, fig)
+                self._draw_active_graph(fig)
+                self.notify(f"Applied template: {name}")
+            except Exception as e:
+                self.error_box("Load template failed", f"Reason: {e}")
+
         dlg.applied.connect(_apply)
+        dlg.save_template_requested.connect(_save_template)
+        dlg.load_template_requested.connect(_load_template)
         from PySide6.QtWidgets import QDialog
         if dlg.exec() == QDialog.Accepted:
             _apply()
+
+    def _draw_active_graph(self, fig=None) -> None:
+        tab = self.tabs.currentWidget()
+        if hasattr(tab, "draw"):
+            tab.draw()
+        elif fig is not None:
+            fig.canvas.draw_idle()
 
     def _apply_plot_details(self, ax, fig, lines, dlg) -> None:
         try:
