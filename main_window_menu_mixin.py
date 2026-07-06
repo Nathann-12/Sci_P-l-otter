@@ -209,6 +209,8 @@ class MainWindowMenuMixin:
 
         helpMenu = m.addMenu("&Help")
         actAbout = helpMenu.addAction("About"); actAbout.triggered.connect(self.show_about)
+        helpMenu.addAction("Associate .sciproj files with this app").triggered.connect(
+            self.register_file_association)
         # อัปเดตช็อตคัตให้ครอบคลุมฟีเจอร์ใหม่ (Annotation/Analysis)
         # คีย์ลัดจริงที่ลงทะเบียนในแอป (ตรวจให้ตรงกับ setShortcut จริง)
         help_shortcuts = (

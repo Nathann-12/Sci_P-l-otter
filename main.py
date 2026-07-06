@@ -665,6 +665,14 @@ def main():
     except Exception:
         logger.debug('Failed to set application icon', exc_info=True)
 
+    # CLI: register the .sciproj file association then exit (used by installers
+    # or a one-time setup). Runs before the GUI so it stays headless.
+    if "--register-file-assoc" in sys.argv:
+        from core import file_assoc
+        ok, msg = file_assoc.register()
+        print(msg)
+        sys.exit(0 if ok else 1)
+
     # Setup logging system
     setup_logging()
     
@@ -699,6 +707,17 @@ def main():
     except Exception:
         pass
     win.show()
+
+    # Opened via a .sciproj file (double-click / "Open with") → load it.
+    try:
+        proj = next((a for a in sys.argv[1:]
+                     if a.lower().endswith(".sciproj") and os.path.isfile(a)), None)
+        if proj:
+            from PySide6.QtCore import QTimer as _QTimer
+            _QTimer.singleShot(0, lambda: win.open_project_path(proj))
+    except Exception:
+        logger.debug("open project from argv skipped", exc_info=True)
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":

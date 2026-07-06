@@ -161,17 +161,35 @@ class MainWindowSessionMixin:
             QMessageBox.critical(self, "Save Project failed", f"Reason: {e}")
 
     def open_project(self):
-        """Open a .sciproj file — restores Books (with embedded data) + graphs."""
+        """Open a .sciproj file via a file dialog."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Project", "", self.PROJECT_FILTER)
-        if not path:
-            return
+        if path:
+            self.open_project_path(path)
+
+    def open_project_path(self, path: str) -> bool:
+        """Open a .sciproj at ``path`` directly (used by the file dialog, the
+        command line and the file association). Returns True on success."""
+        if not path or not os.path.isfile(path):
+            QMessageBox.warning(self, "Open Project failed", f"File not found:\n{path}")
+            return False
         try:
             session_store.load_project(self, path)
             self._current_project_path = path
             self.statusBar().showMessage(f"Project opened: {os.path.basename(path)}")
+            return True
         except Exception as e:
             QMessageBox.critical(self, "Open Project failed", f"Reason: {e}")
+            return False
+
+    def register_file_association(self):
+        """Associate .sciproj files with this app (Windows, current user)."""
+        from core import file_assoc
+        ok, msg = file_assoc.register()
+        if ok:
+            QMessageBox.information(self, "File Association", msg)
+        else:
+            QMessageBox.warning(self, "File Association", msg)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         try:
