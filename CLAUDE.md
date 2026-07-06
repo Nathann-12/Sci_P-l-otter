@@ -20,7 +20,7 @@
 
 ## สถาปัตยกรรม
 `main.py` (~675 บรรทัด) เป็น **thin shell**: imports/setup, `MainWindow.__init__` (ประกอบ UI: shell + MDI workspace + Project Explorer + docks), การ wire สัญญาณ, helper เล็ก (`_show_status`/`_icon`/`show_about`/`resizeEvent`/`_refresh_workbook`), `main()`
-`MainWindow` ประกอบจาก **mixin 19 ตัว** (logic อยู่ใน mixin ไม่ใช่ใน main.py) — รวม `main_window_view_access_mixin` (view seam: `notify`/`ask_choice`/`selected_x_column`/`active_axes`):
+`MainWindow` ประกอบจาก **mixin 20 ตัว** (logic อยู่ใน mixin ไม่ใช่ใน main.py) — รวม `main_window_view_access_mixin` (view seam: `notify`/`ask_choice`/`selected_x_column`/`active_axes`):
 
 | Mixin | หน้าที่ |
 |---|---|
@@ -42,6 +42,7 @@
 | `main_window_actions_mixin` | dispatcher (on_action_*), dataframe accessors, drag&drop |
 | `main_window_gassensor_mixin` | โมดูล Gas Sensor (rail context + เมนู): response/t90, ตรวจรอบแก๊ส, calibration+LOD, dilution — logic ใน `analysis/gas_sensor.py` |
 | `main_window_workflow_mixin` | Reproducibility (เมนู Tools): `_record_op` + history/export/import/re-run/gen สคริปต์ — logic ใน `core/history.py` (ops ใหม่ต้องมี entry ใน `REPLAY_REGISTRY` + `_SCRIPT_TEMPLATES`) |
+| `main_window_plotstyle_mixin` | ตกแต่งกราฟแบบ Origin "Plot Details" (View→Format Graph / Ctrl+Shift+F / ดับเบิลคลิกกราฟ): เปิด `dialogs/plot_details_dialog.py` แก้ style ผ่าน `core/plot_style.py` (axes/grid/legend/figure + per-curve) |
 
 **ชั้น UI (โมเดล OriginPro เต็มรูปแบบ — สำคัญ)**
 - **UX ทั้งแอปยึด loop แบบ Origin** (ดู [docs/UX_FLOW.md](docs/UX_FLOW.md) — บังคับสำหรับฟีเจอร์ใหม่): เปิดไฟล์/พิมพ์ใน Book → เลือกคอลัมน์บนชีต → คลิกไอคอนพล็อต (แถบล่าง) → **Graph window ใหม่เสมอ**; ไม่มีแผงซ้าย — Worksheet + Plot toolbar + Project Explorer + เมนู เท่านั้น; **ห้ามซ่อนความสามารถหลักไว้ใน dock/panel ที่ปิดอยู่**

@@ -95,16 +95,16 @@
 - ☐ Error bar
 - ☐ Multi-axis plot
 - ☐ Subplot grid
-- 🟡 Log X
-- 🟡 Log Y
+- ✅ Log X (View → Format Graph → Axes → X scale)
+- ✅ Log Y (View → Format Graph → Axes → Y scale)
 - ☐ Broken axis
-- ☐ Reverse axis
+- ✅ Reverse axis (Format Graph → Axes → Reverse X/Y)
 - ✅ Date axis
-- 🟡 Custom ticks
-- 🟡 Legend editor
-- 🟡 Label editor
-- 🟡 Font editor
-- 🟡 Color editor (color cycle)
+- 🟡 Custom ticks (tick size/direction done; custom locations ยังไม่มี)
+- ✅ Legend editor (Format Graph → Grid & Legend)
+- ✅ Label editor (Format Graph → Axes: title/x/y + font sizes)
+- ✅ Font editor (title/label/tick/legend sizes ใน Format Graph)
+- ✅ Color editor (per-curve color/style/marker ใน Format Graph → Lines)
 - ✅ Theme preset (dark/default)
 - ☐ Journal figure preset
 - ✅ Export PNG

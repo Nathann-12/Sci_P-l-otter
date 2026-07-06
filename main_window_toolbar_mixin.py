@@ -229,6 +229,18 @@ class MainWindowToolbarMixin:
         self.tb.addAction(self.actCrosshair)
         self.tb.addAction(self.actBoxZoom)
 
+        # Origin-style "Format Graph" (Plot Details) — deep customization
+        if not hasattr(self, 'actFormatGraph'):
+            self.actFormatGraph = QAction("Format Graph", self)
+            self.actFormatGraph.triggered.connect(
+                lambda: getattr(self, 'open_plot_details_dialog', lambda: None)())
+        self.actFormatGraph.setToolTip("Format Graph — Plot Details (title, axes, grid, legend, lines)")
+        try:
+            self.actFormatGraph.setIcon(self._icon("format", QStyle.StandardPixmap.SP_DesktopIcon))
+        except Exception:
+            pass
+        self.tb.addAction(self.actFormatGraph)
+
         # Error Panel toggle
         self.actErrorPanel = self.tb.addAction("Error Panel")
         self.actErrorPanel.setCheckable(True)

@@ -96,6 +96,7 @@ from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
 from main_window_workflow_mixin import MainWindowWorkflowMixin
+from main_window_plotstyle_mixin import MainWindowPlotStyleMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
@@ -140,6 +141,7 @@ _QTA_ICON_MAP = {
     "crosshair": "mdi.crosshairs-gps",
     "boxzoom": "mdi.magnify-plus-outline",
     "gas": "mdi.weather-windy",
+    "format": "mdi.palette-outline",
 }
 
 # Thin light icon tint (OriginPro-like); one place so every icon matches.
@@ -188,6 +190,7 @@ class MainWindow(
     MainWindowActionsMixin,
     MainWindowGasSensorMixin,
     MainWindowWorkflowMixin,
+    MainWindowPlotStyleMixin,
     MainWindowViewAccessMixin,
     QMainWindow,
 ):
@@ -385,6 +388,16 @@ class MainWindow(
                 self.tabs.tabRemoved.connect(lambda _: self._mount_layer_manager())
         except Exception:
             pass
+
+        # Origin: double-click a graph opens Plot Details. Bind the current
+        # graph now and rebind whenever a graph is created/activated.
+        try:
+            self.bind_graph_dblclick()
+            self.tabs.currentChanged.connect(self.bind_graph_dblclick)
+            if hasattr(self.tabs, 'tabCreated'):
+                self.tabs.tabCreated.connect(self.bind_graph_dblclick)
+        except Exception:
+            logger.debug("graph dblclick wiring skipped", exc_info=True)
 
         # Origin-style worksheet: fill it when data is loaded, and jump to the
         # graph tab when the user actually plots. Hooks ride existing signals /

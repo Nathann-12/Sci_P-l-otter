@@ -27,7 +27,7 @@ class ColorButton(QPushButton):
     
     def _show_color_dialog(self):
         """Show color dialog and update color if accepted"""
-        color = QColorDialog.getColor(self._color, self, "เลือกสี")
+        color = QColorDialog.getColor(self._color, self, "Select Color")
         if color.isValid():
             self.setColor(color)
     
@@ -48,7 +48,7 @@ class ColorButton(QPushButton):
         self.setIconSize(self.size() - QSize(4, 4))
         
         # Set tooltip
-        self.setToolTip(f"สี: RGB({self._color.red()}, {self._color.green()}, {self._color.blue()})")
+        self.setToolTip(f"Color: RGB({self._color.red()}, {self._color.green()}, {self._color.blue()})")
 
 class ColorButtonWithLabel(QWidget):
     """A color button with a label"""

@@ -56,6 +56,16 @@ class MainWindowMenuMixin:
             except Exception:
                 pass
 
+        # Origin-style deep graph customization — reuse the toolbar action if built
+        if hasattr(self, "actFormatGraph"):
+            self.actFormatGraph.setText("Format Graph… (Plot Details)")
+            self.actFormatGraph.setShortcut("Ctrl+Shift+F")
+            viewMenu.addAction(self.actFormatGraph)
+        else:
+            self.actFormatGraph = viewMenu.addAction("Format Graph… (Plot Details)")
+            self.actFormatGraph.setShortcut("Ctrl+Shift+F")
+            self.actFormatGraph.triggered.connect(self.open_plot_details_dialog)
+
         # Plot Style submenu
         plotStyleMenu = viewMenu.addMenu("Plot Style")
         self.actDarkStyle = plotStyleMenu.addAction("Dark")
