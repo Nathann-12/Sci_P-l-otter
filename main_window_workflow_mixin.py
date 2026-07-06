@@ -30,11 +30,11 @@ class MainWindowWorkflowMixin:
             menu = self.menuBar().addMenu("&Workflow")
         else:
             menu.addSeparator()
-        menu.addAction("ประวัติการวิเคราะห์ (History)…").triggered.connect(self.wf_show_history)
+        menu.addAction("Analysis History…").triggered.connect(self.wf_show_history)
         menu.addAction("Export Workflow (JSON)…").triggered.connect(self.wf_export)
         menu.addAction("Import Workflow → Re-run…").triggered.connect(self.wf_import_and_run)
-        menu.addAction("สร้างสคริปต์ Python จากประวัติ…").triggered.connect(self.wf_generate_script)
-        menu.addAction("ล้างประวัติการวิเคราะห์").triggered.connect(self.wf_clear)
+        menu.addAction("Generate Python Script…").triggered.connect(self.wf_generate_script)
+        menu.addAction("Clear Analysis History").triggered.connect(self.wf_clear)
 
     # -------------------------------------------------------------- recording
     def _record_op(self, op: str, **params):

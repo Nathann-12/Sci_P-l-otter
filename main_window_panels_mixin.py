@@ -27,18 +27,18 @@ class MainWindowPanelsMixin:
         ① เปิด/พิมพ์ข้อมูล → ② เลือกคอลัมน์แล้วพล็อต → ③ เครื่องมือกราฟ"""
         l = self._left_layout
 
-        # ── ① ข้อมูล ────────────────────────────────────────────────
-        # Origin model: เปิดไฟล์ = Book ใหม่; รายชื่อชุดข้อมูลดูที่ Project
-        # Explorer (ไม่มี staging list อีกแล้ว)
-        gb_data = QGroupBox("① ข้อมูล")
+        # ── Data ─────────────────────────────────────────────────────
+        # Origin model: opening a file = a new Book; the dataset list lives in
+        # the Project Explorer (no staging list anymore)
+        gb_data = QGroupBox("Data")
         gbd = QVBoxLayout(gb_data); gbd.setContentsMargins(8, 8, 8, 8); gbd.setSpacing(8)
-        self.btnOpenData = QPushButton("เปิดไฟล์ข้อมูล…")
-        self.btnOpenData.setToolTip("CSV / TSV / TXT / Excel / NetCDF / CDF — เปิดเป็น Book ใหม่")
+        self.btnOpenData = QPushButton("Open Data File…")
+        self.btnOpenData.setToolTip("CSV / TSV / TXT / Excel / JSON / HDF5 / MAT / XML / NetCDF / CDF — opens a new Book")
         gbd.addWidget(self.btnOpenData)
-        self.btnUseSheet = QPushButton("ใช้ข้อมูลจากตาราง (Book)")
-        self.btnUseSheet.setToolTip("พิมพ์ข้อมูลลง Book แล้วกดปุ่มนี้เพื่อนำมาพล็อต/วิเคราะห์")
+        self.btnUseSheet = QPushButton("Use Sheet Data (Book)")
+        self.btnUseSheet.setToolTip("Type data into a Book, then click to use it for plotting / analysis")
         gbd.addWidget(self.btnUseSheet)
-        self.lblFile = QLabel("ยังไม่ได้เปิดไฟล์"); self.lblFile.setWordWrap(True)
+        self.lblFile = QLabel("No file opened"); self.lblFile.setWordWrap(True)
         gbd.addWidget(self.lblFile)
         l.addWidget(gb_data)
 
@@ -61,12 +61,12 @@ class MainWindowPanelsMixin:
         self.btnClear    = panel.btn_clear
         self.btnCurveFit = panel.btn_fit
 
-        # ── ③ เครื่องมือกราฟ ───────────────────────────────────────
-        gb_tools = QGroupBox("③ เครื่องมือกราฟ")
+        # ── Graph Tools ──────────────────────────────────────────────
+        gb_tools = QGroupBox("Graph Tools")
         gbt = QVBoxLayout(gb_tools); gbt.setContentsMargins(8, 8, 8, 8); gbt.setSpacing(8)
-        self.chkCross = QCheckBox("แสดง Crosshair")
+        self.chkCross = QCheckBox("Show Crosshair")
         gbt.addWidget(self.chkCross)
-        self.btnBoxZoom = QPushButton("เลือกช่วง (ลากเพื่อซูม)")
+        self.btnBoxZoom = QPushButton("Box Zoom (drag to zoom)")
         gbt.addWidget(self.btnBoxZoom)
         l.addWidget(gb_tools)
 
@@ -475,8 +475,8 @@ class MainWindowPanelsMixin:
                     pass
             # Button/checkbox readable Thai/English labels
             try:
-                self.btnBoxZoom.setText("เลือกช่วง (ลากเพื่อซูม)")
-                self.chkCross.setText("แสดง Crosshair")
+                self.btnBoxZoom.setText("Box Zoom (drag to zoom)")
+                self.chkCross.setText("Show Crosshair")
             except Exception:
                 pass
 

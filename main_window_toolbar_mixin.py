@@ -14,7 +14,7 @@ class MainWindowToolbarMixin:
     def build_toolbar(self):
         """Build the main toolbar with organized groups"""
         self.tb = QToolBar("Main Toolbar", self)
-        self.tb.setIconSize(QSize(22, 22))
+        self.tb.setIconSize(QSize(18, 18))  # dense, OriginPro-like
         self.tb.setMovable(False)
         # Icon-only toolbar: full labels live in tooltips so nothing gets
         # elided into unreadable garbage when the window is narrow.
@@ -41,18 +41,19 @@ class MainWindowToolbarMixin:
         except Exception:
             logging.getLogger(__name__).debug("plot toolbar skipped", exc_info=True)
 
-    # Origin's 2D graph toolbar. (kind, icon candidates, thai tooltip, style key)
+    # Origin's 2D graph toolbar — thin line icons. (label, icon candidates,
+    # english tooltip, style key)
     _PLOT_BAR_SPECS = (
-        ("Line", ("mdi.chart-line", "fa5s.chart-line"),
-         "พล็อตเส้น → Graph ใหม่", "line"),
-        ("Scatter", ("mdi.chart-scatter-plot", "fa5s.braille"),
-         "พล็อตจุด (Scatter) → Graph ใหม่", "scatter"),
-        ("Line+Symbol", ("mdi.chart-timeline-variant", "fa5s.chart-line"),
-         "เส้น+จุด → Graph ใหม่", "linesymbol"),
-        ("Column", ("mdi.chart-bar", "fa5s.chart-bar"),
-         "กราฟแท่ง → Graph ใหม่", "bar"),
-        ("Histogram", ("mdi.chart-histogram", "fa5s.chart-area"),
-         "Histogram → Graph ใหม่", "histogram"),
+        ("Line", ("mdi.chart-line",),
+         "Line plot → new graph", "line"),
+        ("Scatter", ("mdi.chart-scatter-plot", "mdi.dots-hexagon"),
+         "Scatter plot → new graph", "scatter"),
+        ("Line+Symbol", ("mdi.chart-timeline-variant", "mdi.chart-line"),
+         "Line + symbol → new graph", "linesymbol"),
+        ("Column", ("mdi.chart-bar",),
+         "Column / bar chart → new graph", "bar"),
+        ("Histogram", ("mdi.chart-histogram", "mdi.chart-bell-curve"),
+         "Histogram → new graph", "histogram"),
     )
 
     def _plot_bar_icon(self, candidates, fallback_sp=QStyle.StandardPixmap.SP_FileDialogContentsView):
@@ -60,9 +61,10 @@ class MainWindowToolbarMixin:
         standard-pixmap fallback (never raises)."""
         try:
             import qtawesome as qta
+            from main import ICON_COLOR
             for name in candidates:
                 try:
-                    return qta.icon(name, color="#cfd3d6")
+                    return qta.icon(name, color=ICON_COLOR)
                 except Exception:
                     continue
         except Exception:
@@ -80,7 +82,7 @@ class MainWindowToolbarMixin:
 
         tb = QToolBar("Plot Toolbar", self)
         tb.setObjectName("PlotToolbar")
-        tb.setIconSize(QSize(20, 20))
+        tb.setIconSize(QSize(18, 18))
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
 
@@ -206,7 +208,7 @@ class MainWindowToolbarMixin:
         if not hasattr(self, 'actCrosshair'):
             self.actCrosshair = QAction("Crosshair", self)
             self.actCrosshair.setCheckable(True)
-            self.actCrosshair.setToolTip("แสดง Crosshair บนกราฟ")
+            self.actCrosshair.setToolTip("Show crosshair on the graph")
             # Drive the hidden chkCross so existing wiring + session save keep working
             self.actCrosshair.toggled.connect(
                 lambda checked: getattr(self, 'chkCross', None) is not None
@@ -217,7 +219,7 @@ class MainWindowToolbarMixin:
                 pass
         if not hasattr(self, 'actBoxZoom'):
             self.actBoxZoom = QAction("Box Zoom", self)
-            self.actBoxZoom.setToolTip("เลือกช่วง (ลากเพื่อซูม)")
+            self.actBoxZoom.setToolTip("Box zoom (drag to select a range)")
             self.actBoxZoom.triggered.connect(
                 lambda: getattr(self, 'start_box_zoom', lambda: None)())
             try:

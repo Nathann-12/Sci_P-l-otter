@@ -45,10 +45,10 @@ class MainWindowGasSensorMixin:
         self.shell.register_context("gas_sensor", "Gas", panel, icon=icon)
 
         menu = self.menuBar().addMenu("&Gas Sensor")
-        menu.addAction("วิเคราะห์ Response (t90)…").triggered.connect(self.gs_analyze_response)
-        menu.addAction("ตรวจจับรอบเปิด-ปิดแก๊ส…").triggered.connect(self.gs_detect_cycles)
+        menu.addAction("Response Analysis (t90)…").triggered.connect(self.gs_analyze_response)
+        menu.addAction("Detect Gas Cycles…").triggered.connect(self.gs_detect_cycles)
         menu.addAction("Calibration Curve + LOD…").triggered.connect(self.gs_calibration)
-        menu.addAction("คำนวณการเจือจางแก๊ส (ppm)…").triggered.connect(self.gs_dilution)
+        menu.addAction("Gas Dilution (ppm)…").triggered.connect(self.gs_dilution)
 
     # ---------------------------------------------------------------- helpers
     def _gs_time_seconds(self, col: str) -> np.ndarray:
@@ -95,14 +95,14 @@ class MainWindowGasSensorMixin:
         t0, t1 = float(finite_t.min()), float(finite_t.max())
         span = t1 - t0
         y_sel = self.selected_y_column()
-        res_form = self.ask_form("วิเคราะห์ Response (t90)", [
-            {"name": "y_col", "label": "สัญญาณ (Y)", "kind": "choice", "options": y_options,
+        res_form = self.ask_form("Response Analysis (t90)", [
+            {"name": "y_col", "label": "Signal (Y)", "kind": "choice", "options": y_options,
              "default": y_sel if y_sel in y_options else y_options[0]},
-            {"name": "t_on", "label": "เวลาเปิดแก๊ส t_on (s)", "kind": "float",
+            {"name": "t_on", "label": "Gas ON time t_on (s)", "kind": "float",
              "default": round(t0 + 0.25 * span, 4), "min": t0, "max": t1, "decimals": 4},
-            {"name": "t_off", "label": "เวลาปิดแก๊ส t_off (s)", "kind": "float",
+            {"name": "t_off", "label": "Gas OFF time t_off (s)", "kind": "float",
              "default": round(t0 + 0.75 * span, 4), "min": t0, "max": t1, "decimals": 4},
-        ], description=f"ช่วงเวลา {t0:.4g}–{t1:.4g} s (แกน X = {x_name})")
+        ], description=f"Time range {t0:.4g}–{t1:.4g} s (X axis = {x_name})")
         if res_form is None:
             return
         y_name = res_form["y_col"]
@@ -128,12 +128,12 @@ class MainWindowGasSensorMixin:
             self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์สัญญาณนอกจากคอลัมน์เวลา")
             return
         y_sel = self.selected_y_column()
-        res_form = self.ask_form("ตรวจจับรอบเปิด-ปิดแก๊ส", [
-            {"name": "y_col", "label": "สัญญาณ (Y)", "kind": "choice", "options": y_options,
+        res_form = self.ask_form("Detect Gas Cycles", [
+            {"name": "y_col", "label": "Signal (Y)", "kind": "choice", "options": y_options,
              "default": y_sel if y_sel in y_options else y_options[0]},
-            {"name": "threshold_pct", "label": "เกณฑ์เบี่ยงเบนจาก baseline (%)", "kind": "float",
+            {"name": "threshold_pct", "label": "Deviation from baseline (%)", "kind": "float",
              "default": 5.0, "min": 0.1, "max": 500.0, "decimals": 2},
-        ], description=f"หาช่วงที่สัญญาณเปลี่ยนเกินเกณฑ์ (แกน X = {x_name})")
+        ], description=f"Find spans where the signal changes past the threshold (X axis = {x_name})")
         if res_form is None:
             return
         y_name = res_form["y_col"]
@@ -171,21 +171,21 @@ class MainWindowGasSensorMixin:
             self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์ความเข้มข้นและคอลัมน์ response")
             return
         res_form = self.ask_form("Calibration Curve + LOD", [
-            {"name": "conc_col", "label": "คอลัมน์ความเข้มข้น", "kind": "choice",
+            {"name": "conc_col", "label": "Concentration column", "kind": "choice",
              "options": cols, "default": cols[0]},
-            {"name": "resp_col", "label": "คอลัมน์ response", "kind": "choice",
+            {"name": "resp_col", "label": "Response column", "kind": "choice",
              "options": cols, "default": cols[1]},
-            {"name": "model", "label": "โมเดล", "kind": "choice",
+            {"name": "model", "label": "Model", "kind": "choice",
              "options": ["linear", "power"], "default": "linear"},
-            {"name": "noise_std", "label": "σ ของ noise (0 = ข้าม LOD)", "kind": "float",
+            {"name": "noise_std", "label": "Noise σ (0 = skip LOD)", "kind": "float",
              "default": 0.0, "min": 0.0, "max": 1e12, "decimals": 6},
-        ], description="ฟิตเส้น calibration + คำนวณ LOD/LOQ แล้วพล็อตกราฟใหม่")
+        ], description="Fit a calibration curve + compute LOD/LOQ, then plot a new graph")
         if res_form is None:
             return
         conc_col, resp_col = res_form["conc_col"], res_form["resp_col"]
         model, noise_std = res_form["model"], res_form["noise_std"]
         if conc_col == resp_col:
-            self.inform("เลือกคอลัมน์ซ้ำ", "คอลัมน์ความเข้มข้นและ response ต้องคนละคอลัมน์")
+            self.inform("Duplicate column", "Concentration and response must be different columns")
             return
         conc = pd.to_numeric(self._df[conc_col], errors="coerce").to_numpy(dtype=float)
         resp = pd.to_numeric(self._df[resp_col], errors="coerce").to_numpy(dtype=float)
@@ -233,14 +233,14 @@ class MainWindowGasSensorMixin:
         self._gs_log(f"Calibration {resp_col} vs {conc_col}: R²={fit['r_squared']:.4g}")
 
     def gs_dilution(self):
-        res_form = self.ask_form("คำนวณการเจือจางแก๊ส (ppm)", [
-            {"name": "source_ppm", "label": "ความเข้มข้นถังต้นทาง (ppm)", "kind": "float",
+        res_form = self.ask_form("Gas Dilution (ppm)", [
+            {"name": "source_ppm", "label": "Source concentration (ppm)", "kind": "float",
              "default": 1000.0, "min": 0.0, "max": 1e12, "decimals": 4},
-            {"name": "flow_gas", "label": "อัตราไหลแก๊ส (sccm)", "kind": "float",
+            {"name": "flow_gas", "label": "Gas flow (sccm)", "kind": "float",
              "default": 10.0, "min": 1e-9, "max": 1e12, "decimals": 4},
-            {"name": "flow_total", "label": "อัตราไหลรวมทั้งหมด (sccm)", "kind": "float",
+            {"name": "flow_total", "label": "Total flow (sccm)", "kind": "float",
              "default": 100.0, "min": 1e-9, "max": 1e12, "decimals": 4},
-        ], description="ppm หลังเจือจาง = source × (flow_gas / flow_total)")
+        ], description="Diluted ppm = source × (flow_gas / flow_total)")
         if res_form is None:
             return
         source_ppm = res_form["source_ppm"]

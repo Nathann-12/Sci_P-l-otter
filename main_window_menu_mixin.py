@@ -32,14 +32,14 @@ class MainWindowMenuMixin:
         fileMenu = m.addMenu("&File")  # UI-REFINE: File
         self.actOpen = fileMenu.addAction("Open Data (CSV/Excel/JSON/HDF5/MAT/XML/NC/CDF)...")
         self.actOpen.triggered.connect(lambda: getattr(self, 'open_file', lambda: None)())
-        actBatch = fileMenu.addAction("เปิดหลายไฟล์ (Batch Import)…")
+        actBatch = fileMenu.addAction("Open Multiple Files (Batch Import)…")
         actBatch.triggered.connect(lambda: getattr(self, 'stage_add_files', lambda: None)())
         fileMenu.addSeparator()
-        # Export PNG อยู่ในเมนู Export (ไม่ซ้ำที่นี่ — on_action_export_figure เรียก export_png ตัวเดียวกัน)
-        actExit = fileMenu.addAction("ออกจากโปรแกรม"); actExit.triggered.connect(self.close)
+        # Export PNG lives in the Export menu (not duplicated here — on_action_export_figure calls the same export_png)
+        actExit = fileMenu.addAction("Exit"); actExit.triggered.connect(self.close)
 
-        viewMenu = m.addMenu("&มุมมอง")  # UI-REFINE: View
-        actReset = viewMenu.addAction("รีเซ็ตมุมมองกราฟ")
+        viewMenu = m.addMenu("&View")
+        actReset = viewMenu.addAction("Reset View")
         actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
         try:
             viewMenu.addAction(self.actToggleInspector)
@@ -65,18 +65,18 @@ class MainWindowMenuMixin:
         self.actDarkStyle.triggered.connect(lambda: self.change_plot_style("dark"))
         self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
-        self.dataMenu = m.addMenu("&Data")  # UI-UNITS: Data menu for units and calibration
+        self.dataMenu = m.addMenu("&Data")  # units, calibration, derived column
 
         # Plot menu (top menubar) — Origin model: each entry = a NEW graph
         plotMenu = m.addMenu("&Plot")
         for _title, _style in (
-            ("กราฟเส้น", "line"),
-            ("กราฟจุด (Scatter)", "scatter"),
-            ("เส้น+จุด", "linesymbol"),
-            ("กราฟแท่ง (Column/Bar)", "bar"),
+            ("Line", "line"),
+            ("Scatter", "scatter"),
+            ("Line + Symbol", "linesymbol"),
+            ("Column / Bar", "bar"),
             ("Histogram", "histogram"),
         ):
-            _act = plotMenu.addAction(f"{_title} → Graph ใหม่")
+            _act = plotMenu.addAction(f"{_title} → new graph")
             _act.triggered.connect(
                 lambda _=False, s=_style: self.plot_from_workbook(s, new_graph=True))
         plotMenu.addSeparator()
@@ -98,11 +98,11 @@ class MainWindowMenuMixin:
                 self.actPlotEquation.setIcon(self._icon('Plot_from_Equation', QStyle.StandardPixmap.SP_DialogApplyButton))
             except Exception:
                 pass
-        self.dataMenu.addAction("หน่วยและการสอบเทียบ…").triggered.connect(self.open_units_dialog)
-        # Derived column (ย้ายมาจาก plotcore ให้อยู่ที่เดียวกับเมนูอื่น); Ctrl+Shift+D
-        # เพื่อไม่ชนกับ Ctrl+D ของ Peak "Detect in Range"
+        self.dataMenu.addAction("Units & Calibration…").triggered.connect(self.open_units_dialog)
+        # Derived column (moved here from plotcore); Ctrl+Shift+D so it does not
+        # clash with Ctrl+D of Peak "Detect in Range"
         if not hasattr(self, "_actDataDerived"):
-            self._actDataDerived = self.dataMenu.addAction("สร้างคอลัมน์ใหม่ (Derived Column)…")
+            self._actDataDerived = self.dataMenu.addAction("Create Column (Derived)…")
             self._actDataDerived.setShortcut("Ctrl+Shift+D")
             self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
 
@@ -117,14 +117,14 @@ class MainWindowMenuMixin:
         # Data cleaning (ROADMAP B) — column ops add a new column; row ops swap the df
         procMenu.addSeparator()
         cleanMenu = procMenu.addMenu("Data Cleaning")
-        cleanMenu.addAction("เติมค่าที่หาย (Fill Missing)…").triggered.connect(self.feature_clean_fill_missing)
-        cleanMenu.addAction("เติมค่าด้วย Interpolation").triggered.connect(self.feature_clean_interpolate)
-        cleanMenu.addAction("ลบแถวซ้ำ (Remove Duplicates)").triggered.connect(self.feature_clean_remove_duplicates)
-        cleanMenu.addAction("ตัด Outliers…").triggered.connect(self.feature_clean_remove_outliers)
+        cleanMenu.addAction("Fill Missing…").triggered.connect(self.feature_clean_fill_missing)
+        cleanMenu.addAction("Interpolate Missing").triggered.connect(self.feature_clean_interpolate)
+        cleanMenu.addAction("Remove Duplicates").triggered.connect(self.feature_clean_remove_duplicates)
+        cleanMenu.addAction("Remove Outliers…").triggered.connect(self.feature_clean_remove_outliers)
         cleanMenu.addAction("Normalize / Standardize…").triggered.connect(self.feature_clean_normalize)
-        cleanMenu.addAction("ลบ Baseline / Detrend…").triggered.connect(self.feature_clean_detrend)
-        cleanMenu.addAction("เรียงข้อมูล (Sort)…").triggered.connect(self.feature_clean_sort)
-        cleanMenu.addAction("Resample เป็นกริดสม่ำเสมอ…").triggered.connect(self.feature_clean_resample)
+        cleanMenu.addAction("Detrend / Baseline…").triggered.connect(self.feature_clean_detrend)
+        cleanMenu.addAction("Sort…").triggered.connect(self.feature_clean_sort)
+        cleanMenu.addAction("Resample (uniform grid)…").triggered.connect(self.feature_clean_resample)
 
         # Signal filters (ROADMAP E)
         filterMenu = procMenu.addMenu("Filters")
@@ -145,12 +145,12 @@ class MainWindowMenuMixin:
         # Window menu (Origin-style): arrange MDI sub-windows
         try:
             windowMenu = m.addMenu("&Window")
-            windowMenu.addAction("จัดเรียงซ้อน (Cascade)").triggered.connect(
+            windowMenu.addAction("Cascade").triggered.connect(
                 lambda: getattr(self, "mdi", None) and self.mdi.cascade())
-            windowMenu.addAction("จัดเรียงเรียง (Tile)").triggered.connect(
+            windowMenu.addAction("Tile").triggered.connect(
                 lambda: getattr(self, "mdi", None) and self.mdi.tile())
             windowMenu.addSeparator()
-            windowMenu.addAction("เพิ่มกราฟใหม่ (New Graph)").triggered.connect(
+            windowMenu.addAction("New Graph").triggered.connect(
                 lambda: getattr(self, "mdi", None) and self.mdi.add_tab())
         except Exception:
             logging.getLogger(__name__).debug("Window menu setup skipped", exc_info=True)
@@ -179,8 +179,8 @@ class MainWindowMenuMixin:
         except Exception:
             pass
 
-        helpMenu = m.addMenu("&ช่วยเหลือ")  # UI-REFINE: Help → Shortcuts
-        actAbout = helpMenu.addAction("เกี่ยวกับโปรแกรม"); actAbout.triggered.connect(self.show_about)
+        helpMenu = m.addMenu("&Help")
+        actAbout = helpMenu.addAction("About"); actAbout.triggered.connect(self.show_about)
         # อัปเดตช็อตคัตให้ครอบคลุมฟีเจอร์ใหม่ (Annotation/Analysis)
         # คีย์ลัดจริงที่ลงทะเบียนในแอป (ตรวจให้ตรงกับ setShortcut จริง)
         help_shortcuts = (
@@ -292,7 +292,7 @@ class MainWindowMenuMixin:
         # ชนิดกราฟที่ Plot menu (พล็อตจากชีต) ไม่มี — เปิดกล่องเลือกคอลัมน์ให้
         # (Line/Scatter/Bar/Histogram ตัดออกเพราะซ้ำกับ Plot menu โดยตรงแล้ว)
         # NOTE: เติมเป็น submenu ของ "Plot" ไม่ใช่ Analysis — การทำกราฟรวมอยู่ที่ Plot
-        advChartsMenu = plotMenu.addMenu("ชนิดกราฟเพิ่มเติม (Area/Box/Pie/3D)…")
+        advChartsMenu = plotMenu.addMenu("More chart types (Area/Box/Pie/3D)…")
         for title, kind in [
             ("Area…", "area"),
             ("Box…", "box"),
@@ -303,11 +303,11 @@ class MainWindowMenuMixin:
             advChartsMenu.addAction(act)
             act.triggered.connect(lambda _, k=kind: open_overlay(k))
 
-        analysisMenu.addAction("สถิติเชิงพรรณนา (Descriptive Statistics)…").triggered.connect(
+        analysisMenu.addAction("Descriptive Statistics…").triggered.connect(
             self.feature_show_statistics)
         analysisMenu.addAction("Covariance Matrix…").triggered.connect(
             self.feature_show_covariance)
-        analysisMenu.addAction("Peak Metrics (FWHM / พื้นที่พีค)…").triggered.connect(
+        analysisMenu.addAction("Peak Metrics (FWHM / Area)…").triggered.connect(
             self.feature_peak_metrics)
         analysisMenu.addAction("Signal Quality (SNR / Noise floor)…").triggered.connect(
             self.feature_signal_quality)

@@ -122,23 +122,28 @@ APP_ICON_FILENAME = "icon_app.png"
 APP_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icons", APP_ICON_FILENAME)
 APP_USER_MODEL_ID = "SciPlotter.SciPlotterApp"
 
-# Map the app's icon names to crisp vector icons (qtawesome / FontAwesome 5).
-# _icon() prefers these when qtawesome is available, else falls back to files.
+# Map the app's icon names to thin line-style vector icons (qtawesome /
+# Material Design Icons), OriginPro-like. _icon() prefers these when
+# qtawesome is available, else falls back to files. Kept light + outline so a
+# dense toolbar stays airy rather than heavy.
 _QTA_ICON_MAP = {
-    "open": "fa5s.folder-open",
-    "inspector": "fa5s.columns",
-    "Plot_from_Equation": "fa5s.square-root-alt",
-    "plot": "fa5s.chart-line",
-    "fft": "fa5s.wave-square",
-    "addtab": "fa5s.plus",
-    "settings": "fa5s.cog",
-    "export": "fa5s.file-export",
-    "clear": "fa5s.exclamation-triangle",
-    "fit": "fa5s.chart-area",
-    "crosshair": "fa5s.crosshairs",
-    "boxzoom": "fa5s.search-plus",
-    "gas": "fa5s.wind",
+    "open": "mdi.folder-open-outline",
+    "inspector": "mdi.view-column-outline",
+    "Plot_from_Equation": "mdi.function-variant",
+    "plot": "mdi.chart-line",
+    "fft": "mdi.sine-wave",
+    "addtab": "mdi.plus",
+    "settings": "mdi.cog-outline",
+    "export": "mdi.export-variant",
+    "clear": "mdi.eraser",
+    "fit": "mdi.chart-bell-curve",
+    "crosshair": "mdi.crosshairs-gps",
+    "boxzoom": "mdi.magnify-plus-outline",
+    "gas": "mdi.weather-windy",
 }
+
+# Thin light icon tint (OriginPro-like); one place so every icon matches.
+ICON_COLOR = "#b8bec6"
 
 from core.plot_mode import PlotMode  # re-exported here for backward compatibility
 
@@ -590,7 +595,7 @@ class MainWindow(
             qta_id = _QTA_ICON_MAP.get(name)
             if qta_id:
                 import qtawesome as qta
-                return qta.icon(qta_id, color="#cfd3d6")
+                return qta.icon(qta_id, color=ICON_COLOR)
         except Exception:
             pass
         try:

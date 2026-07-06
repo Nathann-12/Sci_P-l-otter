@@ -107,16 +107,18 @@ QMdiSubWindow > QWidget {
 
 
 def _sub_window_icon(kind: str):
-    """qtawesome icon for a sub-window title bar (graph/book), or None.
+    """Thin line qtawesome icon for a sub-window title bar (graph/book), or None.
 
-    Replaces the default Qt logo icon; matches main.py's _QTA_ICON_MAP style
-    (fa5s set, light gray so it reads on the dark title bar).
+    Replaces the default Qt logo icon; matches main.py's thin mdi icon style.
     """
     try:
         import qtawesome as qta
-
-        name = "fa5s.chart-line" if kind == "graph" else "fa5s.table"
-        return qta.icon(name, color="#cfd3d6")
+        try:
+            from main import ICON_COLOR as _c
+        except Exception:
+            _c = "#b8bec6"
+        name = "mdi.chart-line" if kind == "graph" else "mdi.table"
+        return qta.icon(name, color=_c)
     except Exception:
         logger.debug("qtawesome sub-window icon unavailable", exc_info=True)
         return None

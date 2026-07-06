@@ -752,7 +752,7 @@ class CompactPlotPanel(QWidget):
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(8)
 
-        self.btnLoadCols = QPushButton("โหลดคอลัมน์จากข้อมูล")
+        self.btnLoadCols = QPushButton("Load Columns from Data")
         self.btnLoadCols.setMinimumHeight(32)
         self.btnLoadCols.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         outer.addWidget(self.btnLoadCols)
@@ -768,9 +768,9 @@ class CompactPlotPanel(QWidget):
             cb.setMinimumHeight(30)
             cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        outer.addWidget(QLabel("แกน X"))
+        outer.addWidget(QLabel("X axis"))
         outer.addWidget(self.cbo_x)
-        outer.addWidget(QLabel("แกน Y"))
+        outer.addWidget(QLabel("Y axis"))
         outer.addWidget(self.cbo_y)
 
         self.spin_width = QSpinBox()
@@ -782,12 +782,12 @@ class CompactPlotPanel(QWidget):
         width_row = QHBoxLayout()
         width_row.setContentsMargins(0, 0, 0, 0)
         width_row.setSpacing(6)
-        width_row.addWidget(QLabel("ความหนาเส้น"))
+        width_row.addWidget(QLabel("Line width"))
         width_row.addWidget(self.spin_width)
         width_row.addStretch(1)
         outer.addLayout(width_row)
 
-        self.chk_points = QCheckBox("แสดงจุดข้อมูล")
+        self.chk_points = QCheckBox("Show markers")
         self.chk_points.setMinimumHeight(26)
         outer.addWidget(self.chk_points)
 
@@ -795,9 +795,9 @@ class CompactPlotPanel(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(6)
-        self.btn_line = QPushButton("พล็อตเส้น")
-        self.btn_scatter = QPushButton("พล็อตจุด")
-        self.btn_clear = QPushButton("ล้างกราฟ")
+        self.btn_line = QPushButton("Line")
+        self.btn_scatter = QPushButton("Scatter")
+        self.btn_clear = QPushButton("Clear")
         self.btn_fit = QPushButton("Curve Fit…")
         for button in (self.btn_line, self.btn_scatter, self.btn_clear, self.btn_fit):
             button.setMinimumHeight(34)

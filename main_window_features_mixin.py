@@ -75,14 +75,14 @@ class MainWindowFeaturesMixin:
         if self._df is None or self.y_column_count() == 0:
             self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
         cols = [str(c) for c in self._df.columns]
-        res = self.ask_form("เพิ่มคอลัมน์ |B| จาก 3 แกน", [
-            {"name": "bx", "label": "แกน X (Bx)", "kind": "choice", "options": cols,
+        res = self.ask_form("Add |B| from 3 axes", [
+            {"name": "bx", "label": "X axis (Bx)", "kind": "choice", "options": cols,
              "default": cols[0]},
-            {"name": "by", "label": "แกน Y (By)", "kind": "choice", "options": cols,
+            {"name": "by", "label": "Y axis (By)", "kind": "choice", "options": cols,
              "default": cols[1] if len(cols) > 1 else cols[0]},
-            {"name": "bz", "label": "แกน Z (Bz)", "kind": "choice", "options": cols,
+            {"name": "bz", "label": "Z axis (Bz)", "kind": "choice", "options": cols,
              "default": cols[2] if len(cols) > 2 else cols[0]},
-        ], description="สร้างคอลัมน์ขนาดเวกเตอร์ |B| = √(Bx²+By²+Bz²)")
+        ], description="Vector magnitude |B| = √(Bx²+By²+Bz²)")
         if res is None:
             return
         bx, by, bz = res["bx"], res["by"], res["bz"]
@@ -155,12 +155,12 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        res = self.ask_form("เติมค่าที่หาย (Fill Missing)", [
-            {"name": "method", "label": "วิธี", "kind": "choice",
+        res = self.ask_form("Fill Missing", [
+            {"name": "method", "label": "Method", "kind": "choice",
              "options": list(FILL_METHODS), "default": "mean"},
-            {"name": "value", "label": "ค่าที่ใช้เติม", "kind": "float",
+            {"name": "value", "label": "Fill value", "kind": "float",
              "default": 0.0, "show_if": ("method", "value")},
-        ], description=f"เติมค่าที่หายในคอลัมน์ '{y_col}' → สร้างคอลัมน์ใหม่")
+        ], description=f"Fill missing values in column '{y_col}' → new column")
         if res is None:
             return
         method = res["method"]
@@ -201,12 +201,12 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        res = self.ask_form("ตัด Outliers", [
-            {"name": "method", "label": "วิธีตรวจ", "kind": "choice",
+        res = self.ask_form("Remove Outliers", [
+            {"name": "method", "label": "Method", "kind": "choice",
              "options": list(OUTLIER_METHODS), "default": "zscore"},
-            {"name": "threshold", "label": "threshold", "kind": "float",
+            {"name": "threshold", "label": "Threshold", "kind": "float",
              "default": 3.0, "min": 0.1, "max": 100.0, "decimals": 2},
-        ], description=f"ตัดแถวที่ '{y_col}' เป็น outlier (zscore≈3, iqr≈1.5)")
+        ], description=f"Drop rows where '{y_col}' is an outlier (zscore≈3, iqr≈1.5)")
         if res is None:
             return
         method, threshold = res["method"], res["threshold"]
@@ -223,9 +223,9 @@ class MainWindowFeaturesMixin:
             return
         y_col = self.selected_y_column()
         res = self.ask_form("Normalize / Standardize", [
-            {"name": "method", "label": "วิธี", "kind": "choice",
+            {"name": "method", "label": "Method", "kind": "choice",
              "options": list(NORMALIZE_METHODS), "default": "zscore"},
-        ], description=f"ปรับสเกลคอลัมน์ '{y_col}' (zscore = ค่าเฉลี่ย 0 / minmax = 0–1)")
+        ], description=f"Rescale column '{y_col}' (zscore = mean 0 / minmax = 0–1)")
         if res is None:
             return
         method = res["method"]
@@ -242,9 +242,9 @@ class MainWindowFeaturesMixin:
             return
         y_col = self.selected_y_column()
         res = self.ask_form("Detrend / Baseline", [
-            {"name": "order", "label": "อันดับพหุนาม", "kind": "int",
+            {"name": "order", "label": "Polynomial order", "kind": "int",
              "default": 1, "min": 0, "max": 10},
-        ], description=f"ลบแนวโน้ม/เส้นฐานจาก '{y_col}' (1 = เชิงเส้น, สูงขึ้น = baseline โค้ง)")
+        ], description=f"Remove trend/baseline from '{y_col}' (1 = linear, higher = curved baseline)")
         if res is None:
             return
         order = res["order"]
@@ -264,17 +264,17 @@ class MainWindowFeaturesMixin:
             self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
             return
         cols = [str(c) for c in self._df.columns]
-        res = self.ask_form("เรียงข้อมูล (Sort)", [
-            {"name": "col", "label": "ตามคอลัมน์", "kind": "choice",
+        res = self.ask_form("Sort", [
+            {"name": "col", "label": "By column", "kind": "choice",
              "options": cols, "default": cols[0]},
-            {"name": "direction", "label": "ทิศทาง", "kind": "choice",
-             "options": ["น้อย→มาก", "มาก→น้อย"], "default": "น้อย→มาก"},
+            {"name": "direction", "label": "Direction", "kind": "choice",
+             "options": ["Ascending", "Descending"], "default": "Ascending"},
         ])
         if res is None:
             return
         col = res["col"]
         try:
-            ascending = (res["direction"] == "น้อย→มาก")
+            ascending = (res["direction"] == "Ascending")
             new_df = sort_dataframe(self._df, col, ascending=ascending)
             self._swap_dataframe(new_df)
             self._log_workflow("sort_dataframe", col=col, ascending=ascending)
@@ -290,10 +290,10 @@ class MainWindowFeaturesMixin:
             self.inform("เลือกแกน X ก่อน", "resample ต้องมีคอลัมน์ X ที่เป็นตัวเลข")
             return
         n_default = len(self._df)
-        res = self.ask_form("Resample เป็นกริดสม่ำเสมอ", [
-            {"name": "n_points", "label": "จำนวนจุด", "kind": "int",
+        res = self.ask_form("Resample (uniform grid)", [
+            {"name": "n_points", "label": "Number of points", "kind": "int",
              "default": n_default, "min": 2, "max": 10_000_000},
-        ], description=f"สุ่มใหม่บนแกน '{x_col}' ให้ระยะห่างเท่ากัน (interpolate เชิงเส้น)")
+        ], description=f"Resample onto an evenly-spaced '{x_col}' grid (linear interpolation)")
         if res is None:
             return
         n_points = res["n_points"]
@@ -339,20 +339,20 @@ class MainWindowFeaturesMixin:
         y_col = self.selected_y_column()
         fs_guess = self._infer_fs_default()
         res = self.ask_form("Butterworth Filter", [
-            {"name": "kind", "label": "ชนิด", "kind": "choice",
+            {"name": "kind", "label": "Kind", "kind": "choice",
              "options": list(BUTTER_KINDS), "default": "lowpass"},
             {"name": "fs", "label": "fs (Hz)", "kind": "float",
              "default": round(fs_guess, 6), "min": 1e-9, "max": 1e12, "decimals": 6},
-            {"name": "cutoff_lo", "label": "cutoff ต่ำ (Hz)", "kind": "float",
+            {"name": "cutoff_lo", "label": "Low cutoff (Hz)", "kind": "float",
              "default": round(fs_guess / 10, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
              "show_if": ("kind", ("bandpass", "bandstop"))},
-            {"name": "cutoff_hi", "label": "cutoff สูง (Hz)", "kind": "float",
+            {"name": "cutoff_hi", "label": "High cutoff (Hz)", "kind": "float",
              "default": round(fs_guess / 5, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
              "show_if": ("kind", ("bandpass", "bandstop"))},
-            {"name": "cutoff", "label": "cutoff (Hz)", "kind": "float",
+            {"name": "cutoff", "label": "Cutoff (Hz)", "kind": "float",
              "default": round(fs_guess / 10, 6), "min": 1e-12, "max": 1e12, "decimals": 6,
              "show_if": ("kind", ("lowpass", "highpass"))},
-        ], description=f"กรองสัญญาณ '{y_col}' แบบ zero-phase (fs เดาจากแกน X ให้แล้ว)")
+        ], description=f"Zero-phase filter of '{y_col}' (fs inferred from the X axis)")
         if res is None:
             return
         kind, fs = res["kind"], float(res["fs"])
@@ -377,16 +377,16 @@ class MainWindowFeaturesMixin:
         if not self._has_y_data():
             return
         y_col = self.selected_y_column()
-        res = self.ask_form("Smooth (ลดสัญญาณรบกวน)", [
-            {"name": "method", "label": "วิธี", "kind": "choice",
+        res = self.ask_form("Smooth (reduce noise)", [
+            {"name": "method", "label": "Method", "kind": "choice",
              "options": ["savitzky-golay", "median", "gaussian"], "default": "savitzky-golay"},
-            {"name": "window", "label": "ความยาวหน้าต่าง (คี่)", "kind": "int",
+            {"name": "window", "label": "Window length (odd)", "kind": "int",
              "default": 11, "min": 3, "max": 9999, "show_if": ("method", "savitzky-golay")},
-            {"name": "kernel", "label": "ขนาด kernel (คี่)", "kind": "int",
+            {"name": "kernel", "label": "Kernel size (odd)", "kind": "int",
              "default": 5, "min": 1, "max": 9999, "show_if": ("method", "median")},
-            {"name": "sigma", "label": "sigma (จุด)", "kind": "float",
+            {"name": "sigma", "label": "Sigma (samples)", "kind": "float",
              "default": 2.0, "min": 0.01, "max": 1e6, "decimals": 2, "show_if": ("method", "gaussian")},
-        ], description=f"ปรับเรียบสัญญาณ '{y_col}' → สร้างคอลัมน์ใหม่")
+        ], description=f"Smooth signal '{y_col}' → new column")
         if res is None:
             return
         method = res["method"]
@@ -474,12 +474,12 @@ class MainWindowFeaturesMixin:
             return
         y_col = self.selected_y_column()
         res = self.ask_form("Apply Window", [
-            {"name": "window", "label": "ชนิด window", "kind": "choice",
+            {"name": "window", "label": "Window type", "kind": "choice",
              "options": list(WINDOW_KINDS), "default": "hann"},
-            {"name": "beta", "label": "beta (Kaiser)", "kind": "float",
+            {"name": "beta", "label": "Beta (Kaiser)", "kind": "float",
              "default": 14.0, "min": 0.0, "max": 100.0, "decimals": 2,
              "show_if": ("window", "kaiser")},
-        ], description=f"คูณสัญญาณ '{y_col}' ด้วย taper window → คอลัมน์ใหม่")
+        ], description=f"Multiply '{y_col}' by a taper window → new column")
         if res is None:
             return
         window = res["window"]
@@ -522,11 +522,11 @@ class MainWindowFeaturesMixin:
         cols = [str(c) for c in self._df.columns]
         y_sel = self.selected_y_column()
         res = self.ask_form("PSD (Welch)", [
-            {"name": "y_col", "label": "คอลัมน์ Y", "kind": "choice",
+            {"name": "y_col", "label": "Y column", "kind": "choice",
              "options": cols, "default": y_sel if y_sel in cols else cols[0]},
             {"name": "fs", "label": "fs (Hz)", "kind": "float",
              "default": round(self._infer_fs_default(), 6), "min": 1e-9, "max": 1e12, "decimals": 6},
-        ], description="ความหนาแน่นสเปกตรัมกำลัง (fs เดาจากแกน X ให้แล้ว) → พล็อตกราฟใหม่")
+        ], description="Power spectral density (fs inferred from the X axis) → new graph")
         if res is None:
             return
         y_col, fs = res["y_col"], float(res["fs"])
@@ -553,12 +553,12 @@ class MainWindowFeaturesMixin:
         cols = [str(c) for c in self._df.columns]
         y_sel = self.selected_y_column()
         res = self.ask_form("FFT", [
-            {"name": "y_col", "label": "คอลัมน์ Y", "kind": "choice",
+            {"name": "y_col", "label": "Y column", "kind": "choice",
              "options": cols, "default": y_sel if y_sel in cols else cols[0]},
-            {"name": "window", "label": "หน้าต่าง (window)", "kind": "choice",
+            {"name": "window", "label": "Window", "kind": "choice",
              "options": ["hanning", "hamming", "none"], "default": "hanning"},
-            {"name": "detrend", "label": "ลบค่าเฉลี่ยก่อนคำนวณ", "kind": "bool", "default": True},
-        ], description="แปลงฟูริเยร์ (fs เดาจากแกน X) → พล็อตสเปกตรัมกราฟใหม่")
+            {"name": "detrend", "label": "Remove mean first", "kind": "bool", "default": True},
+        ], description="Fourier transform (fs inferred from the X axis) → spectrum in a new graph")
         if res is None:
             return
         y_col, window, detrend = res["y_col"], res["window"], bool(res["detrend"])

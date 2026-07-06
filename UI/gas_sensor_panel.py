@@ -26,19 +26,18 @@ class GasSensorPanel(QWidget):
         title.setObjectName("GasSensorTitle")
         layout.addWidget(title)
 
-        hint = QLabel("เปิดข้อมูลใน Book ที่ active แล้วเลือกเครื่องมือ", self)
+        hint = QLabel("Open data in the active Book, then pick a tool", self)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        # ป้ายสั้นกันโดนตัดในแผงแคบ — ข้อความเต็มอยู่ใน tooltip
         self.btn_analyze = QPushButton("Response (t90)…", self)
-        self.btn_analyze.setToolTip("วิเคราะห์ Response % / sensitivity / response-recovery time (t90)")
-        self.btn_cycles = QPushButton("รอบเปิด-ปิดแก๊ส…", self)
-        self.btn_cycles.setToolTip("ตรวจจับรอบเปิด-ปิดแก๊สอัตโนมัติ + response ต่อรอบ")
+        self.btn_analyze.setToolTip("Response % / sensitivity / response & recovery time (t90)")
+        self.btn_cycles = QPushButton("Detect Gas Cycles…", self)
+        self.btn_cycles.setToolTip("Auto-detect gas ON/OFF cycles + response per cycle")
         self.btn_calibration = QPushButton("Calibration + LOD…", self)
-        self.btn_calibration.setToolTip("ฟิต calibration curve (linear/power) + LOD/LOQ")
-        self.btn_dilution = QPushButton("เจือจางแก๊ส (ppm)…", self)
-        self.btn_dilution.setToolTip("คำนวณความเข้มข้นหลังเจือจางจากอัตราไหล (sccm)")
+        self.btn_calibration.setToolTip("Fit calibration curve (linear/power) + LOD/LOQ")
+        self.btn_dilution = QPushButton("Gas Dilution (ppm)…", self)
+        self.btn_dilution.setToolTip("Concentration after dilution from flow rates (sccm)")
         for btn in (self.btn_analyze, self.btn_cycles,
                     self.btn_calibration, self.btn_dilution):
             btn.setMinimumHeight(34)

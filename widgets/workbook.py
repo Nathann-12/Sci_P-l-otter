@@ -229,17 +229,17 @@ class WorkbookWidget(QWidget):
         bar_layout.setContentsMargins(8, 4, 8, 4)
         bar_layout.setSpacing(6)
 
-        self.btn_add_row = QPushButton("+ แถว", bar)
-        self.btn_add_col = QPushButton("+ คอลัมน์", bar)
-        self.btn_use_data = QPushButton("ใช้ข้อมูลนี้", bar)
-        self.btn_use_data.setToolTip("นำข้อมูลในตารางไปเป็นข้อมูลหลัก (พร้อมพล็อต/วิเคราะห์)")
-        self.btn_plot_line = QPushButton("พล็อตเส้น", bar)
+        self.btn_add_row = QPushButton("+ Row", bar)
+        self.btn_add_col = QPushButton("+ Column", bar)
+        self.btn_use_data = QPushButton("Use This Data", bar)
+        self.btn_use_data.setToolTip("Use this sheet as the active data (ready to plot / analyze)")
+        self.btn_plot_line = QPushButton("Plot Line", bar)
         self.btn_plot_line.setObjectName("WorkbookPlotButton")
-        self.btn_plot_line.setToolTip("พล็อตจากคอลัมน์ที่เลือกเป็น Graph ใหม่ (คอลัมน์แรก = X)")
-        self.btn_plot_scatter = QPushButton("พล็อตจุด", bar)
-        self.btn_plot_scatter.setToolTip("พล็อต scatter จากคอลัมน์ที่เลือกเป็น Graph ใหม่ (คอลัมน์แรก = X)")
+        self.btn_plot_line.setToolTip("Plot the selected columns as a new graph (first selected = X)")
+        self.btn_plot_scatter = QPushButton("Plot Scatter", bar)
+        self.btn_plot_scatter.setToolTip("Scatter-plot the selected columns as a new graph (first selected = X)")
 
-        hint = QLabel("พิมพ์ข้อมูลลงตาราง → เลือกคอลัมน์ → กดพล็อต", bar)
+        hint = QLabel("Type data → select columns → plot", bar)
 
         bar_layout.addWidget(self.btn_add_row)
         bar_layout.addWidget(self.btn_add_col)
@@ -291,27 +291,27 @@ class WorkbookWidget(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         menu = QMenu(self.table)
-        menu.addAction("พล็อตเส้น → Graph ใหม่").triggered.connect(
+        menu.addAction("Line → new graph").triggered.connect(
             lambda: self.plot_requested.emit("line"))
-        menu.addAction("พล็อตจุด → Graph ใหม่").triggered.connect(
+        menu.addAction("Scatter → new graph").triggered.connect(
             lambda: self.plot_requested.emit("scatter"))
-        menu.addAction("เส้น+จุด → Graph ใหม่").triggered.connect(
+        menu.addAction("Line + Symbol → new graph").triggered.connect(
             lambda: self.plot_requested.emit("linesymbol"))
-        menu.addAction("กราฟแท่ง → Graph ใหม่").triggered.connect(
+        menu.addAction("Column / Bar → new graph").triggered.connect(
             lambda: self.plot_requested.emit("bar"))
-        menu.addAction("Histogram → Graph ใหม่").triggered.connect(
+        menu.addAction("Histogram → new graph").triggered.connect(
             lambda: self.plot_requested.emit("histogram"))
         menu.addSeparator()
-        menu.addAction("เพิ่มเส้นลงกราฟปัจจุบัน").triggered.connect(
+        menu.addAction("Add line to current graph").triggered.connect(
             lambda: self.overlay_requested.emit("line"))
-        menu.addAction("เพิ่มจุดลงกราฟปัจจุบัน").triggered.connect(
+        menu.addAction("Add scatter to current graph").triggered.connect(
             lambda: self.overlay_requested.emit("scatter"))
         menu.addSeparator()
-        menu.addAction("ใช้ข้อมูลนี้เป็นข้อมูลหลัก").triggered.connect(
+        menu.addAction("Use this data").triggered.connect(
             self.use_data_requested.emit)
         menu.addSeparator()
-        menu.addAction("เพิ่มแถว").triggered.connect(self.add_data_row)
-        menu.addAction("เพิ่มคอลัมน์").triggered.connect(self.add_data_column)
+        menu.addAction("Add Row").triggered.connect(self.add_data_row)
+        menu.addAction("Add Column").triggered.connect(self.add_data_column)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------ helpers
@@ -424,11 +424,11 @@ class WorkbookWidget(QWidget):
         if col < 0:
             return
         menu = QMenu(header)
-        menu.addAction(f"Set As X — คอลัมน์ {column_label(col)}").triggered.connect(
+        menu.addAction(f"Set As X — column {column_label(col)}").triggered.connect(
             lambda: self.set_designation(col, "X"))
-        menu.addAction(f"Set As Y — คอลัมน์ {column_label(col)}").triggered.connect(
+        menu.addAction(f"Set As Y — column {column_label(col)}").triggered.connect(
             lambda: self.set_designation(col, "Y"))
-        menu.addAction("ไม่ใช้คอลัมน์นี้ (Disregard)").triggered.connect(
+        menu.addAction("Disregard this column").triggered.connect(
             lambda: self.set_designation(col, "ignore"))
         menu.exec(header.mapToGlobal(pos))
 
