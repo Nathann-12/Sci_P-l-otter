@@ -8,45 +8,127 @@
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
-   Activity rail — a slim, fixed vertical bar slightly darker than bg
+   Activity rail — compact module dock for specialty workflows
    --------------------------------------------------------------------- */
 #ActivityRail {
-    background-color: #181b20;
-    border-right: 1px solid #2a2f36;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #15181d, stop:1 #1b2027);
+    border-right: 1px solid #303640;
 }
 
-/* Activity buttons: icon above text, comfortable hit area, muted idle */
+QLabel#ActivityRailBrand {
+    min-height: 34px;
+    max-height: 34px;
+    border-radius: 10px;
+    background: #222a35;
+    border: 1px solid #354153;
+    color: #eef5ff;
+    font-family: "Segoe UI";
+    font-size: 9pt;
+    font-weight: 700;
+}
+
+QLabel#ActivityRailSection {
+    color: #66717f;
+    font-family: "Segoe UI";
+    font-size: 6.5pt;
+    font-weight: 700;
+}
+
+QFrame#ActivityRailSeparator,
+QFrame#ActivityRailFooterSeparator {
+    color: #2b323c;
+    background: #2b323c;
+    min-height: 1px;
+    max-height: 1px;
+    border: none;
+}
+
+QScrollArea#ActivityRailScroll,
+QWidget#ActivityRailButtonPane {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#ActivityRailScroll QScrollBar:vertical {
+    background: transparent;
+    width: 3px;
+    margin: 2px 0px 2px 0px;
+}
+
+QScrollArea#ActivityRailScroll QScrollBar::handle:vertical {
+    background: #3a4553;
+    border-radius: 1px;
+    min-height: 20px;
+}
+
+QScrollArea#ActivityRailScroll QScrollBar::add-line:vertical,
+QScrollArea#ActivityRailScroll QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollArea#ActivityRailScroll QScrollBar::add-page:vertical,
+QScrollArea#ActivityRailScroll QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+/* Activity buttons: compact module cards with a clear active strip */
 QToolButton[objectName^="ActivityButton_"] {
     background: transparent;
-    color: #8b929c;
-    border: none;
-    border-left: 3px solid transparent;   /* accent rail for active */
-    border-radius: 0px;
-    padding: 8px 2px 6px 2px;
-    margin: 1px 0px;
-    min-height: 56px;
-    font-size: 9pt;
-    font-weight: 500;
-}
-
-QToolButton[objectName^="ActivityButton_"]:hover {
-    background: rgba(255, 255, 255, 0.04);
-    color: #d7dde4;
-}
-
-QToolButton[objectName^="ActivityButton_"]:checked {
-    background: rgba(79, 156, 249, 0.12);
-    border-left: 3px solid #4F9CF9;
-    color: #4F9CF9;
+    color: #9aa5b2;
+    border: 1px solid transparent;
+    border-left: 3px solid transparent;
+    border-radius: 11px;
+    padding: 8px 3px 7px 1px;
+    margin: 0px;
+    min-height: 66px;
+    max-height: 72px;
+    font-family: "Segoe UI";
+    font-size: 8.5pt;
     font-weight: 600;
 }
 
+QToolButton[objectName^="ActivityButton_"]:hover {
+    background: #222833;
+    border-color: #303a47;
+    color: #dfe7f0;
+}
+
+QToolButton[objectName^="ActivityButton_"]:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(79, 156, 249, 0.22),
+        stop:1 rgba(79, 156, 249, 0.08));
+    border: 1px solid rgba(79, 156, 249, 0.42);
+    border-left: 3px solid #4F9CF9;
+    color: #eef6ff;
+    font-weight: 700;
+}
+
 QToolButton[objectName^="ActivityButton_"]:checked:hover {
-    background: rgba(79, 156, 249, 0.18);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(79, 156, 249, 0.30),
+        stop:1 rgba(79, 156, 249, 0.12));
+    border-color: rgba(79, 156, 249, 0.58);
 }
 
 QToolButton[objectName^="ActivityButton_"]:focus {
     outline: none;
+}
+
+QLabel#ActivityRailFutureSlot {
+    min-height: 28px;
+    max-height: 28px;
+    border-radius: 9px;
+    border: 1px dashed #384250;
+    color: #647080;
+    font-size: 13pt;
+    font-weight: 500;
+}
+
+QLabel#ActivityRailFutureSlot:hover {
+    color: #9fb3cc;
+    border-color: #4F9CF9;
+    background: rgba(79, 156, 249, 0.08);
 }
 
 /* ---------------------------------------------------------------------
@@ -59,6 +141,49 @@ QToolButton[objectName^="ActivityButton_"]:focus {
 
 #ContextStack > QWidget {
     background-color: #1b1e23;
+}
+
+/* ---------------------------------------------------------------------
+   Parked side panels — Project Explorer / Messages Log / Smart Hint Log
+   --------------------------------------------------------------------- */
+#SidePanelTabs {
+    background-color: #171a1f;
+    border-right: 1px solid #2a2f36;
+}
+
+QTabBar#SidePanelTabBar {
+    background-color: #202225;
+    border-right: 1px solid #30343a;
+}
+
+QTabBar#SidePanelTabBar::tab {
+    background: #252525;
+    color: #c8cdd3;
+    border: none;
+    border-bottom: 1px solid #33373d;
+    padding: 4px 2px;
+    min-width: 22px;
+    min-height: 158px;
+    font-family: "Segoe UI";
+    font-size: 8pt;
+    font-weight: 500;
+}
+
+QTabBar#SidePanelTabBar::tab:hover {
+    background: #2d333b;
+    color: #ffffff;
+}
+
+QTabBar#SidePanelTabBar::tab:selected {
+    background: #1b1f25;
+    color: #ffffff;
+    border-left: 2px solid #4F9CF9;
+    font-weight: 650;
+}
+
+QStackedWidget#SidePanelStack {
+    background-color: #1b1e23;
+    border-right: 1px solid #2a2f36;
 }
 
 /* ---------------------------------------------------------------------

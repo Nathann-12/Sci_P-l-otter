@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AppearanceConfig:
     """Appearance settings for Qt UI"""
-    qt_qss_path: str = "styles/qdark.qss"
+    # Empty means the supported built-in dark theme. Non-empty is either a
+    # built-in legacy QSS path (for example styles/light.qss) or a custom file.
+    qt_qss_path: str = ""
     font_family: str = "Segoe UI"
     font_size: int = 10
 

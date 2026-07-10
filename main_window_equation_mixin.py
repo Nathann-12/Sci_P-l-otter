@@ -54,6 +54,9 @@ class MainWindowEquationMixin:
                 except Exception:
                     ax = None
             if ax is None:
+                self._show_status("No selected graph", error=True)
+                return
+            if ax is None:
                 ax = getattr(self, "axes", None)
             if ax is None:
                 ax = getattr(self, "ax", None)

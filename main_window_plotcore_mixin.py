@@ -31,7 +31,24 @@ class MainWindowPlotCoreMixin:
     primitives those commands build on.
     """
 
-    def get_main_axes(self, prefer_3d: bool = False):
+    @staticmethod
+    def _axes_projection(ax) -> str:
+        if hasattr(ax, "zaxis"):
+            return "3d"
+        return getattr(ax, "name", "rectilinear") or "rectilinear"
+
+    @staticmethod
+    def _add_projected_axes(fig, projection: str):
+        return fig.add_subplot(
+            111,
+            projection=None if projection == "rectilinear" else projection,
+        )
+
+    def get_main_axes(
+        self,
+        prefer_3d: bool = False,
+        projection: str | None = None,
+    ):
         """Return a matplotlib Axes for plotting based on current PlotMode.
         - OVERLAY: reuse last axes when possible; create new if 2D/3D differs
         - REPLACE: clear figure and create fresh axes
@@ -46,20 +63,23 @@ class MainWindowPlotCoreMixin:
                 from matplotlib.figure import Figure as _Figure
                 fig = _Figure()
 
+        desired_projection = projection or ("3d" if prefer_3d else "rectilinear")
         mode = getattr(self, 'plot_mode', PlotMode.OVERLAY)
         if mode == PlotMode.REPLACE or not fig.axes:
             fig.clear()
-            return fig.add_subplot(111, projection='3d' if prefer_3d else None)
+            return self._add_projected_axes(fig, desired_projection)
 
         ax = fig.axes[-1]
-        is3d = hasattr(ax, 'zaxis')
-        if prefer_3d and not is3d:
-            return fig.add_subplot(111, projection='3d')
-        if not prefer_3d and is3d:
-            return fig.add_subplot(111)
+        if self._axes_projection(ax) != desired_projection:
+            return self._add_projected_axes(fig, desired_projection)
         return ax
 
-    def apply_plot(self, drawer, prefer_3d: bool = False):
+    def apply_plot(
+        self,
+        drawer,
+        prefer_3d: bool = False,
+        projection: str | None = None,
+    ):
         tab = None
         canvas = None
         initial_layer_ids = set()
@@ -71,23 +91,17 @@ class MainWindowPlotCoreMixin:
         except Exception:
             tab = None
 
+        desired_projection = projection or ("3d" if prefer_3d else "rectilinear")
         mode = getattr(self, 'plot_mode', PlotMode.OVERLAY)
 
         if tab is not None and hasattr(tab, 'canvas'):
             canvas = tab.canvas
             self.canvas = canvas
             ax = canvas.ax
-            is3d = hasattr(ax, 'zaxis')
-            if prefer_3d and not is3d:
+            if self._axes_projection(ax) != desired_projection:
                 canvas.fig.clf()
-                ax = canvas.fig.add_subplot(111, projection='3d')
+                ax = self._add_projected_axes(canvas.fig, desired_projection)
                 canvas.ax = ax
-            elif not prefer_3d and is3d:
-                canvas.fig.clf()
-                ax = canvas.fig.add_subplot(111)
-                canvas.ax = ax
-            else:
-                ax = canvas.ax
             try:
                 import matplotlib as _mpl
                 fig_fc = _mpl.rcParams.get('figure.facecolor', '#1e2126') or '#1e2126'
@@ -111,7 +125,10 @@ class MainWindowPlotCoreMixin:
             initial_layer_ids = set(getattr(tab, 'layers', {}).keys())
             pre_artist_ids = {id(artist) for artist in self._collect_plot_artists(ax)}
         else:
-            ax = self.get_main_axes(prefer_3d=prefer_3d)
+            ax = self.get_main_axes(
+                prefer_3d=prefer_3d,
+                projection=projection,
+            )
             tab = None
             pre_artist_ids = {id(artist) for artist in self._collect_plot_artists(ax)}
 

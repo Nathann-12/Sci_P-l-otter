@@ -38,6 +38,22 @@ class MainWindowGasSensorMixin:
         panel.dilution_requested.connect(self.gs_dilution)
         self.gas_sensor_panel = panel
 
+        self.register_specialty_module(
+            module_id="gas_sensor",
+            title="Gas Sensor",
+            subtitle="Response, cycles, calibration, dilution",
+            panel=panel,
+            icon_key="gas",
+            fallback_icon=QStyle.StandardPixmap.SP_DriveHDIcon,
+            actions=(
+                ("Response Analysis (t90)...", self.gs_analyze_response),
+                ("Detect Gas Cycles...", self.gs_detect_cycles),
+                ("Calibration Curve + LOD...", self.gs_calibration),
+                ("Gas Dilution (ppm)...", self.gs_dilution),
+            ),
+        )
+        return
+
         try:
             icon = self._icon("gas", QStyle.StandardPixmap.SP_DriveHDIcon)
         except Exception:

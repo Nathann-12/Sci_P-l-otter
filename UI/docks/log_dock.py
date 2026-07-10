@@ -38,7 +38,7 @@ class OperationLogDock(QWidget):
         button_row.setSpacing(4)
         button_row.addStretch()
 
-        self.rerun_button = QPushButton("รันซ้ำล่าสุด", self)
+        self.rerun_button = QPushButton("Run Latest Again", self)
         self.rerun_button.setObjectName("RerunButton")
         button_row.addWidget(self.rerun_button)
 

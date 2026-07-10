@@ -12,10 +12,10 @@ class MainWindowFitMixin:
     """Reusable fitting actions extracted from MainWindow."""
 
     def open_nonlinear_fit_dialog(self):
-        """เปิด NonlinearFitDialog พร้อม DataFrame ปัจจุบัน"""
+        """Open NonlinearFitDialog with the current DataFrame."""
         df = self.get_current_dataframe()
         if df is None or df.empty:
-            QMessageBox.information(self, "ไม่มีข้อมูล", "กรุณาโหลดข้อมูลก่อนทำการฟิต")
+            QMessageBox.information(self, "No data", "Load data before fitting.")
             return
         try:
             from dialogs_fit import NonlinearFitDialog
@@ -23,10 +23,10 @@ class MainWindowFitMixin:
             dlg = NonlinearFitDialog(self, df)
             dlg.exec()
         except Exception as exc:
-            QMessageBox.critical(self, "ข้อผิดพลาด", f"เปิด Nonlinear Curve Fit ไม่สำเร็จ:\n{exc}")
+            QMessageBox.critical(self, "Error", f"Could not open Nonlinear Curve Fit:\n{exc}")
 
     def plot_fit_result_on_active_tab(self, x: np.ndarray, res: FitResult):
-        """วาดผลการฟิตและช่วงความเชื่อมั่นลงบนกราฟปัจจุบัน"""
+        """Draw the fitted curve and confidence interval on the active graph."""
         tab = self.tabs.currentWidget() if hasattr(self, "tabs") else None
         if tab is None or not hasattr(tab, "get_axes"):
             return
@@ -242,7 +242,7 @@ class MainWindowFitMixin:
         x = _np.asarray(x)[mask]
         y = _np.asarray(y)[mask]
         if x.size < 3:
-            raise ValueError("ข้อมูลน้อยเกินไปสำหรับการฟิต (ต้องการอย่างน้อย 3 จุด)")
+            raise ValueError("Not enough data for fitting (at least 3 points required).")
 
         xs = _np.linspace(_np.nanmin(x), _np.nanmax(x), 400)
 
@@ -297,7 +297,7 @@ class MainWindowFitMixin:
         if model == "power":
             m = (x > 0) & (y > 0)
             if m.sum() < 2:
-                raise ValueError("Power-law ต้องการ x,y > 0 อย่างน้อย 2 จุด")
+                raise ValueError("Power-law fit requires at least two points with x,y > 0.")
             if opt is not None:
                 def f(xv, a, b):
                     return a * (xv**b)
@@ -398,6 +398,6 @@ class MainWindowFitMixin:
             except Exception:
                 pass
         self.statusBar().showMessage(
-            f"Fit สำเร็จ • R²={metrics.get('r2', float('nan')):.3f}  RMSE={metrics.get('rmse', float('nan')):.3g}"
+            f"Fit completed. R^2={metrics.get('r2', float('nan')):.3f}  RMSE={metrics.get('rmse', float('nan')):.3g}"
         )
 

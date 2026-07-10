@@ -127,4 +127,4 @@ def test_generated_script_handles_empty_history_and_unknown_ops():
     assert "pass" in script
     h.record("mystery_op", foo=1)
     script2 = generate_python_script(h)
-    assert "ข้าม operation" in script2
+    assert "Skipped unknown operation" in script2

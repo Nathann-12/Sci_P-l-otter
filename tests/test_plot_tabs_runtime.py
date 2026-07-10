@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QWidget
 
 from widgets.plot_tabs import TabManager
@@ -99,3 +100,30 @@ def test_add_series_to_tabs_supports_bar_and_histogram_headless(qapp):
     histogram_layer = next(info for info in graph_tab.layers.values() if info["style"] == "histogram")
     assert histogram_layer["kwargs"]["bins"] == 2
     assert histogram_layer["artists"]
+
+
+def test_layer_style_request_supports_scatter_and_bar_layers_headless(qapp, monkeypatch):
+    tabs = TabManager(DummyMainWindow())
+    tab_id = tabs.get_current_tab_id()
+    graph_tab = tabs.tabs[tab_id]
+
+    tabs.add_series_to_tabs([tab_id], [1, 2, 3], [3, 2, 1], label="Scatter", style="scatter")
+    tabs.add_series_to_tabs([tab_id], ["a", "b"], [4, 5], label="Bars", style="bar")
+
+    monkeypatch.setattr(graph_tab.layer_manager, "prompt_color", lambda title="Select Color": QColor("#3366cc"))
+    monkeypatch.setattr("widgets.plot_tabs.QInputDialog.getDouble", lambda *args, **kwargs: (0.4, True))
+
+    scatter_id = next(layer_id for layer_id, info in graph_tab.layers.items() if info["style"] == "scatter")
+    bar_id = next(layer_id for layer_id, info in graph_tab.layers.items() if info["style"] == "bar")
+
+    graph_tab._on_layer_style_request(scatter_id)
+    graph_tab._on_layer_style_request(bar_id)
+
+    scatter = graph_tab.layers[scatter_id]
+    bar = graph_tab.layers[bar_id]
+    assert scatter["kwargs"]["color"] == "#3366cc"
+    assert scatter["kwargs"]["alpha"] == 0.4
+    assert scatter["meta"]["style_kwargs"]["color"] == "#3366cc"
+    assert bar["kwargs"]["facecolor"] == "#3366cc"
+    assert bar["kwargs"]["alpha"] == 0.4
+    assert bar["meta"]["style_kwargs"]["facecolor"] == "#3366cc"

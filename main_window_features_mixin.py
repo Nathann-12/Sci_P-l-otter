@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QDialog
 
@@ -20,11 +21,14 @@ from analysis.cleaning import (
     remove_duplicates, remove_outliers, resample_uniform, sort_dataframe,
 )
 from analysis.signal_filters import (
-    BUTTER_KINDS, WINDOW_KINDS, apply_window, butterworth_filter, estimate_snr,
-    fwhm, gaussian_smooth, median_filter, noise_floor, peak_area,
-    savitzky_golay, welch_psd,
+    BUTTER_KINDS, CONVOLUTION_MODES, WINDOW_KINDS, apply_window,
+    autocorrelation, butterworth_filter, compute_ifft, compute_stft,
+    convolve_signals, deconvolve_signals, gaussian_smooth,
+    harmonic_analysis, hilbert_transform, instantaneous_frequency, median_filter,
+    peak_metrics_summary, savitzky_golay, signal_envelope,
+    signal_quality_summary, welch_psd, zero_pad,
 )
-from analysis.descriptive import covariance_matrix, describe_series, format_describe
+from analysis.descriptive import covariance_table, descriptive_table
 from core.units import UNIT_REGISTRY
 from core.plot_mode import PlotMode
 
@@ -47,7 +51,7 @@ class MainWindowFeaturesMixin:
 
     def run_aggregate_dialog(self):
         if self._df is None or self._df.empty:
-            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+            self.inform("No data", "Open a data file first."); return
         cols = [str(c) for c in self._df.columns]
         dlg = AggregateDialog(self, self._df, cols)
         if dlg.exec() != QDialog.Accepted:
@@ -62,18 +66,18 @@ class MainWindowFeaturesMixin:
     # ---------- Features ----------
     def feature_add_bkk_time(self):
         if self._df is None or self.x_column_count() == 0:
-            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+            self.inform("No data", "Open a data file and reload columns first."); return
         x_col = self.selected_x_column()
         try:
             new_col = add_time_bangkok(self._df, x_col)
             self.add_x_column_option(new_col)
-            self.notify(f"เพิ่มคอลัมน์เวลา (Bangkok) แล้ว: {new_col}")
+            self.notify(f"Bangkok time column added: {new_col}")
         except Exception as e:
-            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Operation failed", f"Reason: {e}")
 
     def feature_add_magnitude(self):
         if self._df is None or self.y_column_count() == 0:
-            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+            self.inform("No data", "Open a data file and reload columns first."); return
         cols = [str(c) for c in self._df.columns]
         res = self.ask_form("Add |B| from 3 axes", [
             {"name": "bx", "label": "X axis (Bx)", "kind": "choice", "options": cols,
@@ -89,25 +93,25 @@ class MainWindowFeaturesMixin:
         try:
             new_col = add_magnitude(self._df, bx, by, bz, new_col="B_mag")
             self.add_y_column_option(new_col)
-            self.notify(f"เพิ่มคอลัมน์ |B| แล้ว: {new_col}")
+            self.notify(f"|B| column added: {new_col}")
         except Exception as e:
-            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Operation failed", f"Reason: {e}")
 
     def feature_add_moving_average(self):
         if self._df is None or self.y_column_count() == 0:
-            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน"); return
+            self.inform("No data", "Open a data file and reload columns first."); return
         y_col = self.selected_y_column()
         try:
             new_col = add_moving_average(self._df, y_col, window=25)
             self.add_y_column_option(new_col)
             self._log_workflow("add_moving_average", col=y_col, window=25)
-            self.notify(f"เพิ่มคอลัมน์ Moving Average แล้ว: {new_col}")
+            self.notify(f"Moving average column added: {new_col}")
         except Exception as e:
-            self.error_box("ทำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Operation failed", f"Reason: {e}")
 
     def feature_set_column_types(self):
         if self._df is None or len(self._df.columns) == 0:
-            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน"); return
+            self.inform("No data", "Open a data file first."); return
         dlg = ColumnTypeDialog(self, self._df.columns)
         if dlg.exec() != QDialog.Accepted:
             return
@@ -117,9 +121,9 @@ class MainWindowFeaturesMixin:
             self.load_columns_from_df()
             # รีเฟรชกราฟหลังจากแปลงชนิดข้อมูล
             self.refresh_plot()
-            self.notify("แปลงชนิดข้อมูลคอลัมน์เรียบร้อย")
+            self.notify("Column types converted.")
         except Exception as e:
-            self.error_box("แปลงไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Conversion failed", f"Reason: {e}")
 
     # ---------- Reproducibility hook (ROADMAP F) ----------
     def _log_workflow(self, op: str, **params):
@@ -135,9 +139,37 @@ class MainWindowFeaturesMixin:
     # ---------- Data cleaning (ROADMAP B) ----------
     def _has_y_data(self) -> bool:
         if self._df is None or getattr(self._df, "empty", True) or self.y_column_count() == 0:
-            self.inform("ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน")
+            self.inform(
+                "No data",
+                "Open a file or type data into a Book, then click Use This Data first.",
+            )
             return False
         return True
+
+    _ALL_NUMERIC_LABEL = "All numeric columns"
+
+    def _numeric_column_names(self) -> list:
+        """Numeric columns of the active DataFrame (worksheet order)."""
+        if self._df is None:
+            return []
+        return [str(c) for c in self._df.columns
+                if pd.api.types.is_numeric_dtype(self._df[c])]
+
+    def _active_book_label(self) -> str:
+        """Name of the Book being analyzed, shown in analysis forms.
+
+        Result Books become the active Book when they open (multi-book
+        contract), so without this label a second analysis silently runs on
+        the previous result table — the name makes the source obvious.
+        """
+        wb = getattr(self, "workbook", None)
+        name = str(getattr(wb, "dataset_name", "") or "").strip()
+        if name:
+            return name
+        path = getattr(self, "_current_path", None)
+        if path:
+            return os.path.basename(str(path))
+        return "Book1"
 
     def _swap_dataframe(self, new_df) -> None:
         """Replace the active DataFrame and refresh columns/worksheet views."""
@@ -150,6 +182,451 @@ class MainWindowFeaturesMixin:
             except Exception:
                 import logging
                 logging.getLogger(__name__).debug("%s failed after swap", refresh, exc_info=True)
+
+    def _sync_dataframe_after_column_edit(self) -> None:
+        """Keep the active Origin-style Book and dataset registry in sync."""
+        try:
+            wb = getattr(self, "workbook", None)
+            if wb is not None and self._df is not None:
+                old_designations = list(getattr(wb, "_designations", []))
+                wb.source_df = self._df
+                if hasattr(wb, "set_dataframe"):
+                    wb.set_dataframe(self._df)
+                    if old_designations:
+                        restored = old_designations[: len(self._df.columns)]
+                        while len(restored) < len(self._df.columns):
+                            restored.append("Y")
+                        if "X" not in restored and restored:
+                            restored[0] = "X"
+                        wb._designations = restored
+                        if hasattr(wb, "_apply_column_headers"):
+                            wb._apply_column_headers(len(self._df.columns))
+                if hasattr(wb, "mark_clean"):
+                    wb.mark_clean()
+                key = getattr(wb, "dataset_name", "") or getattr(self, "_book_title_for", lambda _wb: "")(wb)
+                if key and hasattr(self, "_datasets"):
+                    existing = self._datasets.get(key) or {}
+                    self._datasets[key] = {"df": self._df, "path": existing.get("path")}
+                show_data = getattr(self, "_show_data_view", None)
+                if callable(show_data):
+                    show_data()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("active book sync failed", exc_info=True)
+        try:
+            fn = getattr(self, "load_columns_from_df", None)
+            if callable(fn):
+                fn()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("load_columns_from_df failed after column edit", exc_info=True)
+
+    def _numeric_column_values(self, col: str, *, drop_blank: bool = False) -> np.ndarray:
+        values = pd.to_numeric(self._df[col], errors="coerce")
+        if drop_blank:
+            values = values[np.isfinite(values.to_numpy(dtype=float))]
+        return values.to_numpy(dtype=float)
+
+    def _series_for_active_index(self, values) -> pd.Series:
+        out = pd.Series(np.nan, index=self._df.index, dtype=float)
+        arr = np.asarray(values, dtype=float).ravel()
+        out.iloc[: min(arr.size, out.size)] = arr[: out.size]
+        return out
+
+    def _open_signal_result_book(self, name: str, df: pd.DataFrame) -> str:
+        datasets = getattr(self, "_datasets", None)
+        final_name = name
+        if isinstance(datasets, dict):
+            base = name
+            i = 2
+            while final_name in datasets:
+                final_name = f"{base} {i}"
+                i += 1
+            datasets[final_name] = {"df": df, "path": None}
+        opener = getattr(self, "_open_book_for_dataset", None)
+        if callable(opener):
+            opener(final_name, df, None)
+        else:
+            self._swap_dataframe(df)
+        return final_name
+
+    def _active_dataframe_or_none(self):
+        if isinstance(getattr(self, "_df", None), pd.DataFrame) and not self._df.empty:
+            return self._df
+        self.inform("No data", "Open a data file or select a Book first.")
+        return None
+
+    def _dataset_names(self, *, include_active: bool = True) -> list[str]:
+        names: list[str] = []
+        active = self._active_book_label()
+        datasets = getattr(self, "_datasets", None)
+        if isinstance(datasets, dict):
+            for name, payload in datasets.items():
+                if isinstance(payload, dict) and isinstance(payload.get("df"), pd.DataFrame):
+                    names.append(str(name))
+        if include_active and isinstance(getattr(self, "_df", None), pd.DataFrame):
+            if active and active not in names:
+                names.insert(0, active)
+        return names
+
+    def _dataset_frame(self, name: str):
+        active = self._active_book_label()
+        if name == active and isinstance(getattr(self, "_df", None), pd.DataFrame):
+            return self._df
+        payload = getattr(self, "_datasets", {}).get(name)
+        if isinstance(payload, dict) and isinstance(payload.get("df"), pd.DataFrame):
+            return payload["df"]
+        return None
+
+    def _rename_active_dataset(self, new_name: str) -> str:
+        old_name = self._active_book_label()
+        new_name = str(new_name or "").strip()
+        if not new_name:
+            raise ValueError("new name is empty")
+        if new_name == old_name:
+            return new_name
+        datasets = getattr(self, "_datasets", None)
+        if isinstance(datasets, dict):
+            if new_name in datasets:
+                raise ValueError(f"a Book named {new_name!r} already exists")
+            payload = datasets.pop(old_name, None)
+            if payload is None and isinstance(getattr(self, "_df", None), pd.DataFrame):
+                payload = {"df": self._df, "path": getattr(self, "_current_path", None)}
+            if payload is not None:
+                datasets[new_name] = payload
+        wb = getattr(self, "workbook", None)
+        if wb is not None:
+            wb.dataset_name = new_name
+        mdi = getattr(self, "mdi", None)
+        try:
+            books = getattr(mdi, "_books", None)
+            if isinstance(books, dict):
+                for key, (widget, sub) in list(books.items()):
+                    if widget is wb or key == old_name or sub.windowTitle() == old_name:
+                        sub.setWindowTitle(new_name)
+                        books.pop(key, None)
+                        books[new_name] = (widget, sub)
+                        break
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("book window rename failed", exc_info=True)
+        return new_name
+
+    def feature_dataset_duplicate(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        default_name = f"{self._active_book_label()} Copy"
+        res = self.ask_form("Duplicate Book", [
+            {"name": "name", "label": "New Book name", "kind": "text", "default": default_name},
+        ], description="Create a separate copy of the active Book.")
+        if res is None:
+            return
+        try:
+            name = str(res.get("name") or default_name).strip() or default_name
+            target = self._open_signal_result_book(name, df.copy(deep=True))
+            self._log_workflow("dataset_duplicate", source=self._active_book_label(), output=target)
+            self.notify(f"Duplicated Book -> {target}")
+        except Exception as e:
+            self.error_box("Duplicate Book failed", f"Reason: {e}")
+
+    def feature_dataset_rename(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        old_name = self._active_book_label()
+        res = self.ask_form("Rename Book", [
+            {"name": "name", "label": "Book name", "kind": "text", "default": old_name},
+        ], description="Rename the active Book and update the project registry.")
+        if res is None:
+            return
+        try:
+            new_name = self._rename_active_dataset(res.get("name"))
+            self._log_workflow("dataset_rename", old_name=old_name, new_name=new_name)
+            self.notify(f"Renamed Book: {old_name} -> {new_name}")
+        except Exception as e:
+            self.error_box("Rename Book failed", f"Reason: {e}")
+
+    def feature_dataset_group(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        cols = [str(c) for c in df.columns]
+        numeric = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+        if not cols or not numeric:
+            self.inform("Not enough data", "Grouping needs at least one numeric column.")
+            return
+        default_group = cols[0]
+        default_value = next((c for c in numeric if c != default_group), numeric[0])
+        res = self.ask_form("Group and Summarize", [
+            {"name": "group_col", "label": "Group column", "kind": "choice", "options": cols, "default": default_group},
+            {"name": "value_col", "label": "Value column", "kind": "choice", "options": numeric, "default": default_value},
+            {"name": "agg", "label": "Aggregation", "kind": "choice",
+             "options": ["mean", "sum", "median", "min", "max", "count"], "default": "mean"},
+        ], description="Create an Origin-style result Book grouped by a column.")
+        if res is None:
+            return
+        try:
+            group_col, value_col, agg = res["group_col"], res["value_col"], res["agg"]
+            grouped = (
+                df.groupby(group_col, dropna=False)[value_col]
+                .agg([agg, "count"])
+                .reset_index()
+                .rename(columns={agg: f"{value_col}_{agg}", "count": "row_count"})
+            )
+            target = self._open_signal_result_book(f"Group_{group_col}", grouped)
+            self._log_workflow("dataset_group", group_col=group_col, value_col=value_col, agg=agg, output=target)
+            self.notify(f"Grouped summary -> {target}")
+        except Exception as e:
+            self.error_box("Group summary failed", f"Reason: {e}")
+
+    def feature_dataset_merge(self):
+        left = self._active_dataframe_or_none()
+        if left is None:
+            return
+        names = [n for n in self._dataset_names() if n != self._active_book_label()]
+        if not names:
+            self.inform("No second Book", "Open or create another Book before merging.")
+            return
+        left_cols = [str(c) for c in left.columns]
+        right_default_name = names[0]
+        right = self._dataset_frame(right_default_name)
+        right_cols = [str(c) for c in right.columns] if isinstance(right, pd.DataFrame) else left_cols
+        key_guess = next((c for c in left_cols if c in right_cols), left_cols[0])
+        res = self.ask_form("Merge Books", [
+            {"name": "right_book", "label": "Right Book", "kind": "choice", "options": names, "default": right_default_name},
+            {"name": "left_key", "label": "Left key column", "kind": "choice", "options": left_cols, "default": key_guess},
+            {"name": "right_key", "label": "Right key column", "kind": "choice", "options": right_cols, "default": key_guess if key_guess in right_cols else right_cols[0]},
+            {"name": "how", "label": "Join type", "kind": "choice", "options": ["inner", "left", "outer"], "default": "inner"},
+        ], description="Merge the active Book with another Book and open the result.")
+        if res is None:
+            return
+        try:
+            right = self._dataset_frame(res["right_book"])
+            if not isinstance(right, pd.DataFrame):
+                raise ValueError("right Book is not available")
+            out = pd.merge(
+                left,
+                right,
+                left_on=res["left_key"],
+                right_on=res["right_key"],
+                how=res["how"],
+                suffixes=("_left", "_right"),
+            )
+            target = self._open_signal_result_book(f"Merge_{self._active_book_label()}_{res['right_book']}", out)
+            self._log_workflow("dataset_merge", right_book=res["right_book"], how=res["how"], output=target)
+            self.notify(f"Merged Books -> {target} ({len(out)} rows)")
+        except Exception as e:
+            self.error_box("Merge Books failed", f"Reason: {e}")
+
+    def feature_dataset_split(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        cols = [str(c) for c in df.columns]
+        default_chunk = max(1, min(len(df), max(1, len(df) // 2)))
+        res = self.ask_form("Split Book", [
+            {"name": "mode", "label": "Split mode", "kind": "choice",
+             "options": ["Every N rows", "By category values"], "default": "Every N rows"},
+            {"name": "chunk_size", "label": "Rows per Book", "kind": "int",
+             "default": default_chunk, "min": 1, "max": max(1, len(df))},
+            {"name": "group_col", "label": "Category column", "kind": "choice",
+             "options": cols, "default": cols[0]},
+        ], description="Split the active Book into multiple result Books.")
+        if res is None:
+            return
+        try:
+            outputs = []
+            if res["mode"] == "By category values":
+                group_col = res["group_col"]
+                for value, part in df.groupby(group_col, dropna=False):
+                    safe_value = str(value).replace("/", "_").replace("\\", "_")[:40]
+                    outputs.append(self._open_signal_result_book(f"Split_{group_col}_{safe_value}", part.reset_index(drop=True)))
+            else:
+                chunk = int(res["chunk_size"])
+                for start in range(0, len(df), chunk):
+                    part = df.iloc[start:start + chunk].reset_index(drop=True)
+                    outputs.append(self._open_signal_result_book(f"Split_rows_{start + 1}_{start + len(part)}", part))
+            self._log_workflow("dataset_split", mode=res["mode"], outputs=outputs)
+            self.notify(f"Split complete: {len(outputs)} Books")
+        except Exception as e:
+            self.error_box("Split Book failed", f"Reason: {e}")
+
+    def feature_dataset_filter(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        cols = [str(c) for c in df.columns]
+        default_col = self.selected_y_column() if self.selected_y_column() in cols else cols[0]
+        res = self.ask_form("Filter Rows", [
+            {"name": "col", "label": "Column", "kind": "choice", "options": cols, "default": default_col},
+            {"name": "operator", "label": "Condition", "kind": "choice",
+             "options": ["is finite", "equals", "contains", ">=", "<=", ">", "<"], "default": "is finite"},
+            {"name": "value", "label": "Value", "kind": "text", "default": ""},
+        ], description="Create a filtered result Book without changing the source Book.")
+        if res is None:
+            return
+        try:
+            col, op, value = res["col"], res["operator"], res.get("value", "")
+            series = df[col]
+            if op == "is finite":
+                mask = np.isfinite(pd.to_numeric(series, errors="coerce"))
+            elif op == "contains":
+                mask = series.astype(str).str.contains(str(value), case=False, na=False, regex=False)
+            elif op == "equals":
+                mask = series.astype(str) == str(value)
+            else:
+                nums = pd.to_numeric(series, errors="coerce")
+                target_value = float(value)
+                if op == ">=":
+                    mask = nums >= target_value
+                elif op == "<=":
+                    mask = nums <= target_value
+                elif op == ">":
+                    mask = nums > target_value
+                else:
+                    mask = nums < target_value
+            out = df.loc[mask].reset_index(drop=True)
+            target = self._open_signal_result_book(f"Filter_{col}", out)
+            self._log_workflow("dataset_filter", col=col, operator=op, output=target)
+            self.notify(f"Filtered rows -> {target} ({len(out)} rows)")
+        except Exception as e:
+            self.error_box("Filter Rows failed", f"Reason: {e}")
+
+    def feature_dataset_search(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        cols = [str(c) for c in df.columns]
+        res = self.ask_form("Search Book", [
+            {"name": "query", "label": "Search text", "kind": "text", "default": "0"},
+            {"name": "column", "label": "Column", "kind": "choice",
+             "options": ["All columns"] + cols, "default": "All columns"},
+        ], description="Find matching rows and open them in a result Book.")
+        if res is None:
+            return
+        query = str(res.get("query", "")).strip()
+        if not query:
+            self.inform("Empty search", "Enter text to search for.")
+            return
+        try:
+            if res["column"] == "All columns":
+                mask = pd.Series(False, index=df.index)
+                for col in cols:
+                    mask |= df[col].astype(str).str.contains(query, case=False, na=False, regex=False)
+            else:
+                mask = df[res["column"]].astype(str).str.contains(query, case=False, na=False, regex=False)
+            out = df.loc[mask].reset_index(drop=True)
+            target = self._open_signal_result_book("Search Results", out)
+            self._log_workflow("dataset_search", query=query, column=res["column"], output=target)
+            self.notify(f"Search complete -> {target} ({len(out)} rows)")
+        except Exception as e:
+            self.error_box("Search Book failed", f"Reason: {e}")
+
+    def feature_clean_remove_nan(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        cols = [str(c) for c in df.columns]
+        default_col = self.selected_y_column() if self.selected_y_column() in cols else cols[0]
+        res = self.ask_form("Remove Missing Rows", [
+            {"name": "scope", "label": "Scope", "kind": "choice",
+             "options": ["Selected column", "Any column", "All selected numeric columns"], "default": "Selected column"},
+            {"name": "col", "label": "Column", "kind": "choice", "options": cols, "default": default_col},
+        ], description="Drop rows with missing values and update the active Book.")
+        if res is None:
+            return
+        try:
+            if res["scope"] == "Any column":
+                subset = None
+            elif res["scope"] == "All selected numeric columns":
+                subset = self._numeric_column_names() or None
+            else:
+                subset = [res["col"]]
+            out = df.dropna(subset=subset).reset_index(drop=True)
+            removed = len(df) - len(out)
+            self._swap_dataframe(out)
+            self._log_workflow("remove_missing_rows", scope=res["scope"], col=res["col"])
+            self.notify(f"Removed {removed} rows with missing values.")
+        except Exception as e:
+            self.error_box("Remove Missing Rows failed", f"Reason: {e}")
+
+    def feature_clean_crop_range(self):
+        df = self._active_dataframe_or_none()
+        if df is None:
+            return
+        numeric = self._numeric_column_names()
+        if not numeric:
+            self.inform("No numeric columns", "Crop range needs at least one numeric column.")
+            return
+        default_col = self.selected_x_column() if self.selected_x_column() in numeric else numeric[0]
+        values = pd.to_numeric(df[default_col], errors="coerce")
+        lo_default = float(values.min()) if values.notna().any() else 0.0
+        hi_default = float(values.max()) if values.notna().any() else 1.0
+        res = self.ask_form("Crop Range", [
+            {"name": "col", "label": "Range column", "kind": "choice", "options": numeric, "default": default_col},
+            {"name": "min_value", "label": "Minimum", "kind": "float", "default": lo_default, "decimals": 6},
+            {"name": "max_value", "label": "Maximum", "kind": "float", "default": hi_default, "decimals": 6},
+        ], description="Keep rows whose selected column is inside the range.")
+        if res is None:
+            return
+        try:
+            col = res["col"]
+            lo, hi = sorted((float(res["min_value"]), float(res["max_value"])))
+            nums = pd.to_numeric(df[col], errors="coerce")
+            out = df.loc[(nums >= lo) & (nums <= hi)].reset_index(drop=True)
+            removed = len(df) - len(out)
+            self._swap_dataframe(out)
+            self._log_workflow("crop_range", col=col, min_value=lo, max_value=hi)
+            self.notify(f"Cropped range on {col}: removed {removed} rows.")
+        except Exception as e:
+            self.error_box("Crop Range failed", f"Reason: {e}")
+
+    def feature_clean_merge_by_timestamp(self):
+        left = self._active_dataframe_or_none()
+        if left is None:
+            return
+        names = [n for n in self._dataset_names() if n != self._active_book_label()]
+        if not names:
+            self.inform("No second Book", "Open or create another Book before merging by time.")
+            return
+        time_like = lambda cols: next((c for c in cols if any(k in str(c).lower() for k in ("time", "timestamp", "datetime", "date", "t"))), cols[0])
+        left_cols = [str(c) for c in left.columns]
+        right_default = names[0]
+        right = self._dataset_frame(right_default)
+        right_cols = [str(c) for c in right.columns] if isinstance(right, pd.DataFrame) else left_cols
+        res = self.ask_form("Merge by Timestamp", [
+            {"name": "right_book", "label": "Right Book", "kind": "choice", "options": names, "default": right_default},
+            {"name": "left_time", "label": "Left time column", "kind": "choice", "options": left_cols, "default": time_like(left_cols)},
+            {"name": "right_time", "label": "Right time column", "kind": "choice", "options": right_cols, "default": time_like(right_cols)},
+            {"name": "mode", "label": "Match mode", "kind": "choice", "options": ["exact", "nearest"], "default": "nearest"},
+        ], description="Align two Books by timestamp or numeric time and open the result.")
+        if res is None:
+            return
+        try:
+            right = self._dataset_frame(res["right_book"])
+            if not isinstance(right, pd.DataFrame):
+                raise ValueError("right Book is not available")
+            left_time, right_time = res["left_time"], res["right_time"]
+            if res["mode"] == "exact":
+                out = pd.merge(left, right, left_on=left_time, right_on=right_time, how="left", suffixes=("_left", "_right"))
+            else:
+                l2 = left.copy()
+                r2 = right.copy()
+                l2["_merge_time"] = pd.to_numeric(l2[left_time], errors="coerce")
+                r2["_merge_time"] = pd.to_numeric(r2[right_time], errors="coerce")
+                if l2["_merge_time"].isna().all() or r2["_merge_time"].isna().all():
+                    l2["_merge_time"] = pd.to_datetime(l2[left_time], errors="coerce")
+                    r2["_merge_time"] = pd.to_datetime(r2[right_time], errors="coerce")
+                l2 = l2.dropna(subset=["_merge_time"]).sort_values("_merge_time")
+                r2 = r2.dropna(subset=["_merge_time"]).sort_values("_merge_time")
+                out = pd.merge_asof(l2, r2, on="_merge_time", direction="nearest", suffixes=("_left", "_right"))
+                out = out.drop(columns=["_merge_time"])
+            target = self._open_signal_result_book(f"TimeMerge_{self._active_book_label()}_{res['right_book']}", out.reset_index(drop=True))
+            self._log_workflow("merge_by_timestamp", right_book=res["right_book"], mode=res["mode"], output=target)
+            self.notify(f"Time merge complete -> {target} ({len(out)} rows)")
+        except Exception as e:
+            self.error_box("Merge by Timestamp failed", f"Reason: {e}")
 
     def feature_clean_fill_missing(self):
         if not self._has_y_data():
@@ -169,9 +646,9 @@ class MainWindowFeaturesMixin:
             new_col = fill_missing(self._df, y_col, method=method, value=value)
             self.add_y_column_option(new_col)
             self._log_workflow("fill_missing", col=y_col, method=method, value=value)
-            self.notify(f"เติมค่าที่หายแล้ว: {new_col} (วิธี {method})")
+            self.notify(f"Missing values filled: {new_col} (method: {method})")
         except Exception as e:
-            self.error_box("เติมค่าไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Fill missing values failed", f"Reason: {e}")
 
     def feature_clean_interpolate(self):
         if not self._has_y_data():
@@ -181,21 +658,21 @@ class MainWindowFeaturesMixin:
             new_col = interpolate_missing(self._df, y_col)
             self.add_y_column_option(new_col)
             self._log_workflow("interpolate_missing", col=y_col)
-            self.notify(f"เติมค่าด้วย interpolation แล้ว: {new_col}")
+            self.notify(f"Interpolation completed: {new_col}")
         except Exception as e:
-            self.error_box("Interpolate ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Interpolation failed", f"Reason: {e}")
 
     def feature_clean_remove_duplicates(self):
         if self._df is None or getattr(self._df, "empty", True):
-            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
+            self.inform("No data", "Open a data file first.")
             return
         try:
             new_df, removed = remove_duplicates(self._df)
             self._swap_dataframe(new_df)
             self._log_workflow("remove_duplicates")
-            self.notify(f"ลบแถวซ้ำแล้ว {removed} แถว (เหลือ {len(new_df)})")
+            self.notify(f"Removed {removed} duplicate rows ({len(new_df)} rows remain).")
         except Exception as e:
-            self.error_box("ลบแถวซ้ำไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Remove duplicates failed", f"Reason: {e}")
 
     def feature_clean_remove_outliers(self):
         if not self._has_y_data():
@@ -214,9 +691,9 @@ class MainWindowFeaturesMixin:
             new_df, removed = remove_outliers(self._df, y_col, method=method, threshold=threshold)
             self._swap_dataframe(new_df)
             self._log_workflow("remove_outliers", col=y_col, method=method, threshold=threshold)
-            self.notify(f"ตัด outliers ของ {y_col} แล้ว {removed} แถว (วิธี {method})")
+            self.notify(f"Removed {removed} outlier rows from {y_col} (method: {method}).")
         except Exception as e:
-            self.error_box("ตัด outliers ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Remove outliers failed", f"Reason: {e}")
 
     def feature_clean_normalize(self):
         if not self._has_y_data():
@@ -233,9 +710,9 @@ class MainWindowFeaturesMixin:
             new_col = normalize_column(self._df, y_col, method=method)
             self.add_y_column_option(new_col)
             self._log_workflow("normalize_column", col=y_col, method=method)
-            self.notify(f"สร้างคอลัมน์ normalize แล้ว: {new_col}")
+            self.notify(f"Normalized column created: {new_col}")
         except Exception as e:
-            self.error_box("Normalize ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Normalize failed", f"Reason: {e}")
 
     def feature_clean_detrend(self):
         if not self._has_y_data():
@@ -255,13 +732,13 @@ class MainWindowFeaturesMixin:
             new_col = detrend_polynomial(self._df, y_col, order=int(order), x_col=x_col)
             self.add_y_column_option(new_col)
             self._log_workflow("detrend_polynomial", col=y_col, order=int(order), x_col=x_col)
-            self.notify(f"ลบ baseline/trend อันดับ {order} แล้ว: {new_col}")
+            self.notify(f"Baseline/trend removed (order {order}): {new_col}")
         except Exception as e:
-            self.error_box("Detrend ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Detrend failed", f"Reason: {e}")
 
     def feature_clean_sort(self):
         if self._df is None or getattr(self._df, "empty", True):
-            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
+            self.inform("No data", "Open a data file first.")
             return
         cols = [str(c) for c in self._df.columns]
         res = self.ask_form("Sort", [
@@ -278,16 +755,16 @@ class MainWindowFeaturesMixin:
             new_df = sort_dataframe(self._df, col, ascending=ascending)
             self._swap_dataframe(new_df)
             self._log_workflow("sort_dataframe", col=col, ascending=ascending)
-            self.notify(f"เรียงข้อมูลตาม {col} แล้ว")
+            self.notify(f"Data sorted by {col}.")
         except Exception as e:
-            self.error_box("เรียงไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Sort failed", f"Reason: {e}")
 
     def feature_clean_resample(self):
         if not self._has_y_data():
             return
         x_col = self.selected_x_column()
         if x_col not in getattr(self._df, "columns", []):
-            self.inform("เลือกแกน X ก่อน", "resample ต้องมีคอลัมน์ X ที่เป็นตัวเลข")
+            self.inform("Select X first", "Resample requires a numeric X column.")
             return
         n_default = len(self._df)
         res = self.ask_form("Resample (uniform grid)", [
@@ -301,9 +778,9 @@ class MainWindowFeaturesMixin:
             new_df = resample_uniform(self._df, x_col, n_points=int(n_points))
             self._swap_dataframe(new_df)
             self._log_workflow("resample_uniform", x_col=x_col, n_points=int(n_points))
-            self.notify(f"resample เป็นกริดสม่ำเสมอ {n_points} จุดแล้ว (คงเฉพาะคอลัมน์ตัวเลข)")
+            self.notify(f"Resampled to a uniform grid with {n_points} points (numeric columns only).")
         except Exception as e:
-            self.error_box("Resample ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Resample failed", f"Reason: {e}")
 
     # ---------- Signal filters (ROADMAP E) ----------
     def _sampling_rate_or_ask(self):
@@ -369,9 +846,9 @@ class MainWindowFeaturesMixin:
                 "butterworth_filter", col=y_col, fs=float(fs), kind=kind,
                 cutoff=list(cutoff) if isinstance(cutoff, tuple) else float(cutoff),
                 order=4, new_col=new_col)
-            self.notify(f"กรองสัญญาณ ({kind}) แล้ว: {new_col} (fs≈{fs:.4g} Hz)")
+            self.notify(f"Signal filtered ({kind}): {new_col} (fs~{fs:.4g} Hz)")
         except Exception as e:
-            self.error_box("กรองไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Filter failed", f"Reason: {e}")
 
     def feature_filter_smooth(self):
         if not self._has_y_data():
@@ -406,16 +883,409 @@ class MainWindowFeaturesMixin:
             self._df[new_col] = smoothed
             self.add_y_column_option(new_col)
             self._log_workflow(op, new_col=new_col, **params)
-            self.notify(f"smooth ({method}) แล้ว: {new_col}")
+            self.notify(f"Smooth completed ({method}): {new_col}")
         except Exception as e:
-            self.error_box("Smooth ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("Smooth failed", f"Reason: {e}")
+
+    def feature_signal_hilbert(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        res = self.ask_form("Hilbert Transform", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+        ], description="Create analytic-signal real/imaginary columns from the selected signal.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        try:
+            analytic = hilbert_transform(self._df[y_col])
+            real_col = f"{y_col}_hilbert_real"
+            imag_col = f"{y_col}_hilbert_imag"
+            self._df[real_col] = np.real(analytic)
+            self._df[imag_col] = np.imag(analytic)
+            self.add_y_column_option(real_col)
+            self.add_y_column_option(imag_col)
+            self._sync_dataframe_after_column_edit()
+            self._log_workflow("hilbert_transform", col=y_col, real_col=real_col, imag_col=imag_col)
+            self.notify(f"Hilbert transform completed: {real_col}, {imag_col}")
+        except Exception as e:
+            self.error_box("Hilbert transform failed", f"Reason: {e}")
+
+    def feature_signal_envelope(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        res = self.ask_form("Envelope Detection", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+        ], description="Detect amplitude envelope via Hilbert analytic signal.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        try:
+            new_col = f"{y_col}_envelope"
+            self._df[new_col] = signal_envelope(self._df[y_col])
+            self.add_y_column_option(new_col)
+            self._sync_dataframe_after_column_edit()
+            self._log_workflow("signal_envelope", col=y_col, new_col=new_col)
+            self.notify(f"Envelope detected: {new_col}")
+        except Exception as e:
+            self.error_box("Envelope detection failed", f"Reason: {e}")
+
+    def feature_signal_instantaneous_frequency(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        fs_guess = self._infer_fs_default()
+        res = self.ask_form("Instantaneous Frequency", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "fs", "label": "fs (Hz)", "kind": "float",
+             "default": round(fs_guess, 6), "min": 1e-9, "max": 1e12, "decimals": 6},
+        ], description="Track frequency from the derivative of Hilbert phase.")
+        if res is None:
+            return
+        y_col, fs = res["y_col"], float(res["fs"])
+        try:
+            new_col = f"{y_col}_instfreq_Hz"
+            self._df[new_col] = instantaneous_frequency(self._df[y_col], fs=fs)
+            self.add_y_column_option(new_col)
+            self._sync_dataframe_after_column_edit()
+            self._log_workflow("instantaneous_frequency", col=y_col, fs=fs, new_col=new_col)
+            self.notify(f"Frequency tracking completed: {new_col}")
+        except Exception as e:
+            self.error_box("Frequency tracking failed", f"Reason: {e}")
+
+    def feature_signal_autocorrelation(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        max_lag_default = max(0, len(self._df) - 1)
+        res = self.ask_form("Auto-correlation", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "max_lag", "label": "Max lag (samples)", "kind": "int",
+             "default": max_lag_default, "min": 0, "max": max_lag_default},
+            {"name": "normalize", "label": "Normalize lag 0 to 1", "kind": "bool",
+             "default": True},
+            {"name": "demean", "label": "Remove mean first", "kind": "bool",
+             "default": True},
+        ], description="Create lag and normalized auto-correlation columns.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        try:
+            lags, corr = autocorrelation(
+                self._df[y_col],
+                max_lag=int(res["max_lag"]),
+                normalize=bool(res["normalize"]),
+                demean=bool(res["demean"]),
+            )
+            lag_col = f"{y_col}_autocorr_lag"
+            corr_col = f"{y_col}_autocorr"
+            self._df[lag_col] = self._series_for_active_index(lags)
+            self._df[corr_col] = self._series_for_active_index(corr)
+            self.add_x_column_option(lag_col)
+            self.add_y_column_option(corr_col)
+            self._sync_dataframe_after_column_edit()
+            self._log_workflow(
+                "autocorrelation", col=y_col, max_lag=int(res["max_lag"]),
+                normalize=bool(res["normalize"]), demean=bool(res["demean"]),
+                lag_col=lag_col, corr_col=corr_col)
+            self.notify(f"Auto-correlation completed: {corr_col}")
+        except Exception as e:
+            self.error_box("Auto-correlation failed", f"Reason: {e}")
+
+    def feature_signal_convolution(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        second = cols[1] if len(cols) > 1 else cols[0]
+        res = self.ask_form("Convolution", [
+            {"name": "a_col", "label": "Signal A", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "b_col", "label": "Signal B / kernel", "kind": "choice",
+             "options": cols, "default": second},
+            {"name": "mode", "label": "Mode", "kind": "choice",
+             "options": list(CONVOLUTION_MODES), "default": "same"},
+        ], description="Linear convolution. Blank cells in A/B are ignored so shorter kernels work.")
+        if res is None:
+            return
+        a_col, b_col, mode = res["a_col"], res["b_col"], res["mode"]
+        try:
+            a = self._numeric_column_values(a_col, drop_blank=True)
+            b = self._numeric_column_values(b_col, drop_blank=True)
+            values = convolve_signals(a, b, mode=mode)
+            new_col = f"{a_col}_conv_{b_col}"
+            if values.size == len(self._df):
+                self._df[new_col] = values
+                self.add_y_column_option(new_col)
+                self._sync_dataframe_after_column_edit()
+                target = new_col
+            else:
+                result_df = pd.DataFrame({
+                    "sample": np.arange(values.size, dtype=float),
+                    new_col: values,
+                })
+                target = self._open_signal_result_book(f"Convolution_{a_col}_{b_col}", result_df)
+            self._log_workflow("convolve_signals", a_col=a_col, b_col=b_col, mode=mode, output=target)
+            self.notify(f"Convolution completed ({mode}): {target}")
+        except Exception as e:
+            self.error_box("Convolution failed", f"Reason: {e}")
+
+    def feature_signal_deconvolution(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        second = cols[1] if len(cols) > 1 else cols[0]
+        res = self.ask_form("Deconvolution", [
+            {"name": "observed_col", "label": "Observed / convolved signal", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "kernel_col", "label": "Kernel / impulse response", "kind": "choice",
+             "options": cols, "default": second},
+        ], description="Return quotient and remainder in a new Book. Blank cells in the kernel are ignored.")
+        if res is None:
+            return
+        observed_col, kernel_col = res["observed_col"], res["kernel_col"]
+        try:
+            observed = self._numeric_column_values(observed_col, drop_blank=True)
+            kernel = self._numeric_column_values(kernel_col, drop_blank=True)
+            quotient, remainder = deconvolve_signals(observed, kernel)
+            n = max(quotient.size, remainder.size)
+            result_df = pd.DataFrame({"sample": np.arange(n, dtype=float)})
+            result_df[f"{observed_col}_deconv_{kernel_col}"] = pd.Series(quotient)
+            result_df[f"{observed_col}_deconv_remainder"] = pd.Series(remainder)
+            target = self._open_signal_result_book(
+                f"Deconvolution_{observed_col}_{kernel_col}", result_df)
+            self._log_workflow(
+                "deconvolve_signals", observed_col=observed_col,
+                kernel_col=kernel_col, output=target)
+            self.notify(f"Deconvolution completed: {target}")
+        except Exception as e:
+            self.error_box("Deconvolution failed", f"Reason: {e}")
+
+    def feature_signal_ifft(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        imag_default = next(
+            (c for c in cols if "imag" in c.lower() or c.lower().endswith("_im")),
+            "<none>",
+        )
+        res = self.ask_form("Inverse FFT (IFFT)", [
+            {"name": "real_col", "label": "Spectrum real / complex-real column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "imag_col", "label": "Spectrum imaginary column", "kind": "choice",
+             "options": ["<none>"] + cols, "default": imag_default},
+        ], description="Create a time-domain IFFT result Book from real plus optional imaginary columns.")
+        if res is None:
+            return
+        real_col, imag_col = res["real_col"], res["imag_col"]
+        try:
+            real = self._numeric_column_values(real_col, drop_blank=True)
+            if imag_col and imag_col != "<none>":
+                imag = self._numeric_column_values(imag_col, drop_blank=True)
+                n = min(real.size, imag.size)
+                spectrum = real[:n] + 1j * imag[:n]
+            else:
+                spectrum = real
+            out = np.asarray(compute_ifft(spectrum))
+            result_df = pd.DataFrame({"sample": np.arange(out.size, dtype=float)})
+            if np.iscomplexobj(out):
+                result_df[f"{real_col}_ifft_real"] = np.real(out)
+                result_df[f"{real_col}_ifft_imag"] = np.imag(out)
+            else:
+                result_df[f"{real_col}_ifft"] = out.astype(float)
+            target = self._open_signal_result_book(f"IFFT_{real_col}", result_df)
+            self._log_workflow("compute_ifft", real_col=real_col, imag_col=imag_col, output=target)
+            self.notify(f"IFFT completed: {target}")
+        except Exception as e:
+            self.error_box("IFFT failed", f"Reason: {e}")
+
+    def feature_signal_stft(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        fs_guess = self._infer_fs_default()
+        n_default = max(2, min(256, len(self._df)))
+        res = self.ask_form("STFT", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "fs", "label": "fs (Hz)", "kind": "float",
+             "default": round(fs_guess, 6), "min": 1e-9, "max": 1e12, "decimals": 6},
+            {"name": "window", "label": "Window", "kind": "choice",
+             "options": ["hann", "hamming", "blackman"], "default": "hann"},
+            {"name": "nperseg", "label": "Window length (samples)", "kind": "int",
+             "default": n_default, "min": 2, "max": max(2, len(self._df))},
+            {"name": "noverlap", "label": "Overlap (samples)", "kind": "int",
+             "default": n_default // 2, "min": 0, "max": max(1, n_default - 1)},
+        ], description="Short-time Fourier transform. Results open as a long-format Book.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        try:
+            freqs, times, zxx = compute_stft(
+                self._df[y_col],
+                fs=float(res["fs"]),
+                window=res["window"],
+                nperseg=int(res["nperseg"]),
+                noverlap=int(res["noverlap"]),
+            )
+            time_grid, freq_grid = np.meshgrid(times, freqs)
+            magnitude = np.abs(zxx)
+            result_df = pd.DataFrame({
+                "time": time_grid.ravel(),
+                "frequency_Hz": freq_grid.ravel(),
+                "magnitude": magnitude.ravel(),
+                "power": (magnitude ** 2).ravel(),
+                "phase_rad": np.angle(zxx).ravel(),
+            })
+            target = self._open_signal_result_book(f"STFT_{y_col}", result_df)
+            self._log_workflow(
+                "compute_stft", col=y_col, fs=float(res["fs"]), window=res["window"],
+                nperseg=int(res["nperseg"]), noverlap=int(res["noverlap"]), output=target)
+            self.notify(f"STFT completed: {target}")
+        except Exception as e:
+            self.error_box("STFT failed", f"Reason: {e}")
+
+    def feature_signal_zero_pad(self):
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        n = max(1, len(self._df))
+        default_target = 1 << (n - 1).bit_length()
+        res = self.ask_form("Zero Padding", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "target_length", "label": "Target length", "kind": "int",
+             "default": default_target, "min": n, "max": 100_000_000},
+        ], description="Append zeros up to target length. Longer outputs open as a new Book.")
+        if res is None:
+            return
+        y_col, target_length = res["y_col"], int(res["target_length"])
+        try:
+            padded = zero_pad(self._df[y_col], target_length=target_length)
+            new_col = f"{y_col}_zeropad"
+            if padded.size == len(self._df):
+                self._df[new_col] = padded
+                self.add_y_column_option(new_col)
+                self._sync_dataframe_after_column_edit()
+                target = new_col
+            else:
+                result_df = pd.DataFrame({
+                    "sample": np.arange(padded.size, dtype=float),
+                    new_col: padded,
+                })
+                target = self._open_signal_result_book(f"ZeroPad_{y_col}", result_df)
+            self._log_workflow("zero_pad", col=y_col, target_length=target_length, output=target)
+            self.notify(f"Zero padding completed: {target}")
+        except Exception as e:
+            self.error_box("Zero padding failed", f"Reason: {e}")
+
+    def feature_signal_decimation(self):
+        """Downsample a signal by an integer factor into a result Book."""
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        x_sel = self.selected_x_column()
+        res = self.ask_form("Decimation", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "x_col", "label": "X column", "kind": "choice",
+             "options": ["<row index>"] + cols,
+             "default": x_sel if x_sel in cols else "<row index>"},
+            {"name": "factor", "label": "Decimation factor", "kind": "int",
+             "default": 2, "min": 2, "max": max(2, len(self._df))},
+        ], description="Keep every Nth sample and open the shorter result as a new Book.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        x_col = res["x_col"]
+        factor = int(res["factor"])
+        try:
+            source_index = np.arange(len(self._df), dtype=int)[::factor]
+            y_values = pd.to_numeric(
+                self._df[y_col], errors="coerce"
+            ).to_numpy(dtype=float)[::factor]
+            result = {
+                "source_row": source_index + 1,
+                f"{y_col}_decim{factor}": y_values,
+            }
+            if x_col != "<row index>" and x_col in cols:
+                x_series = self._df[x_col].iloc[::factor].reset_index(drop=True)
+                result = {
+                    "source_row": source_index + 1,
+                    str(x_col): x_series,
+                    f"{y_col}_decim{factor}": y_values,
+                }
+            result_df = pd.DataFrame(result)
+            target = self._open_signal_result_book(f"Decimation_{y_col}", result_df)
+            self._log_workflow(
+                "decimation", col=y_col, x_col=x_col, factor=factor, output=target
+            )
+            self.notify(f"Decimation complete: {target}")
+        except Exception as e:
+            self.error_box("Decimation failed", f"Reason: {e}")
+
+    def feature_signal_harmonic_analysis(self):
+        """Extract dominant harmonic frequencies into a result Book."""
+        if not self._has_y_data():
+            return
+        cols = [str(c) for c in self._df.columns]
+        y_sel = self.selected_y_column()
+        fs_guess = self._infer_fs_default()
+        res = self.ask_form("Harmonic Analysis", [
+            {"name": "y_col", "label": "Signal column", "kind": "choice",
+             "options": cols, "default": y_sel if y_sel in cols else cols[0]},
+            {"name": "fs", "label": "Sampling rate fs (Hz)", "kind": "float",
+             "default": round(fs_guess, 6), "min": 1e-9, "max": 1e12, "decimals": 6},
+            {"name": "top_n", "label": "Number of components", "kind": "int",
+             "default": 8, "min": 1, "max": max(1, min(len(self._df), 1000))},
+            {"name": "window", "label": "Window", "kind": "choice",
+             "options": ["hann", "hamming", "blackman", "kaiser", "none"], "default": "hann"},
+        ], description="Find dominant frequency components and estimate harmonic order.")
+        if res is None:
+            return
+        y_col = res["y_col"]
+        try:
+            result = harmonic_analysis(
+                self._df[y_col],
+                fs=float(res["fs"]),
+                top_n=int(res["top_n"]),
+                window=res["window"],
+            )
+            table = pd.DataFrame(result)
+            table.insert(0, "source_column", y_col)
+            target = self._open_signal_result_book(f"Harmonics_{y_col}", table)
+            self._log_workflow(
+                "harmonic_analysis",
+                col=y_col,
+                fs=float(res["fs"]),
+                top_n=int(res["top_n"]),
+                window=res["window"],
+                output=target,
+            )
+            self.notify(f"Harmonic analysis complete -> {target}")
+        except Exception as e:
+            self.error_box("Harmonic Analysis failed", f"Reason: {e}")
 
     # ---------- Peak & signal-quality metrics (ROADMAP E) ----------
-    def _finite_xy_for_metrics(self):
+    def _finite_xy_for_metrics(self, y_name=None):
         """(x, y, x_name, y_name) เป็น float ที่ finite ทั้งคู่ — สำหรับ FWHM/พื้นที่พีค"""
         import numpy as np
 
-        y_name = self.selected_y_column()
+        y_name = y_name or self.selected_y_column()
         y = pd.to_numeric(self._df[y_name], errors="coerce").to_numpy(dtype=float)
         x_name = self.selected_x_column()
         if x_name in [str(c) for c in self._df.columns]:
@@ -424,6 +1294,10 @@ class MainWindowFeaturesMixin:
                 x = (ser - ser.iloc[0]).dt.total_seconds().to_numpy(dtype=float)
             else:
                 x = pd.to_numeric(ser, errors="coerce").to_numpy(dtype=float)
+            if not np.isfinite(x).any():
+                # text X column (e.g. a result sheet's name column) → row index
+                x_name = "index"
+                x = np.arange(y.size, dtype=float)
         else:
             x_name = "index"
             x = np.arange(y.size, dtype=float)
@@ -431,42 +1305,92 @@ class MainWindowFeaturesMixin:
         return x[mask], y[mask], x_name, y_name
 
     def feature_peak_metrics(self):
-        """FWHM + พื้นที่ใต้พีคของคอลัมน์ Y ที่เลือก (เทียบแกน X)"""
+        """Analysis → Peak Metrics: เลือกคอลัมน์ในฟอร์มเดียว → Book ผลลัพธ์
+        (area / FWHM / ตำแหน่ง+ความสูงพีคหลัก) แบบ Origin result sheet"""
         if not self._has_y_data():
             return
-        try:
-            x, y, x_name, y_name = self._finite_xy_for_metrics()
-            area = peak_area(x, y)
-            lines = [f"คอลัมน์: {y_name} (X = {x_name})",
-                     f"พื้นที่ใต้กราฟ (trapezoid): {area:.6g}"]
+        numeric = self._numeric_column_names()
+        if not numeric:
+            self.inform("ไม่มีคอลัมน์ตัวเลข", "ต้องมีคอลัมน์ตัวเลขอย่างน้อย 1 คอลัมน์")
+            return
+        x_name = self.selected_x_column()
+        x_label = x_name if x_name in numeric else "row index"
+        y_sel = self.selected_y_column()
+        res = self.ask_form("Peak Metrics (FWHM / Area)", [
+            {"name": "columns", "label": "Y column", "kind": "choice",
+             "options": [self._ALL_NUMERIC_LABEL] + numeric,
+             "default": y_sel if y_sel in numeric else self._ALL_NUMERIC_LABEL},
+        ], description=(f"ข้อมูลจาก: {self._active_book_label()}\n"
+                        f"พื้นที่ใต้กราฟ (trapezoid) + FWHM + ตำแหน่ง/ความสูงพีคหลัก "
+                        f"เทียบแกน X = '{x_label}' → เปิดเป็น Book ผลลัพธ์"))
+        if res is None:
+            return
+        if res["columns"] == self._ALL_NUMERIC_LABEL:
+            chosen = [c for c in numeric if c != x_name] or numeric
+        else:
+            chosen = [res["columns"]]
+        rows, errors = [], []
+        for col in chosen:
             try:
-                width = fwhm(x, y)
-                lines.append(f"FWHM ของพีคหลัก: {width:.6g}")
-            except ValueError as e:
-                lines.append(f"FWHM: คำนวณไม่ได้ ({e})")
-            self.inform("Peak Metrics", "\n".join(lines))
-            self.notify(f"Peak metrics ของ {y_name} คำนวณแล้ว")
-        except Exception as e:
-            self.error_box("คำนวณไม่สำเร็จ", f"สาเหตุ: {e}")
+                x, y, _, _ = self._finite_xy_for_metrics(col)
+                summary = peak_metrics_summary(x, y)
+                if summary.get("fwhm") is None:
+                    summary["fwhm"] = float("nan")
+                rows.append({"column": col, **summary})
+            except Exception as e:
+                errors.append(f"{col}: {e}")
+        if not rows:
+            self.error_box("คำนวณไม่สำเร็จ", "\n".join(errors) or "ไม่มีข้อมูลพอ")
+            return
+        table = pd.DataFrame(rows)[["column", "points", "area", "fwhm",
+                                    "peak_x", "peak_height"]]
+        book = self._open_signal_result_book("Peak Metrics", table)
+        self._log_workflow("peak_metrics", columns=chosen, x=x_label, book=book)
+        self.notify(f"Peak metrics ({len(rows)} คอลัมน์) → {book}")
 
     def feature_signal_quality(self):
-        """SNR + noise floor (จาก Welch PSD) ของคอลัมน์ Y ที่เลือก"""
+        """Analysis → Signal Quality: คอลัมน์ + fs ในฟอร์มเดียว → Book ผลลัพธ์
+        (SNR / noise floor จาก Welch PSD)"""
         if not self._has_y_data():
             return
-        y_col = self.selected_y_column()
-        fs = self._sampling_rate_or_ask()
-        if fs is None:
+        numeric = self._numeric_column_names()
+        if not numeric:
+            self.inform("ไม่มีคอลัมน์ตัวเลข", "ต้องมีคอลัมน์ตัวเลขอย่างน้อย 1 คอลัมน์")
             return
-        try:
-            snr_db = estimate_snr(self._df[y_col], fs=fs)
-            floor = noise_floor(self._df[y_col], fs=fs)
-            self.inform(
-                f"Signal Quality — {y_col}",
-                f"fs ≈ {fs:.6g} Hz\nSNR (พีคเทียบ median PSD): {snr_db:.4g} dB\n"
-                f"Noise floor (median Welch PSD): {floor:.6g}")
-            self.notify(f"SNR ของ {y_col}: {snr_db:.4g} dB")
-        except Exception as e:
-            self.error_box("คำนวณไม่สำเร็จ", f"สาเหตุ: {e}")
+        y_sel = self.selected_y_column()
+        res = self.ask_form("Signal Quality (SNR / Noise floor)", [
+            {"name": "columns", "label": "Y column", "kind": "choice",
+             "options": [self._ALL_NUMERIC_LABEL] + numeric,
+             "default": y_sel if y_sel in numeric else self._ALL_NUMERIC_LABEL},
+            {"name": "fs", "label": "Sampling rate fs (Hz)", "kind": "float",
+             "default": round(self._infer_fs_default(), 6),
+             "min": 1e-9, "max": 1e12, "decimals": 6},
+        ], description=(f"ข้อมูลจาก: {self._active_book_label()}\n"
+                        "SNR (พีคเทียบ median Welch PSD) และ noise floor "
+                        "→ เปิดเป็น Book ผลลัพธ์ (fs เดาจากแกน X ให้แล้ว)"))
+        if res is None:
+            return
+        fs = float(res["fs"])
+        x_name = self.selected_x_column()
+        if res["columns"] == self._ALL_NUMERIC_LABEL:
+            chosen = [c for c in numeric if c != x_name] or numeric
+        else:
+            chosen = [res["columns"]]
+        rows, errors = [], []
+        for col in chosen:
+            try:
+                rows.append({"column": col,
+                             **signal_quality_summary(self._df[col], fs=fs)})
+            except Exception as e:
+                errors.append(f"{col}: {e}")
+        if not rows:
+            self.error_box("คำนวณไม่สำเร็จ", "\n".join(errors) or "ไม่มีข้อมูลพอ")
+            return
+        table = pd.DataFrame(rows)[["column", "fs_hz", "snr_db", "noise_floor"]]
+        book = self._open_signal_result_book("Signal Quality", table)
+        self._log_workflow("signal_quality", columns=chosen, fs=fs, book=book)
+        first = rows[0]
+        self.notify(f"SNR {first['column']}: {first['snr_db']:.4g} dB → {book}")
 
     def feature_apply_window(self):
         """คูณสัญญาณด้วย window (hann/hamming/blackman/kaiser) → คอลัมน์ใหม่"""
@@ -497,24 +1421,61 @@ class MainWindowFeaturesMixin:
 
     # ---------- Statistics & spectra (ROADMAP D/E) ----------
     def feature_show_statistics(self):
+        """Analysis → Descriptive Statistics: เลือกคอลัมน์ → Book ผลลัพธ์
+        (ตารางสถิติแบบ Origin result sheet แทน message box เดิม)"""
         if not self._has_y_data():
             return
-        y_col = self.selected_y_column()
+        numeric = self._numeric_column_names()
+        if not numeric:
+            self.inform("ไม่มีคอลัมน์ตัวเลข", "ต้องมีคอลัมน์ตัวเลขอย่างน้อย 1 คอลัมน์")
+            return
+        y_sel = self.selected_y_column()
+        res = self.ask_form("Descriptive Statistics", [
+            {"name": "columns", "label": "Columns", "kind": "choice",
+             "options": [self._ALL_NUMERIC_LABEL] + numeric,
+             "default": y_sel if y_sel in numeric else self._ALL_NUMERIC_LABEL},
+        ], description=(f"ข้อมูลจาก: {self._active_book_label()}\n"
+                        "count / mean / median / mode / std / variance / "
+                        "skewness / kurtosis / min / max → เปิดเป็น Book ผลลัพธ์"))
+        if res is None:
+            return
+        cols = None if res["columns"] == self._ALL_NUMERIC_LABEL else [res["columns"]]
         try:
-            stats = describe_series(self._df[y_col])
-            self.inform(f"สถิติของ {y_col}", format_describe(stats, title=f"คอลัมน์: {y_col}"))
+            table = descriptive_table(self._df, cols)
+            book = self._open_signal_result_book("Descriptive Stats", table)
+            self._log_workflow("descriptive_statistics",
+                               columns=cols or numeric, book=book)
+            self.notify(f"Descriptive statistics ({table.shape[1] - 1} คอลัมน์) → {book}")
         except Exception as e:
             self.error_box("คำนวณสถิติไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def feature_show_covariance(self):
+        """Analysis → Covariance Matrix: เลือกชนิด matrix → Book ผลลัพธ์
+        (ตาราง matrix จริง copy/export ได้ แทนการยัด text ใน message box)"""
         if self._df is None or getattr(self._df, "empty", True):
-            self.inform("ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
+            self.inform("ยังไม่มีข้อมูล",
+                        "เปิดไฟล์ หรือพิมพ์ข้อมูลลง Book แล้วกด 'ใช้ข้อมูลนี้' ก่อน")
             return
+        numeric = self._numeric_column_names()
+        if len(numeric) < 2:
+            self.inform("ข้อมูลไม่พอ", "ต้องมีคอลัมน์ตัวเลขอย่างน้อย 2 คอลัมน์")
+            return
+        res = self.ask_form("Covariance / Correlation Matrix", [
+            {"name": "kind", "label": "Matrix", "kind": "choice",
+             "options": ["Covariance", "Correlation"], "default": "Covariance"},
+        ], description=(f"ข้อมูลจาก: {self._active_book_label()}\n"
+                        f"คำนวณจากคอลัมน์ตัวเลขทั้งหมด ({len(numeric)} คอลัมน์) "
+                        "→ เปิดเป็น Book ผลลัพธ์"))
+        if res is None:
+            return
+        kind = str(res["kind"]).lower()
         try:
-            cov = covariance_matrix(self._df)
-            self.inform("Covariance Matrix", cov.to_string(float_format=lambda v: f"{v:.6g}"))
+            table = covariance_table(self._df, kind=kind)
+            book = self._open_signal_result_book(f"{res['kind']} Matrix", table)
+            self._log_workflow("covariance_matrix", kind=kind, book=book)
+            self.notify(f"{res['kind']} matrix ({len(numeric)}×{len(numeric)}) → {book}")
         except Exception as e:
-            self.error_box("คำนวณ covariance ไม่สำเร็จ", f"สาเหตุ: {e}")
+            self.error_box("คำนวณไม่สำเร็จ", f"สาเหตุ: {e}")
 
     def run_psd_dialog(self):
         if not self._has_y_data():
@@ -532,6 +1493,11 @@ class MainWindowFeaturesMixin:
         y_col, fs = res["y_col"], float(res["fs"])
         try:
             freqs, pxx = welch_psd(self._df[y_col], fs=fs)
+            canvas = self._active_canvas() if hasattr(self, "_active_canvas") else getattr(self, "canvas", None)
+            if canvas is None:
+                self.inform("No graph", "Open or select a graph window first")
+                return
+            self.canvas = canvas
             try:
                 if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE:
                     self.canvas.clear()
@@ -541,6 +1507,10 @@ class MainWindowFeaturesMixin:
             self.canvas.ax.set_xlabel("Frequency (Hz)")
             self.canvas.ax.set_ylabel("PSD")
             beautify_axes(self.canvas.ax, title=f"Welch PSD of {y_col} (fs≈{fs:.4g} Hz)")
+            try:
+                self.canvas.draw()
+            except Exception:
+                pass
             self.notify("คำนวณ PSD (Welch) เสร็จแล้ว")
         except Exception as e:
             self.error_box("PSD ไม่สำเร็จ", f"สาเหตุ: {e}")
@@ -569,6 +1539,11 @@ class MainWindowFeaturesMixin:
             df_fft, fs = compute_fft(self._df, x_col=x_col, y_col=y_col, detrend=detrend, window=window)
             self._fft_df = df_fft
             self._fft_meta = {"fs": fs, "x_col": x_col, "y_col": y_col, "window": window, "detrend": detrend}
+            canvas = self._active_canvas() if hasattr(self, "_active_canvas") else getattr(self, "canvas", None)
+            if canvas is None:
+                self.inform("No graph", "Open or select a graph window first")
+                return
+            self.canvas = canvas
 
             try:
                 if getattr(self, 'plot_mode', PlotMode.OVERLAY) == PlotMode.REPLACE:
@@ -579,6 +1554,10 @@ class MainWindowFeaturesMixin:
             self.canvas.ax.set_xlabel("Frequency (Hz)")
             self.canvas.ax.set_ylabel("Amplitude")
             beautify_axes(self.canvas.ax, title=f"FFT of {y_col} (fs≈{fs:.3f} Hz, window={window}, detrend={detrend})")
+            try:
+                self.canvas.draw()
+            except Exception:
+                pass
             self.notify("คำนวณ FFT เสร็จแล้ว • ใช้ Export FFT เพื่อบันทึกผลได้")
 
         except Exception as e:

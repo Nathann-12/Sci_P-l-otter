@@ -20,6 +20,8 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication
 
+import main_window_export_mixin as export_mixin_module
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -85,6 +87,33 @@ def test_export_cancelled_does_nothing(win, tmp_path):
     win.ask_save_path = lambda *a, **k: called.__setitem__("save", True) or ""
     win.export_figure_advanced()
     assert called["save"] is False  # never reached the save dialog
+
+
+def test_batch_export_graphs_skips_empty_graphs_by_default(win, tmp_path, monkeypatch):
+    _plot(win)
+    _plot(win)
+    messages = []
+    win.ask_form = lambda *a, **k: {
+        "fmt": "PNG",
+        "dpi": 100,
+        "transparent": False,
+        "tight": True,
+        "include_empty": False,
+    }
+    monkeypatch.setattr(
+        export_mixin_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *a, **k: str(tmp_path),
+    )
+    win.notify = lambda msg, *a, **k: messages.append(msg)
+
+    win.export_figures_batch()
+
+    files = sorted(tmp_path.glob("*.png"))
+    assert len(files) == 2
+    assert all(file.stat().st_size > 0 for file in files)
+    assert all(file.name.startswith(("01_", "02_")) for file in files)
+    assert messages == [f"Exported 2 graph(s) to {tmp_path}"]
 
 
 def test_copy_figure_to_clipboard(win):

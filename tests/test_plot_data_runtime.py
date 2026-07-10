@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import sys
+import warnings
 
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
@@ -41,6 +42,19 @@ def test_prepare_plot_data_keeps_sparse_datetime_strings_as_plain_values():
     assert x_is_datetime is False
     assert x_prepared == x_values
     assert y_prepared == y_values
+
+
+def test_prepare_plot_data_does_not_warn_for_categorical_strings():
+    x_values = ["alpha", "beta", "gamma"]
+    y_values = [1, 2, 3]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        x_prepared, y_prepared, x_is_datetime = prepare_plot_data(x_values, y_values)
+
+    assert x_prepared == x_values
+    assert y_prepared == y_values
+    assert x_is_datetime is False
 
 
 def test_prepare_plot_data_truncates_to_shortest_series_after_filtering():

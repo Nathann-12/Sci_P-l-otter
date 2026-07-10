@@ -1,9 +1,10 @@
-"""OriginPro-style Project Explorer dock for SciPlotter.
+"""OriginPro-style Project Explorer for SciPlotter.
 
 This module provides :class:`ProjectExplorer`, a ``QDockWidget`` that lists every
 window in the MDI project (Books and Graphs) as a tree and activates a window
 when its node is double-clicked (or Enter is pressed on it), just like Origin's
-left-hand Project Explorer panel.
+left-hand Project Explorer panel. The main shell parks it inside
+``SidePanelTabs`` instead of showing it as a native Qt dock.
 
 It stays in sync with the :class:`UI.mdi_workspace.MdiWorkspace` by connecting to
 its ``subWindowAdded`` / ``subWindowRemoved`` / ``subWindowRenamed`` signals and
@@ -70,7 +71,7 @@ _SUB_ROLE = Qt.UserRole + 1
 
 
 class ProjectExplorer(QDockWidget):
-    """OriginPro-style Project Explorer: a tree of the project's MDI windows.
+    """OriginPro-style Project Explorer tree for the project's MDI windows.
 
     Double-clicking (or pressing Enter on) a window node activates the matching
     ``QMdiSubWindow``. The tree rebuilds automatically as windows are added,
@@ -80,6 +81,7 @@ class ProjectExplorer(QDockWidget):
     def __init__(self, parent=None, workspace=None):
         super().__init__("Project Explorer", parent)
         self.setObjectName("ProjectExplorer")
+        self.setFeatures(QDockWidget.NoDockWidgetFeatures)
 
         self._workspace = None
         # Live mapping of tree item -> QMdiSubWindow for activation.

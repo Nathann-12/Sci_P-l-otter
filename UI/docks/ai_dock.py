@@ -41,10 +41,10 @@ class AiAssistantDock(QWidget):
 
         self.input_edit = QLineEdit(self)
         self.input_edit.setObjectName("AiInput")
-        self.input_edit.setPlaceholderText("ถาม AI หรือสั่งงานด้วยภาษาไทย...")
+        self.input_edit.setPlaceholderText("Ask AI or type a command...")
         input_row.addWidget(self.input_edit, 1)
 
-        self.send_button = QPushButton("ส่ง", self)
+        self.send_button = QPushButton("Send", self)
         self.send_button.setObjectName("AiSendButton")
         input_row.addWidget(self.send_button)
 
@@ -57,7 +57,7 @@ class AiAssistantDock(QWidget):
         text = self.input_edit.text().strip()
         if not text:
             return
-        self.append_message("คุณ", text)
+        self.append_message("You", text)
         self.input_edit.clear()
         self.message_submitted.emit(text)
 

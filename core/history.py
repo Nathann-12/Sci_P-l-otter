@@ -78,11 +78,11 @@ class AnalysisHistory:
         data = json.loads(text)
         ops = data.get("operations")
         if not isinstance(ops, list):
-            raise ValueError("ไฟล์ workflow ไม่มีรายการ operations")
+            raise ValueError("Workflow file does not contain an operations list")
         history = cls()
         for entry in ops:
             if not isinstance(entry, dict) or "op" not in entry:
-                raise ValueError(f"รายการ workflow ไม่ถูกต้อง: {entry!r}")
+                raise ValueError(f"Invalid workflow entry: {entry!r}")
             history.entries.append({
                 "op": str(entry["op"]),
                 "params": dict(entry.get("params") or {}),
@@ -143,6 +143,27 @@ def _replay_resample(df, p):
     return resample_uniform(df, p["x_col"], n_points=p.get("n_points"))
 
 
+def _replay_remove_missing_rows(df, p):
+    scope = p.get("scope", "Selected column")
+    if scope == "Any column":
+        subset = None
+    elif scope == "All selected numeric columns":
+        subset = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    else:
+        subset = [p.get("col")] if p.get("col") in df.columns else None
+    return df.dropna(subset=subset).reset_index(drop=True)
+
+
+def _replay_crop_range(df, p):
+    col = p["col"]
+    lo = float(p["min_value"])
+    hi = float(p["max_value"])
+    if lo > hi:
+        lo, hi = hi, lo
+    values = pd.to_numeric(df[col], errors="coerce")
+    return df.loc[(values >= lo) & (values <= hi)].reset_index(drop=True)
+
+
 def _replay_butterworth(df, p):
     from analysis.signal_filters import butterworth_filter
     new_col = p.get("new_col") or f"{p['col']}_{p.get('kind', 'lowpass')}"
@@ -196,6 +217,8 @@ REPLAY_REGISTRY: Dict[str, Callable[[pd.DataFrame, Dict[str, Any]], pd.DataFrame
     "detrend_polynomial": _replay_detrend,
     "sort_dataframe": _replay_sort,
     "resample_uniform": _replay_resample,
+    "remove_missing_rows": _replay_remove_missing_rows,
+    "crop_range": _replay_crop_range,
     "butterworth_filter": _replay_butterworth,
     "savitzky_golay": _replay_savgol,
     "median_filter": _replay_median,
@@ -218,7 +241,7 @@ def replay(history: AnalysisHistory, df: pd.DataFrame,
         fn = REPLAY_REGISTRY.get(op)
         if fn is None:
             if strict:
-                raise ValueError(f"ไม่รู้จัก operation: {op!r} — re-run ไม่ได้")
+                raise ValueError(f"Unknown operation: {op!r}; cannot re-run workflow")
             continue
         out = fn(out, entry.get("params") or {})
     return out
@@ -234,6 +257,8 @@ _SCRIPT_TEMPLATES: Dict[str, str] = {
     "detrend_polynomial": "cleaning.detrend_polynomial(df, {col!r}, order={order!r}, x_col={x_col!r})",
     "sort_dataframe": "df = cleaning.sort_dataframe(df, {col!r}, ascending={ascending!r})",
     "resample_uniform": "df = cleaning.resample_uniform(df, {x_col!r}, n_points={n_points!r})",
+    "remove_missing_rows": "df = df.dropna(subset=([{col!r}] if {scope!r} == 'Selected column' and {col!r} else None)).reset_index(drop=True)",
+    "crop_range": "df = df.loc[(pd.to_numeric(df[{col!r}], errors='coerce') >= {min_value!r}) & (pd.to_numeric(df[{col!r}], errors='coerce') <= {max_value!r})].reset_index(drop=True)",
     "butterworth_filter": "df[{new_col!r}] = signal_filters.butterworth_filter(df[{col!r}], {fs!r}, kind={kind!r}, cutoff={cutoff!r}, order={order!r})",
     "savitzky_golay": "df[{new_col!r}] = signal_filters.savitzky_golay(df[{col!r}], window_length={window!r})",
     "median_filter": "df[{new_col!r}] = signal_filters.median_filter(df[{col!r}], kernel_size={kernel!r})",
@@ -250,6 +275,8 @@ _SCRIPT_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "detrend_polynomial": {"order": 1, "x_col": None},
     "sort_dataframe": {"ascending": True},
     "resample_uniform": {"n_points": None},
+    "remove_missing_rows": {"scope": "Selected column", "col": None},
+    "crop_range": {"min_value": 0.0, "max_value": 1.0},
     "butterworth_filter": {"kind": "lowpass", "order": 4},
     "savitzky_golay": {"window": 11},
     "median_filter": {"kernel": 5},
@@ -285,7 +312,7 @@ def generate_python_script(history: AnalysisHistory,
         op = entry["op"]
         template = _SCRIPT_TEMPLATES.get(op)
         if template is None:
-            body.append(f"# ข้าม operation ที่ไม่รู้จัก: {op}")
+            body.append(f"# Skipped unknown operation: {op}")
             continue
         params = dict(_SCRIPT_DEFAULTS.get(op, {}))
         params.update(entry.get("params") or {})
@@ -304,7 +331,7 @@ def generate_python_script(history: AnalysisHistory,
         body.append(f"# {entry.get('time', '')} — {op}".rstrip(" —"))
         body.append(template.format(**params))
     if not body:
-        body.append("pass  # ไม่มี operation ในประวัติ")
+        body.append("pass  # no operations recorded")
     lines.extend("    " + b for b in body)
     lines.extend([
         "    return df",
@@ -312,7 +339,7 @@ def generate_python_script(history: AnalysisHistory,
         "",
         'if __name__ == "__main__":',
         f"    df = pd.read_csv({source_path!r})" if source_path
-        else "    df = pd.read_csv('input.csv')  # แก้ path ให้ตรงข้อมูลของคุณ",
+        else "    df = pd.read_csv('input.csv')  # update this path for your data",
         "    df = apply_workflow(df)",
         "    df.to_csv('workflow_output.csv', index=False)",
         "    print(df.head())",

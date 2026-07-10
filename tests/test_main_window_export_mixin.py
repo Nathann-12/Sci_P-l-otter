@@ -104,6 +104,15 @@ class _WindowStub(MainWindowExportMixin):
     def statusBar(self):
         return self._status_bar
 
+    def get_current_dataframe(self):
+        return self._df if isinstance(self._df, pd.DataFrame) else pd.DataFrame()
+
+    def selected_x_column(self):
+        return self.cbX.currentText()
+
+    def active_axes(self):
+        return self.canvas.ax
+
 
 def test_mixin_exposes_export_methods():
     expected = {
@@ -112,6 +121,7 @@ def test_mixin_exposes_export_methods():
         "_line_to_numeric_for_export",
         "export_visible_range_csv",
         "export_png",
+        "export_figures_batch",
     }
 
     assert expected.issubset(set(dir(MainWindowExportMixin)))
@@ -169,7 +179,7 @@ def test_export_fft_dialog_csv_branch_writes_fft_dataframe(monkeypatch, tmp_path
 
     saved = pd.read_csv(out_path)
     assert saved.equals(window._fft_df)
-    assert window.statusBar().messages[-1] == f"บันทึก CSV แล้ว: {out_path}"
+    assert window.statusBar().messages[-1] == f"CSV saved: {out_path}"
     assert recorder.calls == []
 
 
@@ -193,7 +203,7 @@ def test_export_visible_range_csv_filters_dataframe_by_current_xlim(monkeypatch,
 
     saved = pd.read_csv(out_path)
     assert saved.to_dict(orient="list") == {"time": [1, 2], "value": [20, 30]}
-    assert window.statusBar().messages[-1] == f"บันทึก CSV ช่วงที่เห็นแล้ว: {out_path}"
+    assert window.statusBar().messages[-1] == f"Visible range CSV saved: {out_path}"
     assert recorder.calls == []
 
 
@@ -218,7 +228,7 @@ def test_export_visible_range_csv_falls_back_to_plot_lines(monkeypatch, tmp_path
 
     saved = pd.read_csv(out_path)
     assert saved.to_dict(orient="list") == {"time": [1.0], "signal": [6.0]}
-    assert window.statusBar().messages[-1] == f"บันทึก CSV ช่วงที่เห็นแล้ว: {out_path}"
+    assert window.statusBar().messages[-1] == f"Visible range CSV saved: {out_path}"
     assert recorder.calls == []
 
 

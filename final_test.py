@@ -8,6 +8,7 @@ import sys
 import os
 import subprocess
 import time
+import pytest
 
 def test_sciplotter_launch():
     """ทดสอบการเปิดโปรแกรม SciPlotter"""
@@ -17,7 +18,7 @@ def test_sciplotter_launch():
         # Check if main.py exists
         if not os.path.exists("main.py"):
             print("❌ ไม่พบไฟล์ main.py")
-            return False
+            pytest.fail("main.py is missing")
         
         print("✅ พบไฟล์ main.py")
         
@@ -30,11 +31,11 @@ def test_sciplotter_launch():
         else:
             print("⚠️ ไม่พบไฟล์ทดสอบ")
         
-        return True
+        assert os.path.exists("main.py")
         
     except Exception as e:
         print(f"❌ การตรวจสอบไฟล์ล้มเหลว: {e}")
-        return False
+        pytest.fail(f"SciPlotter launch smoke check failed: {e}")
 
 def create_test_instructions():
     """สร้างคำแนะนำการทดสอบ"""

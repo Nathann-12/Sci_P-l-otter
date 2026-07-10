@@ -178,7 +178,7 @@ def test_clear_plot_clears_current_tab_and_updates_status():
     assert window.canvas.ax.cla_called == 1
     assert window.tab.draw_calls == 1
     assert window.layer_manager_mounts == 1
-    assert window.statusBar().messages[-1] == "ล้างกราฟแล้ว"
+    assert window.statusBar().messages[-1] == "Graph cleared."
 
 
 def test_reset_view_autoscales_current_axes():
@@ -220,7 +220,7 @@ def test_add_new_tab_delegates_and_reports_status():
     window._add_new_tab()
 
     assert window.tabs.add_tab_calls == 1
-    assert window.statusBar().messages[-1] == "เพิ่มแท็บใหม่แล้ว"
+    assert window.statusBar().messages[-1] == "New graph tab added."
 
 
 def test_toggle_crosshair_disconnects_previous_handler_and_updates_cursor_text(monkeypatch):
@@ -243,7 +243,7 @@ def test_toggle_crosshair_disconnects_previous_handler_and_updates_cursor_text(m
     assert window.canvas.disconnect_calls == [7]
     assert created["ax"] is window.canvas.ax
     assert created["flags"] == (True, True, True)
-    assert window.statusBar().messages[-1] == "เปิด Crosshair แล้ว"
+    assert window.statusBar().messages[-1] == "Crosshair enabled."
     assert window.canvas.draw_calls == 1
 
     event_name, callback = window.canvas.connections[window._cid_motion]
@@ -261,7 +261,7 @@ def test_toggle_crosshair_false_only_disconnects_and_draws():
 
     assert window.canvas.disconnect_calls == [5]
     assert window._cid_motion is None
-    assert window.statusBar().messages[-1] == "ปิด Crosshair แล้ว"
+    assert window.statusBar().messages[-1] == "Crosshair disabled."
     assert window.canvas.draw_calls == 1
 
 
@@ -342,6 +342,6 @@ def test_start_box_zoom_replaces_existing_selector_and_applies_selected_bounds(m
     assert window.canvas.ax.x_limits[-1] == ((2, 9), {})
     assert window.canvas.ax.y_limits[-1] == ((3, 7), {})
     assert window.canvas.draw_calls == 1
-    assert window.statusBar().messages[-1] == "ซูมช่วง X=(2, 9)  Y=(3, 7)"
+    assert window.statusBar().messages[-1] == "Zoomed to X=(2, 9)  Y=(3, 7)"
     assert selector.active_values == [False]
     assert window._rs is None

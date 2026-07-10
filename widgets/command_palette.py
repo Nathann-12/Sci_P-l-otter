@@ -39,7 +39,7 @@ class CommandPalette(QDialog):
 
         self.search_edit = QLineEdit(self)
         self.search_edit.setObjectName("CommandPaletteSearch")
-        self.search_edit.setPlaceholderText("พิมพ์เพื่อค้นหาคำสั่ง...")
+        self.search_edit.setPlaceholderText("Type to search commands...")
         self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
 

@@ -45,11 +45,28 @@ def _stub_prompts(win, forms=()):
     return reports
 
 
-def test_module_registered_in_rail_and_menu(win):
-    assert win.shell.context_widget("gas_sensor") is win.gas_sensor_panel
+def test_module_registered_in_modules_gallery_and_menu(win):
+    assert win.shell.context_widget("modules") is win.modules_panel
+    assert win.modules_panel.module_widget("gas_sensor") is win.gas_sensor_panel
+    assert win.shell.context_widget("gas_sensor") is None
+    assert win.shell.rail.isHidden()
+    assert win.shell.context_stack.isHidden()
+
+    win.show_module_gallery("gas_sensor")
+
     assert not win.shell.rail.isHidden()
+    assert not win.shell.context_stack.isHidden()
+    assert win.shell.current_context_id() == "modules"
+    assert win.modules_panel.current_module_id() == "gas_sensor"
+
+    win.modules_panel.close_button.click()
+    assert win.shell.rail.isHidden()
+    assert win.shell.context_stack.isHidden()
+
+    win.show_module_gallery("gas_sensor")
     menu_titles = [a.text().replace("&", "") for a in win.menuBar().actions()]
-    assert "Gas Sensor" in menu_titles
+    assert "Modules" in menu_titles
+    assert "Gas Sensor" not in menu_titles
     for name in ("gs_analyze_response", "gs_detect_cycles",
                  "gs_calibration", "gs_dilution"):
         assert callable(getattr(win, name))

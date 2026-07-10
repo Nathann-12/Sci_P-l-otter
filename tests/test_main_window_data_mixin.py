@@ -11,6 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import main_window_data_mixin as data_mixin_module
+from core.plot_request import PlotOptions
+from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_data_mixin import MainWindowDataMixin
 
 
@@ -96,7 +98,7 @@ class _MessageBoxRecorder:
         self.calls.append(("information", title, message))
 
 
-class _WindowStub(MainWindowDataMixin):
+class _WindowStub(MainWindowDataMixin, MainWindowActionsMixin):
     def __init__(self):
         self._df = None
         self._current_path = None
@@ -106,13 +108,17 @@ class _WindowStub(MainWindowDataMixin):
         self._sb_rows = _LabelStub()
         self.cbX = _ComboBoxStub()
         self.cbY = _ComboBoxStub()
-        self.cbHist = _ComboBoxStub()
-        self.tbCbHist = _ComboBoxStub()
         self.lstFiles = _ListWidgetStub()
         self.staged = []
 
     def statusBar(self):
         return self._status_bar
+
+    def selected_y_column(self):
+        return self.cbY.currentText()
+
+    def current_plot_options(self):
+        return PlotOptions()
 
     def _stage_insert(self, name, df, path):
         self.staged.append((name, df.copy(), path))
@@ -150,8 +156,6 @@ def test_load_columns_from_df_can_pull_from_staged_dataset(monkeypatch):
     assert window._current_path == "sample.csv"
     assert window.cbX.items == ["time", "value"]
     assert window.cbY.items == ["time", "value"]
-    assert window.cbHist.items == ["time", "value"]
-    assert window.tbCbHist.items == ["time", "value"]
     assert window._sb_rows.text == "rows: 2"
     assert recorder.calls == []
 
@@ -172,6 +176,50 @@ def test_convert_to_datetime_if_possible_requires_majority_parseable_values():
     assert parsed_dates.notna().sum() == 2
     assert ok_text is False
     assert parsed_text is None
+
+
+def test_build_plot_request_supports_explicit_columns():
+    window = _WindowStub()
+    window._df = pd.DataFrame(
+        {
+            "time": [0, 1, 2],
+            "signal_a": [10, 20, 30],
+            "signal_b": [3, 4, 5],
+        }
+    )
+
+    request = window.build_plot_request("time", "signal_b")
+
+    assert request is not None
+    assert request.x.tolist() == [0, 1, 2]
+    assert request.y.tolist() == [3, 4, 5]
+    assert request.x_column == "time"
+    assert request.y_column == "signal_b"
+    assert request.label == "signal_b vs time"
+
+
+def test_build_histogram_and_categorical_bar_requests():
+    window = _WindowStub()
+    window._df = pd.DataFrame(
+        {
+            "group": ["A", "B", "C"],
+            "value": [3, 1, 2],
+        }
+    )
+    options = PlotOptions(histogram_bins=7, fit_normal=True, bar_width=0.5)
+
+    histogram = window.build_histogram_request("value", options)
+    bar = window.build_bar_request(
+        "group", "value", title="Counts", options=options
+    )
+
+    assert histogram is not None
+    assert histogram.values.tolist() == [3, 1, 2]
+    assert histogram.options is options
+    assert bar is not None
+    assert bar.x.tolist() == ["A", "B", "C"]
+    assert bar.y.tolist() == [3, 1, 2]
+    assert bar.options is options
 
 
 def test_is_datetime_column_rejects_large_numeric_epoch_lookalikes():
@@ -255,10 +303,10 @@ def test_load_data_updates_state_for_tabular_files(monkeypatch, tmp_path):
     # Origin multi-book: drag & drop opens a new Book via the staging funnel
     assert len(window.staged) == 1
     staged_name, staged_df, staged_path = window.staged[0]
-    assert staged_name == "sample.csv [ตาราง]"
+    assert staged_name == "sample.csv [table]"
     assert staged_path == str(path)
     assert staged_df.equals(df)
-    assert "เปิดเป็น Book แล้ว" in window.statusBar().messages[-1]
+    assert "Opened as Book" in window.statusBar().messages[-1]
     assert recorder.calls == []
 
 
@@ -282,11 +330,11 @@ def test_open_file_stages_loaded_dataframe(monkeypatch, tmp_path):
 
     assert len(window.staged) == 1
     staged_name, staged_df, staged_path = window.staged[0]
-    assert staged_name == "picked.csv [ตาราง]"
+    assert staged_name == "picked.csv [table]"
     assert staged_path == str(path)
     assert staged_df.equals(df)
     # Origin multi-book: the file opens as a Book (no staging-list selection)
-    assert "เปิดเป็น Book แล้ว" in window.statusBar().messages[-1]
+    assert "Opened as Book" in window.statusBar().messages[-1]
     assert recorder.calls == []
 
 

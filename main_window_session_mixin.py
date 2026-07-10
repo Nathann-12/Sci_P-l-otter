@@ -76,7 +76,7 @@ class MainWindowSessionMixin:
                 lst.addItem(QListWidgetItem(name))
             except Exception:
                 logger.debug("legacy staging list append skipped", exc_info=True)
-        self.statusBar().showMessage(f"เตรียมข้อมูล: {name}")
+        self.statusBar().showMessage(f"Data ready: {name}")
 
     def stage_add_files(self):
         """Batch import: เลือกหลายไฟล์ → เปิดเป็น Book ไฟล์ละบาน (โมเดล Origin)"""
@@ -121,7 +121,7 @@ class MainWindowSessionMixin:
         self._df = data["df"].copy()
         self._current_path = data["path"]
         self.lblFile.setText(f"ใช้งานไฟล์: {name}")
-        self.statusBar().showMessage("สลับไฟล์แล้ว • กด 'โหลดคอลัมน์จากข้อมูล' เพื่อเลือก X/Y")
+        self.statusBar().showMessage("Dataset switched. Reload columns to choose X/Y.")
 
     def stage_remove_selected(self):
         row = self.lstFiles.currentRow()
@@ -140,7 +140,7 @@ class MainWindowSessionMixin:
                 return
         self._datasets.pop(name, None)
         self.lstFiles.takeItem(row)
-        self.statusBar().showMessage(f"นำออกจากรายการแล้ว: {name}")
+        self.statusBar().showMessage(f"Removed from list: {name}")
 
     # ---------------- Project files (*.sciproj) ----------------
     PROJECT_FILTER = "SciPlotter Project (*.sciproj);;All Files (*.*)"

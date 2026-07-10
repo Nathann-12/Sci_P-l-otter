@@ -365,8 +365,15 @@ class GraphTab(QWidget):
 
     def _on_layer_style_request(self, layer_id: str) -> None:
         info = self.layers.get(layer_id)
-        if not info or info.get("style") != "line":
+        if not info:
             return
+        style = info.get("style")
+        if style == "line":
+            self._style_line_layer(info)
+        elif style in {"scatter", "bar", "histogram"}:
+            self._style_filled_layer(info)
+
+    def _style_line_layer(self, info: Dict[str, Any]) -> None:
         artists = [a for a in info.get("artists", []) if hasattr(a, "set_color")]
         if not artists:
             return
@@ -400,6 +407,64 @@ class GraphTab(QWidget):
             self.canvas.draw_idle()
         except Exception:
             pass
+
+    def _style_filled_layer(self, info: Dict[str, Any]) -> None:
+        artists = list(info.get("artists", []))
+        if not artists:
+            return
+        info.setdefault("kwargs", {})
+        info.setdefault("meta", {})
+        style_meta = dict(info["meta"].get("style_kwargs", {}))
+
+        color = self.layer_manager.prompt_color()
+        if color and getattr(color, "isValid", lambda: False)():
+            color_name = color.name()
+            for artist in artists:
+                self._set_artist_fill_color(artist, color_name)
+            if info.get("style") == "scatter":
+                info["kwargs"]["color"] = color_name
+                style_meta["color"] = color_name
+            else:
+                info["kwargs"]["facecolor"] = color_name
+                style_meta["facecolor"] = color_name
+
+        current_alpha = 1.0
+        for artist in artists:
+            try:
+                alpha = artist.get_alpha()
+            except Exception:
+                alpha = None
+            if alpha is not None:
+                current_alpha = float(alpha)
+                break
+        alpha, ok = QInputDialog.getDouble(
+            self, "Layer Opacity", "Opacity:", float(current_alpha), 0.0, 1.0, 2
+        )
+        if ok:
+            for artist in artists:
+                try:
+                    artist.set_alpha(alpha)
+                except Exception:
+                    pass
+            info["kwargs"]["alpha"] = float(alpha)
+            style_meta["alpha"] = float(alpha)
+
+        if style_meta:
+            info["meta"]["style_kwargs"] = style_meta
+        self._refresh_legend()
+        try:
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _set_artist_fill_color(artist, color_name: str) -> None:
+        for setter in ("set_facecolor", "set_color"):
+            try:
+                getattr(artist, setter)(color_name)
+                return
+            except Exception:
+                continue
 
 
 class TabManager(QTabWidget):

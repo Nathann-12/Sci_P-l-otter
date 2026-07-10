@@ -40,7 +40,7 @@ class MatplotlibPreview(QWidget):
         layout.setSpacing(5)
         
         # Title
-        title = QLabel("ตัวอย่างกราฟ Matplotlib")
+        title = QLabel("Matplotlib preview")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-weight: bold; font-size: 12px;")
         layout.addWidget(title)
@@ -98,9 +98,9 @@ class MatplotlibPreview(QWidget):
                     label='Double Sine', linewidth=2, marker='^', markersize=4)
         
         # Basic styling
-        self.ax.set_xlabel('เวลา (s)')
-        self.ax.set_ylabel('แอมพลิจูด')
-        self.ax.set_title('ตัวอย่างกราฟ')
+        self.ax.set_xlabel('Time (s)')
+        self.ax.set_ylabel('Amplitude')
+        self.ax.set_title('Preview plot')
         self.ax.legend()
         # Grid will be set by update_style method, not hardcoded here
         

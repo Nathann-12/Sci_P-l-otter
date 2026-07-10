@@ -14,6 +14,14 @@ class MainWindowViewMixin:
             return self.tabs.tabs[current_tab_id]
         return None
 
+    def _active_canvas(self):
+        """Return the selected/last-selected graph canvas and sync self.canvas."""
+        tab = self._get_current_tab()
+        if tab is not None and getattr(tab, "canvas", None) is not None:
+            self.canvas = tab.canvas
+            return tab.canvas
+        return getattr(self, "canvas", None)
+
     def clear_plot(self):
         tab = self._get_current_tab()
         if tab is None:
@@ -30,7 +38,7 @@ class MainWindowViewMixin:
             self._mount_layer_manager()
         except Exception:
             pass
-        self.statusBar().showMessage("ล้างกราฟแล้ว")
+        self.statusBar().showMessage("Graph cleared.")
 
     def _reset_view(self):
         """Reset view for current tab."""
@@ -43,10 +51,10 @@ class MainWindowViewMixin:
         ax.set_ylim(auto=True)
         tab.draw()
 
-    def _update_canvas_reference(self):
+    def _update_canvas_reference(self, *_):
         """Update canvas reference to point to the current tab's canvas."""
         tab = self._get_current_tab()
-        if tab is not None:
+        if tab is not None and getattr(tab, "canvas", None) is not None:
             self.canvas = tab.canvas
         elif self.tabs.count() > 0:
             first_tab_widget = self.tabs.widget(0)
@@ -60,27 +68,32 @@ class MainWindowViewMixin:
     def _add_new_tab(self):
         """Add a new graph tab."""
         self.tabs.add_tab()
-        self.statusBar().showMessage("เพิ่มแท็บใหม่แล้ว")
+        self.statusBar().showMessage("New graph tab added.")
 
     def toggle_crosshair(self, checked: bool):
+        canvas = self._active_canvas()
+        if canvas is None:
+            return
         if self._cursor is not None:
             self._cursor = None
         if self._cid_motion is not None:
             try:
-                self.canvas.mpl_disconnect(self._cid_motion)
+                old_canvas = getattr(self, "_cid_motion_canvas", None) or canvas
+                old_canvas.mpl_disconnect(self._cid_motion)
             except Exception:
                 pass
             self._cid_motion = None
+            self._cid_motion_canvas = None
 
         if not checked:
-            self.statusBar().showMessage("ปิด Crosshair แล้ว")
-            self.canvas.draw()
+            self.statusBar().showMessage("Crosshair disabled.")
+            canvas.draw()
             return
 
-        self._cursor = Cursor(self.canvas.ax, useblit=True, horizOn=True, vertOn=True)
+        self._cursor = Cursor(canvas.ax, useblit=True, horizOn=True, vertOn=True)
 
         def _on_move(event):
-            if event.inaxes != self.canvas.ax:
+            if event.inaxes != canvas.ax:
                 return
             x, y = event.xdata, event.ydata
             try:
@@ -90,9 +103,10 @@ class MainWindowViewMixin:
             except Exception:
                 pass
 
-        self._cid_motion = self.canvas.mpl_connect("motion_notify_event", _on_move)
-        self.statusBar().showMessage("เปิด Crosshair แล้ว")
-        self.canvas.draw()
+        self._cid_motion = canvas.mpl_connect("motion_notify_event", _on_move)
+        self._cid_motion_canvas = canvas
+        self.statusBar().showMessage("Crosshair enabled.")
+        canvas.draw()
 
     def toggle_inspector(self, checked: bool):
         try:
@@ -122,6 +136,9 @@ class MainWindowViewMixin:
             logging.getLogger(__name__).error(f"Error toggling error panel: {exc}")
 
     def start_box_zoom(self):
+        canvas = self._active_canvas()
+        if canvas is None:
+            return
         if self._rs is not None:
             try:
                 self._rs.set_active(False)
@@ -129,8 +146,8 @@ class MainWindowViewMixin:
                 pass
             self._rs = None
 
-        ax = self.canvas.ax
-        self.statusBar().showMessage("โหมดเลือกช่วง: ลากเมาส์คลุมพื้นที่ที่ต้องการซูม (คลิกซ้ายค้างแล้วลาก)")
+        ax = canvas.ax
+        self.statusBar().showMessage("Box zoom: drag over the area to zoom.")
 
         def _on_select(eclick, erelease):
             try:
@@ -142,8 +159,8 @@ class MainWindowViewMixin:
                 ymin, ymax = sorted([y1, y2])
                 ax.set_xlim(xmin, xmax)
                 ax.set_ylim(ymin, ymax)
-                self.canvas.draw()
-                self.statusBar().showMessage(f"ซูมช่วง X=({xmin}, {xmax})  Y=({ymin}, {ymax})")
+                canvas.draw()
+                self.statusBar().showMessage(f"Zoomed to X=({xmin}, {xmax})  Y=({ymin}, {ymax})")
             finally:
                 if self._rs is not None:
                     try:

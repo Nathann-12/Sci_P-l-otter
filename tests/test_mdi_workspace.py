@@ -221,6 +221,24 @@ def test_add_book_creates_sub_window(qapp):
     assert "graph" in kinds
 
 
+def test_book_focus_preserves_last_selected_graph_target(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    first_id = ws.get_current_tab_id()
+    second_id = ws.add_tab("Graph 2")
+    book_sub = ws.add_book(QWidget(), "Book1")
+
+    ws.mdi.setActiveSubWindow(ws._graph_subs[second_id])
+    qapp.processEvents()
+    ws.mdi.setActiveSubWindow(book_sub)
+    qapp.processEvents()
+
+    assert ws.mdi.activeSubWindow() is book_sub
+    assert ws.get_current_tab_id() == second_id
+    assert ws.currentWidget() is ws.tabs[second_id]
+    assert ws.currentWidget() is not ws.tabs[first_id]
+
+
 def test_addtab_compat_with_graphtab(qapp):
     host = _Host()
     ws = MdiWorkspace(host)

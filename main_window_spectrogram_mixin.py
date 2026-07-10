@@ -12,6 +12,18 @@ from processors_spectrogram import compute_cwt, compute_spectrogram, export_spec
 class MainWindowSpectrogramMixin:
     """Reusable spectrogram actions extracted from MainWindow."""
 
+    def _spectrogram_canvas(self, *, prefer_preview: bool = False):
+        """Return the selected/last-selected graph canvas for spectrogram output."""
+        if prefer_preview:
+            canvas = getattr(self, "_spectrogram_canvas_target", None)
+            if canvas is not None:
+                return canvas
+        if hasattr(self, "_active_canvas"):
+            canvas = self._active_canvas()
+            if canvas is not None:
+                return canvas
+        return getattr(self, "canvas", None)
+
     def _is_replace_plot_mode(self) -> bool:
         mode = getattr(self, "plot_mode", "overlay")
         return str(mode).lower().endswith("replace")
@@ -40,6 +52,10 @@ class MainWindowSpectrogramMixin:
     def on_spectrogram_preview(self, params):
         """แสดง preview ของ Spectrogram"""
         try:
+            canvas = self._spectrogram_canvas()
+            if canvas is None:
+                QMessageBox.warning(self, "No graph", "Open or select a graph window first")
+                return
             time_col = params["time_col"]
             signal_col = params["signal_col"]
             mode = params["mode"]
@@ -98,7 +114,7 @@ class MainWindowSpectrogramMixin:
 
             try:
                 if self._is_replace_plot_mode():
-                    self.canvas.ax.clear()
+                    canvas.ax.clear()
             except Exception:
                 pass
 
@@ -111,38 +127,41 @@ class MainWindowSpectrogramMixin:
 
             if meta["is_datetime"]:
                 extent = [0, len(T), F.min(), F.max()]
-                im = self.canvas.ax.imshow(S, origin="lower", aspect="auto", extent=extent, cmap="viridis")
+                im = canvas.ax.imshow(S, origin="lower", aspect="auto", extent=extent, cmap="viridis")
                 time_ticks = np.linspace(0, len(T), 5)
                 time_labels = pd.date_range(start=meta["time_range"][0], end=meta["time_range"][1], periods=5)
-                self.canvas.ax.set_xticks(time_ticks)
-                self.canvas.ax.set_xticklabels([t.strftime("%H:%M:%S") for t in time_labels])
+                canvas.ax.set_xticks(time_ticks)
+                canvas.ax.set_xticklabels([t.strftime("%H:%M:%S") for t in time_labels])
             else:
                 extent = [T.min(), T.max(), F.min(), F.max()]
-                im = self.canvas.ax.imshow(S, origin="lower", aspect="auto", extent=extent, cmap="viridis")
+                im = canvas.ax.imshow(S, origin="lower", aspect="auto", extent=extent, cmap="viridis")
 
             if "vmin" in meta and "vmax" in meta:
                 im.set_clim(meta["vmin"], meta["vmax"])
 
             if "max_frequency" in params:
-                self.canvas.ax.set_ylim(0, params["max_frequency"])
+                canvas.ax.set_ylim(0, params["max_frequency"])
 
-            self._last_cbar = self.canvas.fig.colorbar(im, ax=self.canvas.ax)
+            self._last_cbar = canvas.fig.colorbar(im, ax=canvas.ax)
             self._last_cbar.set_label("Power (dB)" if to_db else "Power")
-            self.canvas.ax.set_xlabel("Time")
-            self.canvas.ax.set_ylabel("Frequency (Hz)")
+            canvas.ax.set_xlabel("Time")
+            canvas.ax.set_ylabel("Frequency (Hz)")
             method = "STFT" if "STFT" in mode else "CWT"
-            self.canvas.ax.set_title(f"Spectrogram ({method}) - {signal_col}")
-            self.canvas.ax.grid(True, alpha=0.3)
-            self.canvas.draw()
+            canvas.ax.set_title(f"Spectrogram ({method}) - {signal_col}")
+            canvas.ax.grid(True, alpha=0.3)
+            canvas.draw()
 
             if hasattr(self, "_cid_motion") and self._cid_motion is not None:
                 try:
-                    self.canvas.mpl_disconnect(self._cid_motion)
+                    old_canvas = getattr(self, "_cid_motion_canvas", None) or canvas
+                    old_canvas.mpl_disconnect(self._cid_motion)
                 except Exception:
                     pass
 
-            self._cid_motion = self.canvas.mpl_connect("motion_notify_event", self._on_spectrogram_mouse_move)
-            self.statusBar().showMessage(f"Spectrogram preview เสร็จสิ้น: {method}")
+            self._cid_motion = canvas.mpl_connect("motion_notify_event", self._on_spectrogram_mouse_move)
+            self._cid_motion_canvas = canvas
+            self._spectrogram_canvas_target = canvas
+            self.statusBar().showMessage(f"Spectrogram preview completed: {method}")
             self._current_spectrogram = {"T": T, "F": F, "S": S, "meta": meta, "params": params}
         except ImportError as exc:
             QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถใช้งานได้: {str(exc)}")
@@ -164,8 +183,12 @@ class MainWindowSpectrogramMixin:
                 "PNG Files (*.png)",
             )
             if filename:
-                self.canvas.fig.savefig(filename, dpi=150, bbox_inches="tight")
-                self.statusBar().showMessage(f"บันทึก Spectrogram เป็น {filename}")
+                canvas = self._spectrogram_canvas(prefer_preview=True)
+                if canvas is None:
+                    QMessageBox.warning(self, "No graph", "Open or select a graph window first")
+                    return
+                canvas.fig.savefig(filename, dpi=150, bbox_inches="tight")
+                self.statusBar().showMessage(f"Spectrogram image saved: {filename}")
         except Exception as exc:
             QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการบันทึก: {str(exc)}")
 
@@ -190,7 +213,7 @@ class MainWindowSpectrogramMixin:
                     self._current_spectrogram["meta"],
                     filename,
                 )
-                self.statusBar().showMessage(f"บันทึก Spectrogram CSV เป็น {filename}")
+                self.statusBar().showMessage(f"Spectrogram CSV saved: {filename}")
         except Exception as exc:
             QMessageBox.critical(self, "ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการบันทึก: {str(exc)}")
 
@@ -205,7 +228,7 @@ class MainWindowSpectrogramMixin:
             signal_col = params["signal_col"]
             if time_col in self._df.columns and signal_col in self._df.columns:
                 self.run_fft_dialog()
-                self.statusBar().showMessage("ส่งข้อมูลไปยัง FFT แล้ว")
+                self.statusBar().showMessage("Spectrogram data sent to FFT.")
             else:
                 QMessageBox.warning(self, "ไม่พบคอลัมน์", "ไม่พบคอลัมน์ที่เลือกในข้อมูล")
         except Exception as exc:
@@ -222,7 +245,7 @@ class MainWindowSpectrogramMixin:
             signal_col = params["signal_col"]
             if time_col in self._df.columns and signal_col in self._df.columns:
                 self._open_fit_dialog()
-                self.statusBar().showMessage("ส่งข้อมูลไปยัง CurveFit แล้ว")
+                self.statusBar().showMessage("Spectrogram data sent to Curve Fit.")
             else:
                 QMessageBox.warning(self, "ไม่พบคอลัมน์", "ไม่พบคอลัมน์ที่เลือกในข้อมูล")
         except Exception as exc:
@@ -230,7 +253,8 @@ class MainWindowSpectrogramMixin:
 
     def _on_spectrogram_mouse_move(self, event):
         """Crosshair callback สำหรับ spectrogram"""
-        if not hasattr(self, "_current_spectrogram") or event.inaxes != self.canvas.ax:
+        canvas = self._spectrogram_canvas(prefer_preview=True)
+        if not hasattr(self, "_current_spectrogram") or canvas is None or event.inaxes != canvas.ax:
             return
 
         try:

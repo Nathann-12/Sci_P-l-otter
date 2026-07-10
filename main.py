@@ -27,7 +27,7 @@ except Exception as e:
 # IMPORTANT: Set matplotlib backend BEFORE importing PySide6
 import matplotlib
 matplotlib.use('Qt5Agg')  # Force Qt5Agg backend
-print(f"Debug: Matplotlib backend set to: {matplotlib.get_backend()}")
+logger.debug("Matplotlib backend set to: %s", matplotlib.get_backend())
 
 from PySide6.QtCore import Qt, QSize, QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QToolBar, QSplitter, QSizePolicy, QFrame, QStyle, QStackedWidget, QTabWidget, QScrollArea
@@ -78,6 +78,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config
 from settings import settings_manager
+from core.plot_request import PlotOptions
 from main_window_data_mixin import MainWindowDataMixin
 from main_window_menu_mixin import MainWindowMenuMixin
 from main_window_toolbar_mixin import MainWindowToolbarMixin
@@ -94,10 +95,16 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
+from main_window_modules_mixin import MainWindowModulesMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
+from main_window_electrochemistry_mixin import MainWindowElectrochemistryMixin
+from main_window_spectroscopy_mixin import MainWindowSpectroscopyMixin
+from main_window_materials_mixin import MainWindowMaterialsMixin
+from main_window_physics_mixin import MainWindowPhysicsMixin
 from main_window_workflow_mixin import MainWindowWorkflowMixin
 from main_window_plotstyle_mixin import MainWindowPlotStyleMixin
 from main_window_plotextra_mixin import MainWindowPlotExtraMixin
+from main_window_gallery_mixin import MainWindowGalleryMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
@@ -130,23 +137,198 @@ APP_USER_MODEL_ID = "SciPlotter.SciPlotterApp"
 # dense toolbar stays airy rather than heavy.
 _QTA_ICON_MAP = {
     "open": "mdi.folder-open-outline",
+    "batch_import": "mdi.folder-multiple-outline",
+    "open_project": "mdi.folder-outline",
+    "save_project": "mdi.content-save-outline",
     "inspector": "mdi.view-column-outline",
     "Plot_from_Equation": "mdi.function-variant",
     "plot": "mdi.chart-line",
+    "spectrogram": "mdi.chart-areaspline",
     "fft": "mdi.sine-wave",
-    "addtab": "mdi.plus",
-    "settings": "mdi.cog-outline",
+    "psd": "mdi.chart-bell-curve-cumulative",
+    "addtab": "mdi.table-plus",
+    "processors": "mdi.tune-variant",
+    "settings": "mdi.application-cog-outline",
     "export": "mdi.export-variant",
+    "export_figure": "mdi.image-export",
+    "export_data": "mdi.database-export-outline",
+    "batch_export": "mdi.export",
+    "copy_graph": "mdi.content-copy",
+    "error_panel": "mdi.alert-circle-outline",
     "clear": "mdi.eraser",
     "fit": "mdi.chart-bell-curve",
-    "crosshair": "mdi.crosshairs-gps",
-    "boxzoom": "mdi.magnify-plus-outline",
+    "crosshair": "mdi.crosshairs",
+    "boxzoom": "mdi.magnify-scan",
     "gas": "mdi.weather-windy",
-    "format": "mdi.palette-outline",
+    "electrochemistry": "mdi.flash-outline",
+    "spectroscopy": "mdi.waveform",
+    "materials": "mdi.atom",
+    "physics_lab": "mdi.flask-outline",
+    "modules": "mdi.view-dashboard-outline",
+    "format": "mdi.brush-outline",
+    "gallery": "mdi.view-gallery-outline",
+    "use_active_book": "mdi.database-check-outline",
+    "reload_columns": "mdi.table-refresh",
+    "add_row": "mdi.table-row-plus-after",
+    "add_column": "mdi.table-column-plus-after",
+    "derived_column": "mdi.table-edit",
+    "column_types": "mdi.table-cog",
+    "units_calibration": "mdi.ruler-square",
+    "error_bars": "mdi.chart-timeline-variant",
+    "fill_band": "mdi.chart-areaspline",
+    "secondary_y": "mdi.axis-y-arrow",
+    "broken_axis": "mdi.axis-arrow-lock",
+    "window_cascade": "mdi.dock-window",
+    "window_tile": "mdi.view-grid-outline",
+    "reset_view": "mdi.restore",
+    "moving_average": "mdi.chart-line-variant",
+    "magnitude": "mdi.vector-triangle",
+    "bangkok_time": "mdi.clock-time-seven-outline",
+    "aggregate": "mdi.sigma",
+    "dataset_duplicate": "mdi.book-multiple-outline",
+    "dataset_rename": "mdi.book-edit-outline",
+    "dataset_group": "mdi.table-group",
+    "dataset_merge": "mdi.table-merge-cells",
+    "dataset_split": "mdi.table-split-cell",
+    "dataset_filter": "mdi.table-filter",
+    "dataset_search": "mdi.table-search",
+    "fill_missing": "mdi.format-color-fill",
+    "interpolate_missing": "mdi.vector-line",
+    "remove_missing_rows": "mdi.table-row-remove",
+    "remove_duplicates": "mdi.content-duplicate",
+    "remove_outliers": "mdi.filter-remove-outline",
+    "crop_range": "mdi.crop-free",
+    "normalize": "mdi.scale-balance",
+    "detrend": "mdi.trending-down",
+    "sort": "mdi.sort",
+    "resample": "mdi.timeline-clock-outline",
+    "time_merge": "mdi.timeline-check-outline",
+    "butterworth": "mdi.filter-variant",
+    "smooth": "mdi.waves",
+    "window_func": "mdi.window-closed-variant",
+    "hilbert": "mdi.waveform",
+    "envelope": "mdi.chart-bell-curve",
+    "instant_freq": "mdi.speedometer",
+    "autocorr": "mdi.vector-link",
+    "convolution": "mdi.set-merge",
+    "deconvolution": "mdi.set-split",
+    "decimation": "mdi.arrow-collapse-horizontal",
+    "harmonic": "mdi.music-accidental-sharp",
+    "ifft": "mdi.sine-wave",
+    "stft": "mdi.chart-gantt",
+    "zero_pad": "mdi.numeric-0-box-multiple-outline",
+    "stats": "mdi.chart-box-outline",
+    "covariance": "mdi.grid",
+    "peak_metrics": "mdi.chart-line-stacked",
+    "signal_quality": "mdi.signal-cellular-3",
+    "cc_window": "mdi.select-compare",
+    "cc_compute": "mdi.compare-horizontal",
+    "cc_clear": "mdi.close-circle-outline",
+    "peak_settings": "mdi.tune-vertical",
+    "peak_detect": "mdi.chart-areaspline-variant",
+    "peak_export": "mdi.table-arrow-right",
+    "peak_clear": "mdi.delete-sweep-outline",
+    "ann_enable": "mdi.cursor-default-click-outline",
+    "ann_text": "mdi.format-text",
+    "ann_arrow": "mdi.arrow-top-right",
+    "ann_line": "mdi.vector-line",
+    "ann_rect": "mdi.rectangle-outline",
+    "ann_ellipse": "mdi.ellipse-outline",
+    "ann_callout": "mdi.comment-text-outline",
+    "ann_manage": "mdi.shape-outline",
+    "undo": "mdi.undo",
+    "redo": "mdi.redo",
+    "gas_response": "mdi.weather-windy",
+    "gas_cycles": "mdi.sync-circle",
+    "gas_calibration": "mdi.chart-scatter-plot",
+    "gas_dilution": "mdi.beaker-outline",
+    "workflow_history": "mdi.history",
+    "workflow_export": "mdi.file-export-outline",
+    "workflow_import": "mdi.file-import-outline",
+    "workflow_script": "mdi.script-text-outline",
+    "workflow_report": "mdi.file-chart-outline",
+    "workflow_snapshot": "mdi.camera-outline",
+    "workflow_compare": "mdi.compare",
+    "workflow_audit": "mdi.clipboard-list-outline",
+    "workflow_clear": "mdi.history-remove",
 }
 
 # Thin light icon tint (OriginPro-like); one place so every icon matches.
 ICON_COLOR = "#b8bec6"
+
+_QTA_MODULE = None
+_QTA_IMPORT_FAILED = False
+_ICON_CACHE: Dict[tuple[str, object], QIcon] = {}
+_ICON_PATH_CACHE: Dict[str, Optional[str]] = {}
+
+
+def _fallback_icon_key(fallback_sp: QStyle.StandardPixmap) -> object:
+    try:
+        return fallback_sp.value
+    except Exception:
+        try:
+            return int(fallback_sp)
+        except Exception:
+            return repr(fallback_sp)
+
+
+def _qtawesome_module():
+    global _QTA_MODULE, _QTA_IMPORT_FAILED
+    if _QTA_IMPORT_FAILED:
+        return None
+    if _QTA_MODULE is None:
+        try:
+            import qtawesome as qta
+        except Exception:
+            _QTA_IMPORT_FAILED = True
+            return None
+        _QTA_MODULE = qta
+    return _QTA_MODULE
+
+
+def _qtawesome_icon(qta_id: str) -> Optional[QIcon]:
+    cache_key = ("qta", qta_id, ICON_COLOR)
+    cached = _ICON_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    qta = _qtawesome_module()
+    if qta is None:
+        return None
+    try:
+        icon = qta.icon(qta_id, color=ICON_COLOR)
+    except Exception:
+        return None
+    _ICON_CACHE[cache_key] = icon
+    return icon
+
+
+def _resolve_icon_path(name: str) -> Optional[str]:
+    if name in _ICON_PATH_CACHE:
+        return _ICON_PATH_CACHE[name]
+    base = os.path.dirname(__file__)
+    candidates = [
+        os.path.join(base, "logo", f"{name}.png"),
+        os.path.join(base, "assets", "icons", f"{name}.svg"),
+        os.path.join(base, "assets", "icons", f"{name}.png"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            _ICON_PATH_CACHE[name] = path
+            return path
+    try:
+        icons_dir = os.path.join(base, "assets", "icons")
+        if os.path.isdir(icons_dir):
+            lname = name.lower()
+            for fname in os.listdir(icons_dir):
+                stem, ext = os.path.splitext(fname)
+                if stem.lower() == lname and ext.lower() in (".svg", ".png", ".ico", ".jpg", ".jpeg"):
+                    path = os.path.join(icons_dir, fname)
+                    _ICON_PATH_CACHE[name] = path
+                    return path
+    except Exception:
+        pass
+    _ICON_PATH_CACHE[name] = None
+    return None
 
 from core.plot_mode import PlotMode  # re-exported here for backward compatibility
 
@@ -189,10 +371,16 @@ class MainWindow(
     MainWindowSettingsMixin,
     MainWindowFeaturesMixin,
     MainWindowActionsMixin,
+    MainWindowModulesMixin,
     MainWindowGasSensorMixin,
+    MainWindowElectrochemistryMixin,
+    MainWindowSpectroscopyMixin,
+    MainWindowMaterialsMixin,
+    MainWindowPhysicsMixin,
     MainWindowWorkflowMixin,
     MainWindowPlotStyleMixin,
     MainWindowPlotExtraMixin,
+    MainWindowGalleryMixin,
     MainWindowViewAccessMixin,
     QMainWindow,
 ):
@@ -213,6 +401,7 @@ class MainWindow(
         self._fft_df = None       # เก็บผล FFT ล่าสุด
         self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
         self.current_aggregated_df = None  # UI-REFINE: เก็บผล aggregate ล่าสุดสำหรับ export
+        self._plot_options = PlotOptions()
 
         # Plotting settings/state (Overlay vs Replace)
         try:
@@ -230,10 +419,10 @@ class MainWindow(
         # MdiWorkspace เลียนแบบ API ของ TabManager → โค้ดพล็อตเดิม reuse ได้ทั้งหมด
         self.workbook = WorkbookWidget(self)
         self.workbook.dataset_name = "Book1"
-        self.mdi = MdiWorkspace(self)
+        self.mdi = MdiWorkspace(self, start_with_graph=False)
         self.mdi.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.tabs = self.mdi
-        # MdiWorkspace สร้าง "Graph 1" ให้เองแล้ว (canvas พร้อมใช้) — เพิ่มแค่ Book1
+        # Startup ต้อง clean แบบ sheet-first: ยังไม่สร้าง Graph จนกว่าผู้ใช้สั่ง plot
         self._book_sub = self.mdi.add_book(self.workbook, "Book1")   # worksheet แบบ Origin
         # Origin multi-book: คลิกหน้าต่าง Book ไหน = ใช้ข้อมูลชุดนั้น
         self.mdi.bookActivated.connect(self._on_book_activated)
@@ -243,21 +432,14 @@ class MainWindow(
             logger.debug("activate Book1 skipped", exc_info=True)
         self.shell.set_workspace(self.mdi)
 
-        # Origin-style Project Explorer: a left dock that lists every MDI window
-        # (Books + Graphs) and activates one on double-click, kept in sync via
-        # the workspace's add/remove/rename signals. Additive — the activity-rail
-        # shell stays; this is the extra Origin panel the user asked for.
+        # Parked side panels: Project Explorer + logs/assistant live beside the
+        # workspace as vertical tabs, keeping the bottom graph area clear.
         try:
             self.project_explorer = ProjectExplorer(self, workspace=self.mdi)
             self.project_explorer.setMinimumWidth(130)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self.project_explorer)
-            # keep the Project Explorer slim so the MDI workspace gets the room
-            try:
-                self.resizeDocks([self.project_explorer], [180], Qt.Horizontal)
-            except Exception:
-                logger.debug("resizeDocks skipped", exc_info=True)
+            self.shell.add_side_panel("Project Explorer (1)", self.project_explorer)
         except Exception:
-            logger.debug("Project Explorer dock init skipped", exc_info=True)
+            logger.debug("Project Explorer side panel init skipped", exc_info=True)
 
         # Keep reference to current canvas for backward compatibility
         self.canvas = None
@@ -280,8 +462,8 @@ class MainWindow(
 
         # Origin-pure shell: ไม่มีแผงซ้ายแล้ว — ทุกอย่างทำผ่าน Worksheet +
         # แถบไอคอนพล็อต + Project Explorer + เมนู. แผงนี้ยังถูก "สร้าง" ไว้แบบ
-        # ซ่อน เพื่อเป็น state-holder ของ aliases ที่ mixin/session ใช้
-        # (lblFile, chkCross, btnBoxZoom, btnOpenData, cbX/cbY ผ่าน panel_plot)
+        # ซ่อนเพื่อเป็น compatibility holder ของ column selection และ actions
+        # ที่ mixin เก่ายังใช้; plot styling/export state แยกเป็น immutable models แล้ว
         self._panel_left = QWidget(self)
         self._panel_left.setObjectName("SidePanel")
         self._left_layout = QVBoxLayout(self._panel_left)
@@ -301,12 +483,13 @@ class MainWindow(
             pass
         self.shell.set_inspector(self._panel_right)
 
-        # Bottom docks: AI assistant + operation log
+        # Parked side panels: AI assistant + operation log. These used to live
+        # in the bottom dock, but side tabs preserve vertical graph space.
         try:
             self.ai_dock = AiAssistantDock(self)
             self.op_log_dock = OperationLogDock(self)
-            self.shell.add_dock("AI", self.ai_dock)
-            self.shell.add_dock("Log", self.op_log_dock)
+            self.shell.add_side_panel("Messages Log", self.op_log_dock)
+            self.shell.add_side_panel("Smart Hint Log", self.ai_dock)
         except Exception:
             pass
 
@@ -317,7 +500,7 @@ class MainWindow(
             # Fallback: create a basic toolbar and actions if method not bound
             try:
                 self.tb = QToolBar("Main Toolbar", self)
-                self.tb.setIconSize(QSize(24, 24))
+                self.tb.setIconSize(QSize(16, 16))
                 self.addToolBar(self.tb)
                 if hasattr(self, '_create_toolbar_actions'):
                     self._create_toolbar_actions()
@@ -329,11 +512,32 @@ class MainWindow(
         self._init_menu()
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
 
-        # โมดูลเฉพาะทางตัวแรก: Gas Sensor (activity rail โผล่เองเมื่อลงทะเบียน)
+        # โมดูลเฉพาะทางตัวแรก: Gas Sensor ลงทะเบียนไว้ แต่ไม่เปิด rail/context
+        # เองตอน startup เพื่อให้หน้าจอเริ่มต้นเหลือ worksheet/workspace คลีน ๆ
         try:
             self.init_gas_sensor_module()
         except Exception:
             logger.debug("gas sensor module init skipped", exc_info=True)
+
+        try:
+            self.init_electrochemistry_module()
+        except Exception:
+            logger.debug("electrochemistry module init skipped", exc_info=True)
+
+        try:
+            self.init_spectroscopy_module()
+        except Exception:
+            logger.debug("spectroscopy module init skipped", exc_info=True)
+
+        try:
+            self.init_materials_module()
+        except Exception:
+            logger.debug("materials module init skipped", exc_info=True)
+
+        try:
+            self.init_physics_module()
+        except Exception:
+            logger.debug("physics module init skipped", exc_info=True)
 
         # Reproducibility: ประวัติการวิเคราะห์ + workflow (เมนู Tools)
         try:
@@ -357,7 +561,7 @@ class MainWindow(
         except Exception:
             pass
         
-        # UI-REFINE: สถานะถาวรใน StatusBar
+        # Persistent StatusBar state.
         self._sb_rows = QLabel("rows: -")
         self._sb_fs = QLabel("fs: -")
         self._sb_cursor = QLabel("x=-, y=-")
@@ -365,7 +569,7 @@ class MainWindow(
         self.statusBar().addPermanentWidget(self._sb_fs)
         self.statusBar().addPermanentWidget(self._sb_cursor)
         self.statusBar().showMessage(
-            "เริ่ม 3 ขั้น: ① เปิดไฟล์ หรือพิมพ์ข้อมูลใน Book1 แล้วกด 'ใช้ข้อมูลนี้' → ② เลือก X/Y → ③ กดพล็อต")
+            "Start: open data or type into Book1, use the worksheet data, choose X/Y, then plot.")
         self.setAcceptDrops(True)
 
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม (ผ่าน toggle_inspector
@@ -373,6 +577,12 @@ class MainWindow(
         self.toggle_inspector(False)
         try: self.actToggleInspector.setChecked(False)
         except Exception: pass
+
+        try:
+            self._apply_english_ui_texts()
+            self._install_english_ui_filter()
+        except Exception:
+            logger.debug("English UI normalization skipped", exc_info=True)
         
         # Connect tab change signal to update canvas reference (safe getattr)
         try:
@@ -480,31 +690,31 @@ class MainWindow(
                 pass
             
             # Connect plot buttons - use the correct button references from CompactPlotPanel
-            print(f"Debug: Checking for plot buttons...")
-            print(f"Debug: hasattr(self, 'btn_line'): {hasattr(self, 'btn_line')}")
+            logger.debug("Checking for plot buttons")
+            logger.debug("hasattr(self, 'btn_line'): %s", hasattr(self, 'btn_line'))
             if hasattr(self, 'btn_line'):
-                print(f"Debug: self.btn_line: {self.btn_line}")
-            print(f"Debug: hasattr(self, 'btnLine'): {hasattr(self, 'btnLine')}")
+                logger.debug("self.btn_line: %s", self.btn_line)
+            logger.debug("hasattr(self, 'btnLine'): %s", hasattr(self, 'btnLine'))
             if hasattr(self, 'btnLine'):
-                print(f"Debug: self.btnLine: {self.btnLine}")
+                logger.debug("self.btnLine: %s", self.btnLine)
                 
             if hasattr(self, 'btn_line') and self.btn_line:
                 self.btn_line.clicked.connect(self.plot_line)
-                print("Debug: Connected btn_line to plot_line")
+                logger.debug("Connected btn_line to plot_line")
             elif hasattr(self, 'btnLine') and self.btnLine:
                 self.btnLine.clicked.connect(self.plot_line)
-                print("Debug: Connected btnLine to plot_line")
+                logger.debug("Connected btnLine to plot_line")
             else:
-                print("Debug: No line button found to connect")
+                logger.debug("No line button found to connect")
                 
             if hasattr(self, 'btn_scatter') and self.btn_scatter:
                 self.btn_scatter.clicked.connect(self.plot_scatter)
-                print("Debug: Connected btn_scatter to plot_scatter")
+                logger.debug("Connected btn_scatter to plot_scatter")
             elif hasattr(self, 'btnScatter') and self.btnScatter:
                 self.btnScatter.clicked.connect(self.plot_scatter)
-                print("Debug: Connected btnScatter to plot_scatter")
+                logger.debug("Connected btnScatter to plot_scatter")
             else:
-                print("Debug: No scatter button found to connect")
+                logger.debug("No scatter button found to connect")
             
             # Overlay add buttons
             if hasattr(self, 'btnLineAdd'):
@@ -595,43 +805,30 @@ class MainWindow(
             logging.getLogger(__name__).debug("Status error: %s", msg)
 
     def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
-        # 0) prefer crisp themed vector icons (qtawesome) when this name is mapped
-        try:
-            qta_id = _QTA_ICON_MAP.get(name)
-            if qta_id:
-                import qtawesome as qta
-                return qta.icon(qta_id, color=ICON_COLOR)
-        except Exception:
-            pass
-        try:
-            base = os.path.dirname(__file__)
-            # 1) ตรงตัวก่อน
-            candidates = [
-                os.path.join(base, "logo", f"{name}.png"),
-                os.path.join(base, "assets", "icons", f"{name}.svg"),
-                os.path.join(base, "assets", "icons", f"{name}.png"),
-            ]
-            for p in candidates:
-                if os.path.isfile(p):
-                    return QIcon(p)
+        cache_key = (name, _fallback_icon_key(fallback_sp))
+        cached = _ICON_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
 
-            # 2) ค้นหาแบบ case-insensitive ใน assets/icons (รองรับ .svg/.png/.ico/.jpg)
-            try:
-                icons_dir = os.path.join(base, "assets", "icons")
-                if os.path.isdir(icons_dir):
-                    lname = name.lower()
-                    for fname in os.listdir(icons_dir):
-                        stem, ext = os.path.splitext(fname)
-                        if stem.lower() == lname and ext.lower() in (".svg", ".png", ".ico", ".jpg", ".jpeg"):
-                            return QIcon(os.path.join(icons_dir, fname))
-            except Exception:
-                pass
-        except Exception:
-            pass
+        qta_id = _QTA_ICON_MAP.get(name)
+        if qta_id:
+            icon = _qtawesome_icon(qta_id)
+            if icon is not None:
+                _ICON_CACHE[cache_key] = icon
+                return icon
+
+        path = _resolve_icon_path(name)
+        if path:
+            icon = QIcon(path)
+            _ICON_CACHE[cache_key] = icon
+            return icon
+
         try:
-            return self.style().standardIcon(fallback_sp)
+            icon = self.style().standardIcon(fallback_sp)
         except Exception:
-            return QIcon()
+            icon = QIcon()
+        _ICON_CACHE[cache_key] = icon
+        return icon
 
     def show_about(self):
         # เกี่ยวกับโปรแกรม (อัปเดตเนื้อหาให้รวมฟีเจอร์ใหม่และธีม)

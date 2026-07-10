@@ -132,3 +132,56 @@ def test_template_applied_to_axes(tmp_path, axfig):
     apply_style(ax, tpl, fig)
     assert ax.get_yscale() == "log"
     assert ax.get_title() == "Z"
+
+
+def test_apply_style_supports_excel_like_effects(axfig):
+    ax, fig = axfig
+    line = ax.get_lines()[0]
+    apply_style(
+        ax,
+        {
+            "axes": {"spine_color": "#778899", "spine_width": 2.5},
+            "legend": {
+                "visible": True,
+                "frame": True,
+                "facecolor": "#ffffff",
+                "edgecolor": "#778899",
+                "alpha": 0.8,
+                "shadow": True,
+                "fancybox": True,
+            },
+            "effects": {
+                "axes_shadow": True,
+                "shadow_color": "#000000",
+                "shadow_alpha": 0.25,
+                "shadow_offset_x": 3.0,
+                "shadow_offset_y": 3.0,
+            },
+        },
+        fig,
+        live=True,
+    )
+    from core.plot_style import apply_line_style
+
+    apply_line_style(
+        line,
+        {
+            "color": "#4f9cf9",
+            "linewidth": 2.0,
+            "glow": True,
+            "glow_color": "#4f9cf9",
+            "glow_width": 6.0,
+            "shadow": True,
+        },
+    )
+
+    assert ax.spines["left"].get_linewidth() == 2.5
+    assert ax.patch.get_path_effects()
+    assert line.get_path_effects()
+    legend = ax.get_legend()
+    assert legend is not None
+    assert round(float(legend.get_frame().get_alpha()), 1) == 0.8
+
+    before_effects = list(ax.patch.get_path_effects())
+    apply_style(ax, {"legend": {"visible": True, "frame": True}}, fig, live=True)
+    assert ax.patch.get_path_effects() == before_effects

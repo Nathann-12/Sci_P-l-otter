@@ -16,16 +16,23 @@ pytest.importorskip("scipy")
 
 from analysis.signal_filters import (
     apply_window,
+    autocorrelation,
     butterworth_filter,
     compute_ifft,
     compute_psd,
+    compute_stft,
+    convolve_signals,
+    deconvolve_signals,
     estimate_snr,
     fwhm,
     gaussian_smooth,
+    hilbert_transform,
+    instantaneous_frequency,
     median_filter,
     noise_floor,
     peak_area,
     savitzky_golay,
+    signal_envelope,
     welch_psd,
     zero_pad,
 )
@@ -141,6 +148,50 @@ def test_zero_pad_extends_with_zeros():
         zero_pad(y, 2)
 
 
+# ---------- analytic signal / correlation / convolution ----------
+
+def test_hilbert_transform_preserves_real_part_and_envelope():
+    analytic = hilbert_transform(LOW_TONE)
+    assert np.allclose(np.real(analytic), LOW_TONE, atol=1e-10)
+    assert np.allclose(signal_envelope(LOW_TONE), 1.0, atol=1e-10)
+
+
+def test_instantaneous_frequency_tracks_single_tone():
+    inst = instantaneous_frequency(np.sin(2 * np.pi * 5.0 * T), fs=FS)
+    assert np.nanmedian(inst) == pytest.approx(5.0, abs=0.05)
+
+
+def test_autocorrelation_returns_one_sided_normalized_lags():
+    lags, corr = autocorrelation([1.0, -1.0, 1.0, -1.0], max_lag=3)
+    assert lags.tolist() == [0.0, 1.0, 2.0, 3.0]
+    assert corr.tolist() == pytest.approx([1.0, -0.75, 0.5, -0.25])
+
+
+def test_convolve_signals_modes_and_validation():
+    assert convolve_signals([1, 2, 3], [1, 1], mode="full").tolist() == [1.0, 3.0, 5.0, 3.0]
+    assert convolve_signals([1, 2, 3], [1, 1], mode="same").tolist() == [1.0, 3.0, 5.0]
+    with pytest.raises(ValueError):
+        convolve_signals([1, 2], [1], mode="circular")
+
+
+def test_deconvolve_signals_roundtrips_linear_convolution():
+    original = np.array([1.0, 2.0, -1.0, 0.5])
+    kernel = np.array([1.0, 0.25])
+    observed = convolve_signals(original, kernel, mode="full")
+    quotient, remainder = deconvolve_signals(observed, kernel)
+    assert quotient.tolist() == pytest.approx(original.tolist())
+    assert np.max(np.abs(remainder)) < 1e-10
+    with pytest.raises(ValueError):
+        deconvolve_signals(observed, [0.0, 0.0])
+
+
+def test_stft_identifies_dominant_tone_frequency():
+    freqs, times, zxx = compute_stft(HIGH_TONE, fs=FS, nperseg=128, noverlap=64)
+    assert times.size > 0
+    dominant = freqs[np.argmax(np.mean(np.abs(zxx), axis=1))]
+    assert dominant == pytest.approx(20.0, abs=1.0)
+
+
 # ---------- spectra ----------
 
 def test_psd_peaks_at_tone_frequency():
@@ -195,3 +246,33 @@ def test_peak_area_respects_range():
     x = np.linspace(0, 10, 1001)
     y = np.ones_like(x)
     assert peak_area(x, y, x_min=2.0, x_max=5.0) == pytest.approx(3.0, rel=1e-6)
+
+
+def test_peak_metrics_summary_gaussian():
+    from analysis.signal_filters import peak_metrics_summary
+    sigma = 2.0
+    x = np.linspace(-15, 15, 3001)
+    y = np.exp(-x**2 / (2 * sigma**2))
+    s = peak_metrics_summary(x, y)
+    assert s["points"] == 3001
+    assert s["fwhm"] == pytest.approx(2 * np.sqrt(2 * np.log(2)) * sigma, rel=0.01)
+    assert s["area"] == pytest.approx(sigma * np.sqrt(2 * np.pi), rel=0.01)
+    assert s["peak_x"] == pytest.approx(0.0, abs=0.02)
+    assert s["peak_height"] == pytest.approx(1.0, rel=0.01)
+
+
+def test_peak_metrics_summary_monotonic_has_none_fwhm():
+    from analysis.signal_filters import peak_metrics_summary
+    x = np.linspace(0, 1, 50)
+    s = peak_metrics_summary(x, x)  # ramp: FWHM undefined, area fine
+    assert s["fwhm"] is None
+    assert s["area"] == pytest.approx(0.5, rel=1e-3)
+
+
+def test_signal_quality_summary_keys_and_snr():
+    from analysis.signal_filters import signal_quality_summary
+    fs = 100.0
+    t = np.arange(0, 10, 1 / fs)
+    s = signal_quality_summary(np.sin(2 * np.pi * 5 * t), fs=fs)
+    assert set(s) == {"fs_hz", "snr_db", "noise_floor"}
+    assert s["snr_db"] > 20

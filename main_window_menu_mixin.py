@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMessageBox, QStyle
+from PySide6.QtWidgets import QMessageBox, QMenu, QStyle
 
 from core.plot_data import clamp_date_limits as _clamp_date_limits
 from core.plot_mode import PlotMode
-from charts_gallery import ChartGalleryMenu
+from widgets.chart_mega_menu import OriginChartMenu
 from crosscorr import CrossCorrManager, CrossCorrDock
 from peaks import PeakDetectorManager, PeakDetectionDock
 from three_d_view import ThreeDViewDock
@@ -26,6 +26,356 @@ if TYPE_CHECKING:  # shared MainWindow state this mixin relies on (set in MainWi
 
 class MainWindowMenuMixin:
     """Menu-bar construction and wiring extracted from MainWindow."""
+
+    def _add_data_action(
+        self,
+        menu,
+        text: str,
+        slot,
+        *,
+        shortcut: str | None = None,
+        status_tip: str = "",
+        icon_key: str | None = None,
+        fallback_icon=QStyle.StandardPixmap.SP_FileIcon,
+    ) -> QAction:
+        action = QAction(text, self)
+        if shortcut:
+            action.setShortcut(shortcut)
+        if status_tip:
+            action.setStatusTip(status_tip)
+            action.setToolTip(status_tip)
+        if icon_key:
+            try:
+                action.setIcon(self._icon(icon_key, fallback_icon))
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "Data menu icon failed for %s", icon_key, exc_info=True
+                )
+        action.triggered.connect(slot)
+        menu.addAction(action)
+        return action
+
+    def _build_data_menu(self) -> None:
+        """Build the Data menu around worksheet tasks, not legacy leftovers."""
+        data_menu = self.dataMenu
+        data_menu.setObjectName("DataWorkflowMenu")
+        try:
+            data_menu.setToolTipsVisible(True)
+        except Exception:
+            pass
+
+        active_menu = data_menu.addMenu("Active Book")
+        self._add_data_action(
+            active_menu,
+            "Open Data File...",
+            lambda: getattr(self, "open_file", lambda: None)(),
+            shortcut="Ctrl+O",
+            status_tip="Open a data file into a new Book window.",
+            icon_key="open",
+            fallback_icon=QStyle.StandardPixmap.SP_DialogOpenButton,
+        )
+        self._add_data_action(
+            active_menu,
+            "Batch Import Files...",
+            lambda: getattr(self, "stage_add_files", lambda: None)(),
+            status_tip="Open multiple files as separate Book windows.",
+            icon_key="batch_import",
+            fallback_icon=QStyle.StandardPixmap.SP_DirOpenIcon,
+        )
+        active_menu.addSeparator()
+        self._add_data_action(
+            active_menu,
+            "Use Active Worksheet Data",
+            self.adopt_workbook_data,
+            shortcut="Ctrl+Shift+U",
+            status_tip="Read the active Book into the working DataFrame.",
+            icon_key="use_active_book",
+            fallback_icon=QStyle.StandardPixmap.SP_DialogApplyButton,
+        )
+        self._add_data_action(
+            active_menu,
+            "Reload Column List",
+            self.load_columns_from_df,
+            status_tip="Refresh X/Y selectors and worksheet-derived column state.",
+            icon_key="reload_columns",
+            fallback_icon=QStyle.StandardPixmap.SP_BrowserReload,
+        )
+        active_menu.addSeparator()
+        self._add_data_action(
+            active_menu,
+            "Duplicate Active Book...",
+            self.feature_dataset_duplicate,
+            status_tip="Create a separate copy of the active Book.",
+            icon_key="dataset_duplicate",
+            fallback_icon=QStyle.StandardPixmap.SP_FileDialogNewFolder,
+        )
+        self._add_data_action(
+            active_menu,
+            "Rename Active Book...",
+            self.feature_dataset_rename,
+            status_tip="Rename the active Book and project registry entry.",
+            icon_key="dataset_rename",
+            fallback_icon=QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        )
+
+        columns_menu = data_menu.addMenu("Columns")
+        if not hasattr(self, "_actDataDerived"):
+            self._actDataDerived = QAction("Create Derived Column...", self)
+            self._actDataDerived.setShortcut("Ctrl+Shift+D")
+            self._actDataDerived.setStatusTip("Create a calculated column from an expression.")
+            self._actDataDerived.setToolTip("Create a calculated column from an expression.")
+            try:
+                self._actDataDerived.setIcon(
+                    self._icon("derived_column", QStyle.StandardPixmap.SP_FileDialogNewFolder)
+                )
+            except Exception:
+                pass
+            self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
+        columns_menu.addAction(self._actDataDerived)
+        self._add_data_action(
+            columns_menu,
+            "Set Column Types...",
+            self.feature_set_column_types,
+            status_tip="Convert worksheet columns to numeric, datetime, string, or auto.",
+            icon_key="column_types",
+            fallback_icon=QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        )
+        columns_menu.addSeparator()
+        self._add_data_action(
+            columns_menu,
+            "Add Row to Active Book",
+            lambda: getattr(getattr(self, "workbook", None), "add_data_row", lambda: None)(),
+            status_tip="Append an empty row to the active worksheet.",
+            icon_key="add_row",
+            fallback_icon=QStyle.StandardPixmap.SP_ArrowDown,
+        )
+        self._add_data_action(
+            columns_menu,
+            "Add Column to Active Book",
+            lambda: getattr(getattr(self, "workbook", None), "add_data_column", lambda: None)(),
+            status_tip="Append an empty column to the active worksheet.",
+            icon_key="add_column",
+            fallback_icon=QStyle.StandardPixmap.SP_ArrowRight,
+        )
+
+        units_menu = data_menu.addMenu("Units + Metadata")
+        self._add_data_action(
+            units_menu,
+            "Units + Calibration...",
+            self.open_units_dialog,
+            status_tip="Convert units and apply calibration into new worksheet columns.",
+            icon_key="units_calibration",
+            fallback_icon=QStyle.StandardPixmap.SP_FileDialogInfoView,
+        )
+
+        quick_menu = data_menu.addMenu("Quick Transforms")
+        self._add_data_action(
+            quick_menu,
+            "Moving Average",
+            self.feature_add_moving_average,
+            status_tip="Create a rolling-average column from the active Y column.",
+            icon_key="moving_average",
+            fallback_icon=QStyle.StandardPixmap.SP_MediaSeekForward,
+        )
+        self._add_data_action(
+            quick_menu,
+            "Add |B|",
+            self.feature_add_magnitude,
+            status_tip="Create vector magnitude |B| from three selected components.",
+            icon_key="magnitude",
+            fallback_icon=QStyle.StandardPixmap.SP_DialogApplyButton,
+        )
+        self._add_data_action(
+            quick_menu,
+            "Add Bangkok Time",
+            self.feature_add_bkk_time,
+            status_tip="Create a Bangkok-time column from the active X/time column.",
+            icon_key="bangkok_time",
+            fallback_icon=QStyle.StandardPixmap.SP_ComputerIcon,
+        )
+        self._add_data_action(
+            quick_menu,
+            "Aggregate...",
+            self.run_aggregate_dialog,
+            status_tip="Aggregate worksheet rows by group/value columns.",
+            icon_key="aggregate",
+            fallback_icon=QStyle.StandardPixmap.SP_FileDialogListView,
+        )
+
+        books_menu = data_menu.addMenu("Books + Query")
+        self._add_data_action(books_menu, "Group and Summarize...", self.feature_dataset_group)
+        self._add_data_action(books_menu, "Merge Books...", self.feature_dataset_merge)
+        self._add_data_action(books_menu, "Split Book...", self.feature_dataset_split)
+        self._add_data_action(books_menu, "Filter Rows...", self.feature_dataset_filter)
+        self._add_data_action(books_menu, "Search Book...", self.feature_dataset_search)
+
+        clean_menu = data_menu.addMenu("Clean Data")
+        self._add_data_action(clean_menu, "Fill Missing...", self.feature_clean_fill_missing)
+        self._add_data_action(clean_menu, "Interpolate Missing", self.feature_clean_interpolate)
+        self._add_data_action(clean_menu, "Remove Missing Rows...", self.feature_clean_remove_nan)
+        self._add_data_action(clean_menu, "Remove Duplicates", self.feature_clean_remove_duplicates)
+        self._add_data_action(clean_menu, "Remove Outliers...", self.feature_clean_remove_outliers)
+        self._add_data_action(clean_menu, "Crop Range...", self.feature_clean_crop_range)
+        self._add_data_action(clean_menu, "Normalize / Standardize...", self.feature_clean_normalize)
+        self._add_data_action(clean_menu, "Detrend / Baseline...", self.feature_clean_detrend)
+        self._add_data_action(clean_menu, "Sort...", self.feature_clean_sort)
+        self._add_data_action(clean_menu, "Resample (uniform grid)...", self.feature_clean_resample)
+        self._add_data_action(clean_menu, "Merge by Timestamp...", self.feature_clean_merge_by_timestamp)
+
+    def _add_process_submenu(
+        self,
+        menu,
+        title: str,
+        *,
+        icon_key: str | None = None,
+        fallback_icon=QStyle.StandardPixmap.SP_DirIcon,
+    ):
+        submenu = menu.addMenu(title)
+        if icon_key:
+            try:
+                submenu.menuAction().setIcon(self._icon(icon_key, fallback_icon))
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "Process submenu icon failed for %s", icon_key, exc_info=True
+                )
+        return submenu
+
+    def _add_process_action(
+        self,
+        menu,
+        text: str,
+        slot,
+        *,
+        icon_key: str | None = None,
+        status_tip: str = "",
+        fallback_icon=QStyle.StandardPixmap.SP_FileIcon,
+    ) -> QAction:
+        action = QAction(text, self)
+        if icon_key:
+            try:
+                action.setIcon(self._icon(icon_key, fallback_icon))
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "Process action icon failed for %s", icon_key, exc_info=True
+                )
+        if status_tip:
+            action.setStatusTip(status_tip)
+            action.setToolTip(status_tip)
+        action.triggered.connect(slot)
+        menu.addAction(action)
+        return action
+
+    def _build_process_menu(self) -> None:
+        """Build Process as task groups instead of a flat legacy command list."""
+        proc_menu = self.processMenu
+        proc_menu.setObjectName("ProcessWorkflowMenu")
+        try:
+            proc_menu.setToolTipsVisible(True)
+        except Exception:
+            pass
+
+        quick_menu = self._add_process_submenu(proc_menu, "Quick Actions", icon_key="processors")
+        self._add_process_action(
+            quick_menu,
+            "Moving Average",
+            self.feature_add_moving_average,
+            icon_key="moving_average",
+            status_tip="Create a moving-average column from the active signal.",
+        )
+        self._add_process_action(
+            quick_menu,
+            "Add |B|",
+            self.feature_add_magnitude,
+            icon_key="magnitude",
+            status_tip="Create vector magnitude |B| from selected components.",
+        )
+        self._add_process_action(
+            quick_menu,
+            "Add Bangkok Time",
+            self.feature_add_bkk_time,
+            icon_key="bangkok_time",
+            status_tip="Create a UTC+7/Bangkok-time column from the active time column.",
+        )
+        self._add_process_action(
+            quick_menu,
+            "Aggregate...",
+            self.run_aggregate_dialog,
+            icon_key="aggregate",
+            status_tip="Group worksheet rows and compute summary values.",
+        )
+
+        spectrum_menu = self._add_process_submenu(proc_menu, "Frequency & Spectrum", icon_key="fft")
+        self._add_process_action(spectrum_menu, "FFT", self.run_fft_dialog, icon_key="fft")
+        self._add_process_action(spectrum_menu, "PSD (Welch)...", self.run_psd_dialog, icon_key="psd")
+        self._add_process_action(spectrum_menu, "STFT...", self.feature_signal_stft, icon_key="stft")
+        self._add_process_action(spectrum_menu, "IFFT...", self.feature_signal_ifft, icon_key="ifft")
+        self._add_process_action(
+            spectrum_menu,
+            "Harmonic Analysis...",
+            self.feature_signal_harmonic_analysis,
+            icon_key="harmonic",
+        )
+
+        filters_menu = self._add_process_submenu(proc_menu, "Smoothing & Filters", icon_key="smooth")
+        self._add_process_action(filters_menu, "Moving Average", self.feature_add_moving_average, icon_key="moving_average")
+        self._add_process_action(
+            filters_menu,
+            "Butterworth (Low/High/Band)...",
+            self.feature_filter_butterworth,
+            icon_key="butterworth",
+        )
+        self._add_process_action(
+            filters_menu,
+            "Smooth (Savitzky-Golay/Median/Gaussian)...",
+            self.feature_filter_smooth,
+            icon_key="smooth",
+        )
+        self._add_process_action(
+            filters_menu,
+            "Apply Window (Hann/Hamming/Blackman/Kaiser)...",
+            self.feature_apply_window,
+            icon_key="window_func",
+        )
+        self._add_process_action(filters_menu, "Decimation...", self.feature_signal_decimation, icon_key="decimation")
+
+        transforms_menu = self._add_process_submenu(proc_menu, "Signal Transforms", icon_key="hilbert")
+        self._add_process_action(transforms_menu, "Hilbert Transform...", self.feature_signal_hilbert, icon_key="hilbert")
+        self._add_process_action(transforms_menu, "Envelope Detection...", self.feature_signal_envelope, icon_key="envelope")
+        self._add_process_action(
+            transforms_menu,
+            "Instantaneous Frequency...",
+            self.feature_signal_instantaneous_frequency,
+            icon_key="instant_freq",
+        )
+        self._add_process_action(transforms_menu, "Zero Padding...", self.feature_signal_zero_pad, icon_key="zero_pad")
+
+        corr_menu = self._add_process_submenu(proc_menu, "Correlation & Convolution", icon_key="autocorr")
+        self._add_process_action(corr_menu, "Auto-correlation...", self.feature_signal_autocorrelation, icon_key="autocorr")
+        self._add_process_action(corr_menu, "Convolution...", self.feature_signal_convolution, icon_key="convolution")
+        self._add_process_action(corr_menu, "Deconvolution...", self.feature_signal_deconvolution, icon_key="deconvolution")
+
+        clean_menu = self._add_process_submenu(proc_menu, "Clean & Prepare Data", icon_key="fill_missing")
+        self._add_process_action(clean_menu, "Fill Missing...", self.feature_clean_fill_missing, icon_key="fill_missing")
+        self._add_process_action(clean_menu, "Interpolate Missing", self.feature_clean_interpolate, icon_key="interpolate_missing")
+        self._add_process_action(clean_menu, "Remove Missing Rows...", self.feature_clean_remove_nan, icon_key="remove_missing_rows")
+        self._add_process_action(clean_menu, "Remove Duplicates", self.feature_clean_remove_duplicates, icon_key="remove_duplicates")
+        self._add_process_action(clean_menu, "Remove Outliers...", self.feature_clean_remove_outliers, icon_key="remove_outliers")
+        self._add_process_action(clean_menu, "Crop Range...", self.feature_clean_crop_range, icon_key="crop_range")
+        self._add_process_action(clean_menu, "Normalize / Standardize...", self.feature_clean_normalize, icon_key="normalize")
+        self._add_process_action(clean_menu, "Detrend / Baseline...", self.feature_clean_detrend, icon_key="detrend")
+        self._add_process_action(clean_menu, "Sort...", self.feature_clean_sort, icon_key="sort")
+        self._add_process_action(clean_menu, "Resample (uniform grid)...", self.feature_clean_resample, icon_key="resample")
+        self._add_process_action(clean_menu, "Merge by Timestamp...", self.feature_clean_merge_by_timestamp, icon_key="time_merge")
+
+        summary_menu = self._add_process_submenu(proc_menu, "Summarize & Aggregate", icon_key="aggregate")
+        self._add_process_action(summary_menu, "Aggregate...", self.run_aggregate_dialog, icon_key="aggregate")
+        self._add_process_action(summary_menu, "Descriptive Statistics...", self.feature_show_statistics, icon_key="stats")
+        self._add_process_action(
+            summary_menu,
+            "Signal Quality (SNR / Noise floor)...",
+            self.feature_signal_quality,
+            icon_key="signal_quality",
+        )
 
     def _init_menu(self):
         m = self.menuBar()
@@ -48,7 +398,7 @@ class MainWindowMenuMixin:
 
         viewMenu = m.addMenu("&View")
         actReset = viewMenu.addAction("Reset View")
-        actReset.triggered.connect(lambda: [self.canvas.ax.set_xlim(auto=True), self.canvas.ax.set_ylim(auto=True), self.canvas.draw()])
+        actReset.triggered.connect(self._reset_view)
         try:
             viewMenu.addAction(self.actToggleInspector)
             try:
@@ -83,7 +433,8 @@ class MainWindowMenuMixin:
         self.actDarkStyle.triggered.connect(lambda: self.change_plot_style("dark"))
         self.actDefaultStyle.triggered.connect(lambda: self.change_plot_style("default"))
 
-        self.dataMenu = m.addMenu("&Data")  # units, calibration, derived column
+        self.dataMenu = m.addMenu("&Data")
+        self._build_data_menu()
 
         # Plot menu (top menubar) — Origin model: each entry = a NEW graph
         plotMenu = m.addMenu("&Plot")
@@ -98,6 +449,13 @@ class MainWindowMenuMixin:
             _act.triggered.connect(
                 lambda _=False, s=_style: self.plot_from_workbook(s, new_graph=True))
         plotMenu.addSeparator()
+        actGallery = plotMenu.addAction("Plot Gallery…  (Statistical / QC / Relational)")
+        try:
+            actGallery.setShortcut("Ctrl+Shift+G")
+        except Exception:
+            pass
+        actGallery.triggered.connect(self.open_plot_gallery)
+        plotMenu.addSeparator()
         actAddLine = plotMenu.addAction("Add Line (overlay)")
         actAddScatter = plotMenu.addAction("Add Scatter (overlay)")
         try:
@@ -111,6 +469,7 @@ class MainWindowMenuMixin:
         plotMenu.addAction("Error Bar Plot…").triggered.connect(self.plot_error_bars)
         plotMenu.addAction("Fill Between (band)…").triggered.connect(self.plot_fill_between)
         plotMenu.addAction("Add Secondary Y Axis…").triggered.connect(self.plot_secondary_axis)
+        plotMenu.addAction("Broken Axis...").triggered.connect(self.plot_broken_axis)
         plotMenu.addSeparator()
         if hasattr(self, 'actPlotEquation'):
             plotMenu.addAction(self.actPlotEquation)
@@ -121,52 +480,25 @@ class MainWindowMenuMixin:
                 self.actPlotEquation.setIcon(self._icon('Plot_from_Equation', QStyle.StandardPixmap.SP_DialogApplyButton))
             except Exception:
                 pass
-        self.dataMenu.addAction("Units & Calibration…").triggered.connect(self.open_units_dialog)
-        # Derived column (moved here from plotcore); Ctrl+Shift+D so it does not
-        # clash with Ctrl+D of Peak "Detect in Range"
-        if not hasattr(self, "_actDataDerived"):
-            self._actDataDerived = self.dataMenu.addAction("Create Column (Derived)…")
-            self._actDataDerived.setShortcut("Ctrl+Shift+D")
-            self._actDataDerived.triggered.connect(self.open_derived_column_dialog)
-
         procMenu = m.addMenu("&Process")  # UI-REFINE: Process
-        procMenu.addAction("FFT").triggered.connect(self.run_fft_dialog)
-        procMenu.addAction("PSD (Welch)…").triggered.connect(self.run_psd_dialog)
-        procMenu.addAction("Moving Average").triggered.connect(self.feature_add_moving_average)
-        procMenu.addAction("Add |B|").triggered.connect(self.feature_add_magnitude)
-        procMenu.addAction("Add Bangkok Time").triggered.connect(self.feature_add_bkk_time)
-        procMenu.addAction("Aggregate…").triggered.connect(self.run_aggregate_dialog)  # UI-REFINE
-
-        # Data cleaning (ROADMAP B) — column ops add a new column; row ops swap the df
-        procMenu.addSeparator()
-        cleanMenu = procMenu.addMenu("Data Cleaning")
-        cleanMenu.addAction("Fill Missing…").triggered.connect(self.feature_clean_fill_missing)
-        cleanMenu.addAction("Interpolate Missing").triggered.connect(self.feature_clean_interpolate)
-        cleanMenu.addAction("Remove Duplicates").triggered.connect(self.feature_clean_remove_duplicates)
-        cleanMenu.addAction("Remove Outliers…").triggered.connect(self.feature_clean_remove_outliers)
-        cleanMenu.addAction("Normalize / Standardize…").triggered.connect(self.feature_clean_normalize)
-        cleanMenu.addAction("Detrend / Baseline…").triggered.connect(self.feature_clean_detrend)
-        cleanMenu.addAction("Sort…").triggered.connect(self.feature_clean_sort)
-        cleanMenu.addAction("Resample (uniform grid)…").triggered.connect(self.feature_clean_resample)
-
-        # Signal filters (ROADMAP E)
-        filterMenu = procMenu.addMenu("Filters")
-        filterMenu.addAction("Butterworth (Low/High/Band)…").triggered.connect(self.feature_filter_butterworth)
-        filterMenu.addAction("Smooth (Savitzky-Golay/Median/Gaussian)…").triggered.connect(self.feature_filter_smooth)
-        filterMenu.addAction("Apply Window (Hann/Hamming/Blackman/Kaiser)…").triggered.connect(self.feature_apply_window)
+        self.processMenu = procMenu
+        self._build_process_menu()
 
         exportMenu = m.addMenu("&Export")  # UI-REFINE: Export
         exportMenu.addAction("Export Visible CSV").triggered.connect(self.export_visible_range_csv)
         exportMenu.addAction("Export PNG").triggered.connect(self.export_png)
         exportMenu.addAction("Export Figure… (PNG/PDF/SVG/TIFF/EPS)").triggered.connect(
             self.export_figure_advanced)
+        exportMenu.addAction("Batch Export Graphs...").triggered.connect(
+            self.export_figures_batch)
         actCopyFig = exportMenu.addAction("Copy Graph to Clipboard")
         actCopyFig.setShortcut("Ctrl+Shift+C")
         actCopyFig.triggered.connect(self.copy_figure_to_clipboard)
         exportMenu.addSeparator()
         exportMenu.addAction("Export Report (PDF)...").triggered.connect(self.on_export_report)
 
-        toolsMenu = m.addMenu("&Tools")  # UI-REFINE: Tools
+        toolsMenu = QMenu("&Tools", self)  # UI-REFINE: Tools
+        m.addMenu(toolsMenu)
         toolsMenu.addAction(self.actSettings)
         self.toolsMenu = toolsMenu  # โมดูลอื่น (เช่น workflow) เติมรายการต่อได้
 
@@ -211,58 +543,137 @@ class MainWindowMenuMixin:
         actAbout = helpMenu.addAction("About"); actAbout.triggered.connect(self.show_about)
         helpMenu.addAction("Associate .sciproj files with this app").triggered.connect(
             self.register_file_association)
-        # อัปเดตช็อตคัตให้ครอบคลุมฟีเจอร์ใหม่ (Annotation/Analysis)
-        # คีย์ลัดจริงที่ลงทะเบียนในแอป (ตรวจให้ตรงกับ setShortcut จริง)
         help_shortcuts = (
-            "[ทั่วไป]\n"
-            "Ctrl+O: เปิดไฟล์\n"
-            "Ctrl+K: Command Palette (ค้นหาคำสั่ง)\n"
-            "Ctrl+, : ตั้งค่า (Settings)\n"
-            "Ctrl+Shift+D: สร้างคอลัมน์ใหม่ (Derived Column)\n"
+            "[General]\n"
+            "Ctrl+O: Open data file\n"
+            "Ctrl+K: Command Palette\n"
+            "Ctrl+, : Settings\n"
+            "Ctrl+Shift+D: Create Derived Column\n"
             "\n[Plot]\n"
-            "Ctrl+Shift+L: เพิ่มเส้นลงกราฟปัจจุบัน (overlay)\n"
-            "Ctrl+Shift+S: เพิ่มจุดลงกราฟปัจจุบัน (overlay)\n"
+            "Ctrl+Shift+L: Add line overlay to the current graph\n"
+            "Ctrl+Shift+S: Add scatter overlay to the current graph\n"
             "\n[Annotation]\n"
             "T/W/L/R/E/C: Text/Arrow/Line/Rect/Ellipse/Callout\n"
             "Ctrl+Z / Ctrl+Y: Undo / Redo\n"
             "\n[Analysis]\n"
-            "Ctrl+Shift+X: สลับโหมด Multi-Cursor\n"
-            "Ctrl+Shift+P: สลับ Peak Detection\n"
-            "Ctrl+D: ตรวจจับพีคในช่วง\n"
-            "Ctrl+E: ส่งออกตารางพีค (CSV/Excel)"
+            "Ctrl+Shift+X: Toggle Multi-Cursor mode\n"
+            "Ctrl+Shift+P: Toggle Peak Detection\n"
+            "Ctrl+D: Detect peaks in range\n"
+            "Ctrl+E: Export peak table (CSV/Excel)"
         )
 
-        # Charts gallery menu (Excel-like)
+        # Origin-style chart mega menu on the top menubar.
         try:
-            import pandas as _pd
-            def _cg_get_df():
-                df = getattr(self, "_df", None)
-                return df if df is not None else _pd.DataFrame()
-            def _cg_get_fig():
-                try:
-                    if getattr(self, "canvas", None) and hasattr(self.canvas, "fig"):
-                        return self.canvas.fig
-                except Exception:
-                    pass
-                try:
-                    tab = self.tabs.currentWidget()
-                    return tab.get_figure()
-                except Exception:
-                    # Last resort: create a temporary Figure (won't show on canvas)
-                    from matplotlib.figure import Figure as _Figure
-                    return _Figure()
-            charts_menu = ChartGalleryMenu(get_dataframe=_cg_get_df, get_main_figure=_cg_get_fig, apply_plot=self.apply_plot, parent=self)
-            m.addMenu(charts_menu)
+            self.chartsMenu = OriginChartMenu(
+                on_basic=self.plot_basic_gallery_chart,
+                on_registry=self.plot_from_gallery,
+                parent=self,
+            )
+            m.insertMenu(procMenu.menuAction(), self.chartsMenu)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("chart mega menu setup failed", exc_info=True)
 
         helpMenu.addAction("Shortcuts").triggered.connect(lambda: QMessageBox.information(self, "Shortcuts", help_shortcuts))
 
         # === Analysis Menu ===
-        analysisMenu = m.addMenu("&Analysis")
+        analysisMenu = QMenu("&Analysis", self)
+        m.addMenu(analysisMenu)
+        self.analysisMenu = analysisMenu
+
+        def _analysis_action(menu, text: str, slot):
+            action = QAction(text, self)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+            return action
+
+        def _trigger_late(attr: str):
+            def _run(*_args):
+                action = getattr(self, attr, None)
+                if action is not None:
+                    action.trigger()
+            return _run
+
+        # Origin-like Analysis menu map. These mirror existing working
+        # features so users can approach analysis from one place without
+        # losing the Process/Data menu paths.
+        statistics_menu = analysisMenu.addMenu("Statistics")
+        _analysis_action(statistics_menu, "Descriptive Statistics...", self.feature_show_statistics)
+        _analysis_action(statistics_menu, "Covariance Matrix...", self.feature_show_covariance)
+        _analysis_action(statistics_menu, "Correlation Matrix...", self.feature_show_covariance)
+        _analysis_action(statistics_menu, "Signal Quality (SNR / Noise floor)...", self.feature_signal_quality)
+
+        mathematics_menu = analysisMenu.addMenu("Mathematics")
+        _analysis_action(mathematics_menu, "Create Column (Derived)...", self.open_derived_column_dialog)
+        _analysis_action(mathematics_menu, "Add |B|...", self.feature_add_magnitude)
+        _analysis_action(mathematics_menu, "Normalize / Standardize...", self.feature_clean_normalize)
+        _analysis_action(mathematics_menu, "Detrend / Baseline...", self.feature_clean_detrend)
+
+        manipulation_menu = analysisMenu.addMenu("Data Manipulation")
+        _analysis_action(manipulation_menu, "Set Column Types...", self.feature_set_column_types)
+        _analysis_action(manipulation_menu, "Aggregate...", self.run_aggregate_dialog)
+        _analysis_action(manipulation_menu, "Group and Summarize...", self.feature_dataset_group)
+        _analysis_action(manipulation_menu, "Merge Books...", self.feature_dataset_merge)
+        _analysis_action(manipulation_menu, "Split Book...", self.feature_dataset_split)
+        _analysis_action(manipulation_menu, "Filter Rows...", self.feature_dataset_filter)
+        _analysis_action(manipulation_menu, "Search Book...", self.feature_dataset_search)
+        _analysis_action(manipulation_menu, "Fill Missing...", self.feature_clean_fill_missing)
+        _analysis_action(manipulation_menu, "Interpolate Missing", self.feature_clean_interpolate)
+        _analysis_action(manipulation_menu, "Remove Missing Rows...", self.feature_clean_remove_nan)
+        _analysis_action(manipulation_menu, "Remove Duplicates", self.feature_clean_remove_duplicates)
+        _analysis_action(manipulation_menu, "Remove Outliers...", self.feature_clean_remove_outliers)
+        _analysis_action(manipulation_menu, "Crop Range...", self.feature_clean_crop_range)
+        _analysis_action(manipulation_menu, "Sort...", self.feature_clean_sort)
+        _analysis_action(manipulation_menu, "Resample (uniform grid)...", self.feature_clean_resample)
+        _analysis_action(manipulation_menu, "Merge by Timestamp...", self.feature_clean_merge_by_timestamp)
+
+        fitting_menu = analysisMenu.addMenu("Fitting")
+        _analysis_action(fitting_menu, "Linear Fit...", self._open_fit_dialog)
+        _analysis_action(fitting_menu, "Polynomial Fit...", self._open_fit_dialog)
+        _analysis_action(fitting_menu, "Nonlinear Curve Fit...", self.open_nonlinear_fit_dialog)
+
+        signal_processing_menu = analysisMenu.addMenu("Signal Processing")
+        smooth_menu = signal_processing_menu.addMenu("Smooth")
+        _analysis_action(smooth_menu, "Moving Average", self.feature_add_moving_average)
+        _analysis_action(smooth_menu, "Smooth (Savitzky-Golay/Median/Gaussian)...", self.feature_filter_smooth)
+        _analysis_action(smooth_menu, "Apply Window (Hann/Hamming/Blackman/Kaiser)...", self.feature_apply_window)
+        _analysis_action(signal_processing_menu, "FFT Filters...", self.feature_filter_butterworth)
+        _analysis_action(signal_processing_menu, "IIR Filter...", self.feature_filter_butterworth)
+        _analysis_action(signal_processing_menu, "STFT...", self.feature_signal_stft)
+        fft_menu = signal_processing_menu.addMenu("FFT")
+        _analysis_action(fft_menu, "FFT", self.run_fft_dialog)
+        _analysis_action(fft_menu, "PSD (Welch)...", self.run_psd_dialog)
+        _analysis_action(fft_menu, "IFFT...", self.feature_signal_ifft)
+        wavelet_menu = signal_processing_menu.addMenu("Wavelet")
+        _analysis_action(wavelet_menu, "CWT / Wavelet Spectrogram...", self.open_spectrogram_dialog)
+        _analysis_action(signal_processing_menu, "Convolution...", self.feature_signal_convolution)
+        _analysis_action(signal_processing_menu, "Deconvolution...", self.feature_signal_deconvolution)
+        corr_menu = signal_processing_menu.addMenu("Correlation")
+        _analysis_action(corr_menu, "Auto-correlation...", self.feature_signal_autocorrelation)
+        _analysis_action(corr_menu, "Cross-Correlation Window...", _trigger_late("actCCWindow"))
+        _analysis_action(signal_processing_menu, "Hilbert Transform...", self.feature_signal_hilbert)
+        _analysis_action(signal_processing_menu, "Envelope...", self.feature_signal_envelope)
+        _analysis_action(signal_processing_menu, "Instantaneous Frequency...", self.feature_signal_instantaneous_frequency)
+        _analysis_action(signal_processing_menu, "Decimation...", self.feature_signal_decimation)
+        _analysis_action(signal_processing_menu, "Harmonic Analysis...", self.feature_signal_harmonic_analysis)
+
+        peaks_baseline_menu = analysisMenu.addMenu("Peaks and Baseline")
+        _analysis_action(peaks_baseline_menu, "Peak Metrics (FWHM / Area)...", self.feature_peak_metrics)
+        _analysis_action(peaks_baseline_menu, "Signal Quality (SNR / Noise floor)...", self.feature_signal_quality)
+        _analysis_action(peaks_baseline_menu, "Peak Settings...", _trigger_late("actPkSettings"))
+        _analysis_action(peaks_baseline_menu, "Detect in Range", _trigger_late("actPkDetect"))
+        _analysis_action(peaks_baseline_menu, "Annotate Peaks", _trigger_late("actPkAnnotate"))
+        _analysis_action(peaks_baseline_menu, "Export Peak Table (CSV/Excel)", _trigger_late("actPkExport"))
+        _analysis_action(peaks_baseline_menu, "Clear Peaks", _trigger_late("actPkClear"))
+        analysisMenu.addSeparator()
+        _analysis_action(analysisMenu, "1 Linear Fit: <default>...", self._open_fit_dialog)
+        _analysis_action(analysisMenu, "2 Smooth: <default>...", self.feature_filter_smooth)
+        _analysis_action(analysisMenu, "3 Descriptive Statistics: <default>...", self.feature_show_statistics)
+        analysisMenu.addSeparator()
 
         # Cross-Correlation submenu
-        ccMenu = analysisMenu.addMenu("Cross-Correlation")
+        ccMenu = QMenu("Cross-Correlation", self)
+        analysisMenu.addMenu(ccMenu)
+        self.ccMenu = ccMenu
         self.actCCEnable = ccMenu.addAction("Enable Multi-Cursor Mode"); self.actCCEnable.setCheckable(True); self.actCCEnable.setShortcut("Ctrl+Shift+X")
         self.actCCWindow = ccMenu.addAction("Window…")
         self.actCCLink = ccMenu.addAction("Link Axes by X-Time"); self.actCCLink.setCheckable(True)
@@ -348,7 +759,9 @@ class MainWindowMenuMixin:
         analysisMenu.addSeparator()
 
 # Peak Detection submenu
-        pkMenu = analysisMenu.addMenu("Peak Detection")
+        pkMenu = QMenu("Peak Detection", self)
+        analysisMenu.addMenu(pkMenu)
+        self.pkMenu = pkMenu
         self.actPkEnable = pkMenu.addAction("Enable Peak Detection"); self.actPkEnable.setCheckable(True); self.actPkEnable.setShortcut("Ctrl+Shift+P")
         self.actPkSettings = pkMenu.addAction("Peak Settings…")
         self.actPkDetect = pkMenu.addAction("Detect in Range"); self.actPkDetect.setShortcut("Ctrl+D")
@@ -410,7 +823,8 @@ class MainWindowMenuMixin:
             self.annMenu = None
         if self.annMenu is None:
             try:
-                self.annMenu = m.addMenu("&Annotation")
+                self.annMenu = QMenu("&Annotation", self)
+                m.addMenu(self.annMenu)
                 self.actAnnEnable = self.annMenu.addAction("Enable Annotation Mode"); self.actAnnEnable.setCheckable(True)
                 self.actAnnText = self.annMenu.addAction("Add Text (T)")
                 self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)")

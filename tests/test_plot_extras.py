@@ -21,7 +21,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from core.plot_extras import add_secondary_y, draw_error_bars, draw_fill_between
+from core.plot_extras import (
+    add_secondary_y,
+    draw_broken_axis,
+    draw_error_bars,
+    draw_fill_between,
+)
 
 
 # ---------------- pure helpers ----------------
@@ -61,6 +66,43 @@ def test_add_secondary_y_twins_axis_and_colors():
     assert ax2.get_ylabel() == "Right"
     # the two share the x axis
     assert ax2.get_shared_x_axes().joined(ax, ax2)
+    plt.close(fig)
+
+
+def test_draw_broken_y_axis_splits_line_plot():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1, 2, 3], [1, 2, 50, 60], label="signal")
+    ax.set_xlabel("time")
+    ax.set_ylabel("value")
+
+    top, bottom = draw_broken_axis(ax, "y", 3.0, 40.0)
+
+    assert len(fig.axes) == 2
+    assert top in fig.axes and bottom in fig.axes
+    assert top.get_ylim()[0] == pytest.approx(40.0)
+    assert bottom.get_ylim()[1] == pytest.approx(3.0)
+    assert any(line.get_label() == "signal" for line in top.lines)
+    assert bottom.get_xlabel() == "time"
+    plt.close(fig)
+
+
+def test_draw_broken_x_axis_splits_line_plot():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1, 50, 60], [1, 2, 3, 4], label="signal")
+
+    left, right = draw_broken_axis(ax, "x", 3.0, 40.0)
+
+    assert len(fig.axes) == 2
+    assert left.get_xlim()[1] == pytest.approx(3.0)
+    assert right.get_xlim()[0] == pytest.approx(40.0)
+    plt.close(fig)
+
+
+def test_draw_broken_axis_rejects_out_of_range_break():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1, 2], [1, 2, 3])
+    with pytest.raises(ValueError):
+        draw_broken_axis(ax, "y", 10.0, 20.0)
     plt.close(fig)
 
 
@@ -124,3 +166,20 @@ def test_plot_secondary_axis_adds_to_current(win):
     assert win.tabs.count() == n  # no new graph — added to current
     # the figure now has two axes (twinned)
     assert len(win.tabs.currentWidget().get_figure().axes) == 2
+
+
+def test_plot_broken_axis_splits_current_graph_without_new_graph(win):
+    _load(win)
+    win.plot_from_workbook("line")
+    n = win.tabs.count()
+    messages = []
+    win.ask_form = lambda *a, **k: {"axis": "Y", "lower": 2.1, "upper": 3.1}
+    win.notify = lambda msg, *a, **k: messages.append(msg)
+
+    win.plot_broken_axis()
+
+    tab = win.tabs.currentWidget()
+    assert win.tabs.count() == n
+    assert len(tab.get_figure().axes) == 2
+    assert tab.canvas.ax in tab.get_figure().axes
+    assert messages == ["Broken Y axis applied"]

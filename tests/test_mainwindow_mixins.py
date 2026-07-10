@@ -28,6 +28,9 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
+from main_window_spectroscopy_mixin import MainWindowSpectroscopyMixin
+from main_window_materials_mixin import MainWindowMaterialsMixin
+from main_window_physics_mixin import MainWindowPhysicsMixin
 
 
 def test_mainwindow_inherits_extracted_mixins():
@@ -51,5 +54,8 @@ def test_mainwindow_inherits_phase2_mixins():
         MainWindowSettingsMixin,
         MainWindowFeaturesMixin,
         MainWindowActionsMixin,
+        MainWindowSpectroscopyMixin,
+        MainWindowMaterialsMixin,
+        MainWindowPhysicsMixin,
     ):
         assert issubclass(MainWindow, mixin), mixin.__name__

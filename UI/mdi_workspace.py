@@ -162,7 +162,7 @@ class MdiWorkspace(QWidget):
     # MainWindow can switch its working DataFrame to that Book's data.
     bookActivated = Signal(str)          # (title)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, start_with_graph: bool = True):
         super().__init__(parent)
         self.setObjectName("MdiWorkspace")
 
@@ -174,6 +174,9 @@ class MdiWorkspace(QWidget):
         self._graph_subs: Dict[str, QMdiSubWindow] = {}
         # Book registry: title -> (widget, sub_window)
         self._books: Dict[str, Tuple[QWidget, QMdiSubWindow]] = {}
+        # Last graph selected by the user. When a Book has focus, graph-scoped
+        # toolbar commands still need a deterministic graph target.
+        self._current_graph_tab_id: Optional[str] = None
         self._suppress_activation = False
 
         layout = QVBoxLayout(self)
@@ -213,8 +216,11 @@ class MdiWorkspace(QWidget):
 
         self.mdi.subWindowActivated.connect(self._on_sub_window_activated)
 
-        # Match TabManager: start with one graph so the app always has a canvas.
-        self.add_tab("Graph 1")
+        # Standalone workspace keeps TabManager compatibility by default; the
+        # main app passes start_with_graph=False for a clean worksheet-first
+        # startup and creates graphs lazily when the user plots.
+        if start_with_graph:
+            self.add_tab("Graph 1")
 
     # ======================================================================
     # MainWindow accessor (TabManager used parent() to reach MainWindow for
@@ -257,6 +263,7 @@ class MdiWorkspace(QWidget):
 
         self.tabs[tab_id] = graph_tab
         self._graph_subs[tab_id] = sub
+        self._current_graph_tab_id = tab_id
 
         self._suppress_activation = True
         try:
@@ -339,6 +346,8 @@ class MdiWorkspace(QWidget):
                 graph_tab.deleteLater()
             except Exception:
                 logger.debug("graph_tab.deleteLater failed", exc_info=True)
+        if self._current_graph_tab_id == tab_id:
+            self._current_graph_tab_id = next(reversed(self.tabs), None) if self.tabs else None
         try:
             self.tabRemoved.emit(tab_id)
         except Exception:
@@ -368,6 +377,8 @@ class MdiWorkspace(QWidget):
             return False
         self._graph_subs.pop(tab_id, None)
         self.tabs.pop(tab_id, None)
+        if self._current_graph_tab_id == tab_id:
+            self._current_graph_tab_id = next(reversed(self.tabs), None) if self.tabs else None
         title = sub.windowTitle() if sub is not None else ""
         for _sig, _args in (
             (self.tabRemoved, (tab_id,)),
@@ -430,6 +441,7 @@ class MdiWorkspace(QWidget):
             sub.show()
             self.tabs[tab_id] = widget
             self._graph_subs[tab_id] = sub
+            self._current_graph_tab_id = tab_id
             try:
                 self.tabCreated.emit(tab_id)
                 self.subWindowAdded.emit("graph", sub.windowTitle())
@@ -450,14 +462,16 @@ class MdiWorkspace(QWidget):
     def currentWidget(self) -> Optional[GraphTab]:
         """Return the active GraphTab (the one in the focused graph sub-window).
 
-        Falls back to the first graph if no graph sub-window is currently the
-        active one (e.g. a book window has focus, or nothing is active).
+        Falls back to the last selected graph when a book window has focus.
         """
         active = self.mdi.activeSubWindow()
         if active is not None:
             for tab_id, sub in self._graph_subs.items():
                 if sub is active:
+                    self._current_graph_tab_id = tab_id
                     return self.tabs.get(tab_id)
+        if self._current_graph_tab_id in self.tabs:
+            return self.tabs[self._current_graph_tab_id]
         # Fallback: first graph by insertion order (never None while a graph exists).
         return next(iter(self.tabs.values()), None)
 
@@ -484,7 +498,10 @@ class MdiWorkspace(QWidget):
         if active is not None:
             for tab_id, sub in self._graph_subs.items():
                 if sub is active:
+                    self._current_graph_tab_id = tab_id
                     return tab_id
+        if self._current_graph_tab_id in self.tabs:
+            return self._current_graph_tab_id
         # Fallback consistent with currentWidget(): first graph.
         current = self.currentWidget()
         for tab_id, gt in self.tabs.items():
@@ -569,6 +586,7 @@ class MdiWorkspace(QWidget):
         # mirroring TabManager (which only ever held graph tabs).
         for _tab_id, gsub in self._graph_subs.items():
             if gsub is sub:
+                self._current_graph_tab_id = _tab_id
                 try:
                     self.currentChanged.emit(self.currentIndex())
                 except Exception:

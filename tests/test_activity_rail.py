@@ -16,8 +16,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from widgets.activity_rail import ActivityRail
 
@@ -139,3 +140,18 @@ def test_add_activity_accepts_icon(qapp):
     # icon=None path still works
     btn2 = rail.add_activity("plot", "กราฟ", icon=None)
     assert btn2 is rail.button_for("plot")
+
+
+def test_rail_has_professional_scalable_structure(qapp):
+    rail = ActivityRail()
+
+    assert rail.findChild(QLabel, "ActivityRailBrand").text() == "SP"
+    assert rail.findChild(QLabel, "ActivityRailSection").text() == "MODULES"
+    assert rail.findChild(QScrollArea, "ActivityRailScroll") is not None
+    assert rail.findChild(QLabel, "ActivityRailFutureSlot").text() == "+"
+
+    btn = rail.add_activity("gas", "Gas")
+
+    assert btn.property("activityId") == "gas"
+    assert btn.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
+    assert btn.cursor().shape() == Qt.PointingHandCursor

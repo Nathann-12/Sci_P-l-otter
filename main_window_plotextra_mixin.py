@@ -5,14 +5,19 @@ import logging
 import numpy as np
 import pandas as pd
 
-from core.plot_extras import add_secondary_y, draw_error_bars, draw_fill_between
+from core.plot_extras import (
+    add_secondary_y,
+    draw_broken_axis,
+    draw_error_bars,
+    draw_fill_between,
+)
 from processors import beautify_axes
 
 logger = logging.getLogger(__name__)
 
 
 class MainWindowPlotExtraMixin:
-    """Extra plot types (ROADMAP C): error bars, fill-between, secondary axis.
+    """Extra plot types (ROADMAP C): error bars, fill-between, extra axes.
 
     Column pickers use the ask_form seam; error-bar/fill plots open a NEW graph
     (Origin loop), while the secondary axis is added to the CURRENT graph.
@@ -125,3 +130,49 @@ class MainWindowPlotExtraMixin:
             self.notify(f"Added right-axis: {res['y2']}")
         except Exception as e:
             self.error_box("Secondary axis failed", f"Reason: {e}")
+
+    # ------------------------------------------------------------- broken axis
+    def plot_broken_axis(self):
+        try:
+            tab = self.tabs.currentWidget()
+            ax = tab.get_axes()
+        except Exception:
+            self.inform("No graph", "Plot a line graph first, then add a broken axis")
+            return
+        if ax is None or not getattr(ax, "lines", None):
+            self.inform("No line plot", "Broken axis currently supports line plots on the active graph")
+            return
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        default_lower = float(ylim[0] + (ylim[1] - ylim[0]) * 0.35)
+        default_upper = float(ylim[0] + (ylim[1] - ylim[0]) * 0.65)
+        res = self.ask_form("Broken Axis", [
+            {"name": "axis", "label": "Axis", "kind": "choice",
+             "options": ["Y", "X"], "default": "Y"},
+            {"name": "lower", "label": "Break lower bound", "kind": "float",
+             "default": default_lower,
+             "decimals": 6},
+            {"name": "upper", "label": "Break upper bound", "kind": "float",
+             "default": default_upper,
+             "decimals": 6},
+        ], description="Split the active line graph and hide the selected range")
+        if res is None:
+            return
+        try:
+            axis = str(res["axis"]).lower()[0]
+            lower = float(res["lower"])
+            upper = float(res["upper"])
+            if axis == "x" and lower == default_lower and upper == default_upper:
+                lower = float(xlim[0] + (xlim[1] - xlim[0]) * 0.35)
+                upper = float(xlim[0] + (xlim[1] - xlim[0]) * 0.65)
+            axes = draw_broken_axis(ax, axis, lower, upper)
+            if axes:
+                tab.canvas.ax = axes[0]
+            try:
+                tab.clear_layers()
+            except Exception:
+                logger.debug("broken-axis layer clear skipped", exc_info=True)
+            tab.draw()
+            self.notify(f"Broken {axis.upper()} axis applied")
+        except Exception as e:
+            self.error_box("Broken axis failed", f"Reason: {e}")

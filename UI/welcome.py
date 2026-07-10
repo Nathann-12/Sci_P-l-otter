@@ -51,7 +51,7 @@ class WelcomeWidget(QWidget):
             self.glyph_label.hide()
 
         # --- title: large heading, no border/box ---
-        self.title_label = QLabel("ลากไฟล์มาวาง หรือเปิดไฟล์", self)
+        self.title_label = QLabel("Drop a file here or open data", self)
         self.title_label.setObjectName("WelcomeTitle")
         self.title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.title_label)
@@ -59,7 +59,7 @@ class WelcomeWidget(QWidget):
         layout.addSpacing(8)
 
         # --- subtitle: muted, smaller ---
-        self.subtitle_label = QLabel("เริ่มต้นวิเคราะห์ข้อมูลของคุณได้เลย", self)
+        self.subtitle_label = QLabel("Start analyzing your data from a clean worksheet.", self)
         self.subtitle_label.setObjectName("WelcomeSubtitle")
         self.subtitle_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.subtitle_label)
@@ -67,7 +67,7 @@ class WelcomeWidget(QWidget):
         layout.addSpacing(28)
 
         # --- primary accent button ---
-        self.open_button = QPushButton("เปิดไฟล์", self)
+        self.open_button = QPushButton("Open File", self)
         self.open_button.setObjectName("WelcomeOpenButton")
         self.open_button.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.open_button, 0, Qt.AlignCenter)
@@ -75,7 +75,7 @@ class WelcomeWidget(QWidget):
         layout.addSpacing(36)
 
         # --- recent files section ---
-        self.recent_label = QLabel("ไฟล์ล่าสุด", self)
+        self.recent_label = QLabel("Recent Files", self)
         self.recent_label.setObjectName("WelcomeRecentLabel")
         self.recent_label.setAlignment(Qt.AlignHCenter)
         layout.addWidget(self.recent_label, 0, Qt.AlignHCenter)
@@ -93,7 +93,7 @@ class WelcomeWidget(QWidget):
         layout.addWidget(self.recent_list, 0, Qt.AlignHCenter)
 
         # Empty-state message overlaid on the recent list
-        self.recent_empty_label = QLabel("ยังไม่มีไฟล์ล่าสุด", self.recent_list)
+        self.recent_empty_label = QLabel("No recent files", self.recent_list)
         self.recent_empty_label.setObjectName("WelcomeRecentEmpty")
         self.recent_empty_label.setAlignment(Qt.AlignCenter)
 

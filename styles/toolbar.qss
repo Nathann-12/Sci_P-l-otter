@@ -1,40 +1,53 @@
-/* toolbar.qss — tight, flat icon toolbar (icon-only; labels live in tooltips) */
+/* toolbar.qss — dense two-row Origin-style function bar */
 
 QToolBar {
-    background: #1b1e23;
+    background: #202326;
     border: none;
-    border-bottom: 1px solid #2a2f36;
-    padding: 4px 6px;
+    border-bottom: 1px solid #31363c;
+    padding: 1px 4px;
     spacing: 1px;
 }
 
+QToolBar#FunctionToolbarPrimary {
+    border-top: 1px solid #30343a;
+}
+
+QToolBar#FunctionToolbarSecondary {
+    background: #1d2023;
+}
+
 QToolBar::separator {
-    background-color: #2f343b;
+    background-color: #3c424a;
     width: 1px;
-    margin: 5px 4px;
+    margin: 3px 3px;
 }
 
 QToolButton {
     background: transparent;
     color: #cfd3d6;
     border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 5px;
+    border-radius: 3px;
+    padding: 2px;
     margin: 0px;
+    min-width: 20px;
+    min-height: 20px;
+    max-width: 24px;
+    max-height: 24px;
 }
 
 QToolButton:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(79, 156, 249, 0.14);
+    border: 1px solid rgba(79, 156, 249, 0.35);
     color: #ffffff;
 }
 
 QToolButton:pressed {
-    background: rgba(255, 255, 255, 0.10);
+    background: rgba(79, 156, 249, 0.22);
 }
 
 QToolButton:checked {
-    background: rgba(79, 156, 249, 0.16);
-    border: 1px solid rgba(79, 156, 249, 0.45);
+    background: #0f5f9f;
+    border: 1px solid #3da1ff;
     color: #4F9CF9;
 }
 

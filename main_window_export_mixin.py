@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+
+from core.export_request import (
+    BatchFigureExportOptions,
+    ExportSeries,
+    FigureExportOptions,
+    VisibleRangeExportRequest,
+    batch_export_filename,
+    dataframe_for_visible_range,
+    line_to_numeric,
+)
 
 
 class MainWindowExportMixin:
@@ -53,9 +62,9 @@ class MainWindowExportMixin:
                 return
             try:
                 self._fft_df.to_csv(path, index=False)
-                self.statusBar().showMessage(f"บันทึก CSV แล้ว: {path}")
+                self.statusBar().showMessage(f"CSV saved: {path}")
             except Exception as e:
-                QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+                QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
         elif kind.startswith("Excel"):
             path, _ = QFileDialog.getSaveFileName(
@@ -71,9 +80,9 @@ class MainWindowExportMixin:
                     self._fft_df.to_excel(w, sheet_name="FFT", index=False)
                     meta = pd.DataFrame([self._fft_meta])
                     meta.to_excel(w, sheet_name="meta", index=False)
-                self.statusBar().showMessage(f"บันทึก Excel แล้ว: {path}")
+                self.statusBar().showMessage(f"Excel saved: {path}")
             except Exception as e:
-                QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+                QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
         else:
             path, _ = QFileDialog.getSaveFileName(
@@ -98,140 +107,46 @@ class MainWindowExportMixin:
                     attrs=dict(**self._fft_meta),
                 )
                 ds.to_netcdf(path)
-                self.statusBar().showMessage(f"บันทึก NetCDF แล้ว: {path}")
+                self.statusBar().showMessage(f"NetCDF saved: {path}")
             except Exception as e:
-                QMessageBox.critical(self, "บันทึกไม่สำเร็จ", f"สาเหตุ: {e}")
+                QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
     def _line_to_numeric_for_export(self, values):
-        import matplotlib.dates as mdates
+        return line_to_numeric(values)
 
-        arr = np.asarray(values)
-        if arr.size == 0:
-            return arr.astype(float), False
-        if np.issubdtype(arr.dtype, np.number):
-            return arr.astype(float), False
-        numeric = pd.to_numeric(arr, errors="coerce")
-        if hasattr(numeric, "to_numpy"):
-            numeric_arr = numeric.to_numpy()
-        else:
-            numeric_arr = np.asarray(numeric, dtype=float)
-        if numeric_arr.size and np.isfinite(numeric_arr).any():
-            return numeric_arr, False
-        dt_series = pd.Series(pd.to_datetime(arr, errors="coerce"))
-        valid = dt_series.notna()
-        if not valid.any():
-            return numeric_arr, False
-        numeric_arr = np.full(len(dt_series), np.nan, dtype=float)
-        numeric_arr[valid.to_numpy()] = mdates.date2num(dt_series[valid].to_numpy(dtype="datetime64[ns]"))
-        return numeric_arr, True
+    def build_visible_range_export_request(self) -> VisibleRangeExportRequest | None:
+        dataframe = self.get_current_dataframe()
+        x_column = self.selected_x_column()
+        axes = self.active_axes()
+        if dataframe.empty or not x_column or x_column not in dataframe.columns or axes is None:
+            return None
+        lower, upper = axes.get_xlim()
+        series = tuple(
+            ExportSeries(
+                x=line.get_xdata(orig=False),
+                y=line.get_ydata(orig=False),
+                label=line.get_label() or "",
+            )
+            for line in axes.get_lines()
+        )
+        return VisibleRangeExportRequest(
+            dataframe=dataframe,
+            x_column=x_column,
+            lower=lower,
+            upper=upper,
+            series=series,
+        )
 
-    def export_visible_range_csv(self):
-        if self._df is None or self.cbX.count() == 0:
+    def export_visible_range_csv(
+        self,
+        request: VisibleRangeExportRequest | None = None,
+    ):
+        request = request or self.build_visible_range_export_request()
+        if request is None:
             QMessageBox.information(self, "ยังไม่มีข้อมูล", "เปิดไฟล์และกด 'โหลดคอลัมน์' ก่อน")
             return
-
-        ax = self.canvas.ax
-        xmin, xmax = ax.get_xlim()
-
-        xcol = self.cbX.currentText()
-        xser = self._df[xcol]
-
-        df_view = None
-        lower = min(xmin, xmax)
-        upper = max(xmin, xmax)
-        use_datetime = False
-        x_dt = None
-        try:
-            if pd.api.types.is_datetime64_any_dtype(xser):
-                use_datetime = True
-                x_dt = pd.to_datetime(xser, errors="coerce")
-            else:
-                if pd.api.types.is_object_dtype(xser) or pd.api.types.is_string_dtype(xser):
-                    candidate = pd.to_datetime(xser, errors="coerce")
-                    if candidate.notna().any():
-                        x_dt = candidate
-                        use_datetime = True
-            if use_datetime and x_dt is not None:
-                import matplotlib.dates as mdates
-
-                valid = x_dt.notna() if hasattr(x_dt, "notna") else ~pd.isna(x_dt)
-                if np.any(valid):
-                    valid_mask = valid.to_numpy() if hasattr(valid, "to_numpy") else np.asarray(valid)
-                    xnum = np.full(len(xser), np.nan, dtype=float)
-                    dt_values = x_dt[valid] if hasattr(x_dt, "__getitem__") else np.asarray(x_dt)[valid_mask]
-                    dt_series = pd.Series(dt_values)
-                    dt_series = pd.to_datetime(dt_series, errors="coerce")
-                    xnum[valid_mask] = mdates.date2num(dt_series.to_numpy(dtype="datetime64[ns]"))
-                    mask = np.isfinite(xnum) & (xnum >= lower) & (xnum <= upper)
-                    if mask.any():
-                        df_view = self._df.loc[mask].copy()
-                else:
-                    use_datetime = False
-            if df_view is None:
-                xnum = pd.to_numeric(xser, errors="coerce")
-                xarr = xnum.to_numpy() if hasattr(xnum, "to_numpy") else np.asarray(xnum)
-                mask = np.isfinite(xarr) & (xarr >= lower) & (xarr <= upper)
-                if mask.any():
-                    df_view = self._df.loc[mask].copy()
-        except Exception:
-            xnum = pd.to_numeric(xser, errors="coerce")
-            xarr = xnum.to_numpy() if hasattr(xnum, "to_numpy") else np.asarray(xnum)
-            mask = np.isfinite(xarr) & (xarr >= lower) & (xarr <= upper)
-            df_view = self._df.loc[mask].copy()
-
-        if df_view is None or df_view.empty:
-            fallback_df = None
-            fallback_use_datetime = use_datetime
-            try:
-                import matplotlib.dates as mdates
-
-                for i, ln in enumerate(ax.get_lines()):
-                    x_raw = ln.get_xdata(orig=False)
-                    y_raw = ln.get_ydata(orig=False)
-                    x_numeric, line_is_datetime = self._line_to_numeric_for_export(x_raw)
-                    if x_numeric.size == 0:
-                        continue
-                    y_arr = np.asarray(y_raw)
-                    if y_arr.size == 0:
-                        continue
-                    mask_line = np.isfinite(x_numeric) & (x_numeric >= lower) & (x_numeric <= upper)
-                    if not mask_line.any():
-                        continue
-                    x_filtered = x_numeric[mask_line]
-                    y_filtered = y_arr[mask_line]
-                    label = (
-                        ln.get_label()
-                        if ln.get_label() and not ln.get_label().startswith("_")
-                        else f"y{i + 1}"
-                    )
-                    line_df = pd.DataFrame({"__x__": x_filtered, label: y_filtered})
-                    if fallback_df is None:
-                        fallback_df = line_df
-                    else:
-                        fallback_df = pd.merge(fallback_df, line_df, on="__x__", how="outer")
-
-                    fallback_use_datetime = fallback_use_datetime or line_is_datetime
-
-                if fallback_df is not None and not fallback_df.empty:
-                    fallback_df.sort_values("__x__", inplace=True)
-                    fallback_df.reset_index(drop=True, inplace=True)
-                    if fallback_use_datetime:
-                        dt_series = pd.Series(
-                            pd.to_datetime(mdates.num2date(fallback_df["__x__"].to_numpy()))
-                        )
-                        try:
-                            dt_series = dt_series.dt.tz_localize(None)
-                        except (TypeError, AttributeError, ValueError):
-                            pass
-                        fallback_df[xcol] = dt_series.to_numpy()
-                    else:
-                        fallback_df[xcol] = fallback_df["__x__"]
-                    ordered_cols = [xcol] + [c for c in fallback_df.columns if c not in {"__x__", xcol}]
-                    df_view = fallback_df[ordered_cols]
-            except Exception:
-                pass
-
-        if df_view is None or df_view.empty:
+        df_view = dataframe_for_visible_range(request)
+        if df_view.empty:
             QMessageBox.information(self, "ไม่มีข้อมูลในช่วงนี้", "ช่วงที่แสดงอยู่ไม่มีข้อมูลให้ส่งออก")
             return
 
@@ -245,7 +160,7 @@ class MainWindowExportMixin:
             return
         try:
             df_view.to_csv(path, index=False)
-            self.statusBar().showMessage(f"บันทึก CSV ช่วงที่เห็นแล้ว: {path}")
+            self.statusBar().showMessage(f"Visible range CSV saved: {path}")
         except Exception as e:
             QMessageBox.critical(self, "Save failed", f"Reason: {e}")
 
@@ -278,10 +193,59 @@ class MainWindowExportMixin:
         try:
             tab = self.tabs.currentWidget()
             if tab is not None and hasattr(tab, "get_figure"):
+                canvas = getattr(tab, "canvas", None)
+                if canvas is not None:
+                    self.canvas = canvas
                 return tab.get_figure()
         except Exception:
             pass
         return self.canvas.fig
+
+    @staticmethod
+    def _figure_has_exportable_content(fig) -> bool:
+        try:
+            for ax in fig.axes:
+                if (
+                    getattr(ax, "lines", None)
+                    or getattr(ax, "collections", None)
+                    or getattr(ax, "patches", None)
+                    or getattr(ax, "images", None)
+                    or getattr(ax, "containers", None)
+                    or getattr(ax, "texts", None)
+                ):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _save_figure_with_options(
+        self,
+        fig,
+        path: str,
+        ext: str,
+        options: FigureExportOptions | BatchFigureExportOptions,
+        print_spec: dict | None = None,
+    ) -> None:
+        saved_size = fig.get_size_inches().copy()
+        try:
+            if print_spec and print_spec.get("width_in"):
+                fig.set_size_inches(
+                    float(print_spec["width_in"]),
+                    float(print_spec.get("height_in") or saved_size[1]),
+                )
+            fig.savefig(
+                path,
+                format=ext,
+                dpi=options.dpi,
+                transparent=options.transparent,
+                bbox_inches="tight" if options.tight else None,
+            )
+        finally:
+            try:
+                fig.set_size_inches(*saved_size)
+                fig.canvas.draw_idle()
+            except Exception:
+                pass
 
     def export_figure_advanced(self):
         """Export the active graph with a chosen format / DPI / transparency."""
@@ -300,32 +264,122 @@ class MainWindowExportMixin:
         ], description="Save the active graph (vector formats ignore DPI)")
         if res is None:
             return
-        ext, filt = self._EXPORT_FORMATS[res["fmt"]]
-        path = self.ask_save_path(f"Export as {res['fmt']}", f"figure.{ext}", filt)
+        options = FigureExportOptions(
+            format_name=res["fmt"],
+            dpi=int(res["dpi"]),
+            transparent=bool(res["transparent"]),
+            tight=bool(res["tight"]),
+        )
+        ext, filt = self._EXPORT_FORMATS[options.format_name]
+        path = self.ask_save_path(
+            f"Export as {options.format_name}", f"figure.{ext}", filt
+        )
         if not path:
             return
         # honor a print size chosen in Plot Details (Figure tab) — applied only
         # around savefig so the on-screen graph is never disturbed
-        saved_size = fig.get_size_inches().copy()
         print_spec = getattr(self.tabs.currentWidget(), "_print_figure", None) \
             if hasattr(self, "tabs") else None
         try:
-            if print_spec and print_spec.get("width_in"):
-                fig.set_size_inches(float(print_spec["width_in"]),
-                                    float(print_spec.get("height_in") or saved_size[1]))
-            fig.savefig(
-                path, format=ext, dpi=int(res["dpi"]),
-                transparent=bool(res["transparent"]),
-                bbox_inches="tight" if res["tight"] else None)
-            self.notify(f"Exported {res['fmt']}: {path}")
+            self._save_figure_with_options(fig, path, ext, options, print_spec)
+            self.notify(f"Exported {options.format_name}: {path}")
         except Exception as e:
             self.error_box("Export failed", f"Reason: {e}")
-        finally:
+
+    def _iter_export_graph_targets(self, include_empty: bool = False):
+        """Yield (title, tab, figure) for open Graph windows in workspace order."""
+        try:
+            open_tabs = list(self.tabs.get_open_tabs())
+            tab_map = getattr(self.tabs, "tabs", {})
+        except Exception:
+            open_tabs = []
+            tab_map = {}
+
+        if not open_tabs and hasattr(self, "tabs"):
             try:
-                fig.set_size_inches(*saved_size)
-                fig.canvas.draw_idle()
+                tab_map = getattr(self.tabs, "tabs", {})
+                open_tabs = [
+                    (getattr(tab, "tab_id", f"tab_{index + 1}"), self.tabs.tabText(index))
+                    for index, tab in enumerate(tab_map.values())
+                ]
             except Exception:
-                pass
+                open_tabs = []
+
+        for tab_id, title in open_tabs:
+            tab = tab_map.get(tab_id)
+            if tab is None:
+                continue
+            try:
+                fig = tab.get_figure()
+            except Exception:
+                fig = getattr(getattr(tab, "canvas", None), "fig", None)
+            if fig is None:
+                continue
+            if include_empty or self._figure_has_exportable_content(fig):
+                yield title or tab_id, tab, fig
+
+    def export_figures_batch(self):
+        """Export every open Graph window to one directory."""
+        res = self.ask_form("Batch Export Graphs", [
+            {"name": "fmt", "label": "Format", "kind": "choice",
+             "options": list(self._EXPORT_FORMATS.keys()), "default": "PNG"},
+            {"name": "dpi", "label": "DPI (raster)", "kind": "int",
+             "default": 300, "min": 30, "max": 2400},
+            {"name": "transparent", "label": "Transparent background",
+             "kind": "bool", "default": False},
+            {"name": "tight", "label": "Tight bounding box", "kind": "bool", "default": True},
+            {"name": "include_empty", "label": "Include empty graphs",
+             "kind": "bool", "default": False},
+        ], description="Save all open Graph windows to a folder")
+        if res is None:
+            return
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Select batch export folder",
+            "",
+        )
+        if not directory:
+            return
+
+        options = BatchFigureExportOptions(
+            format_name=res["fmt"],
+            directory=directory,
+            dpi=int(res["dpi"]),
+            transparent=bool(res["transparent"]),
+            tight=bool(res["tight"]),
+            include_empty=bool(res.get("include_empty", False)),
+        )
+        ext, _filt = self._EXPORT_FORMATS[options.format_name]
+        targets = list(self._iter_export_graph_targets(include_empty=options.include_empty))
+        if not targets:
+            self.inform("No graphs", "No graph windows with plot content were found.")
+            return
+
+        saved = []
+        failed = []
+        for index, (title, tab, fig) in enumerate(targets, start=1):
+            path = batch_export_filename(options.directory, title, index, ext)
+            try:
+                self._save_figure_with_options(
+                    fig,
+                    str(path),
+                    ext,
+                    options,
+                    getattr(tab, "_print_figure", None),
+                )
+                saved.append(path)
+            except Exception as exc:
+                failed.append((title, exc))
+
+        if failed:
+            details = "\n".join(f"{title}: {exc}" for title, exc in failed[:5])
+            self.error_box(
+                "Batch export failed",
+                f"Saved {len(saved)} graph(s), failed {len(failed)}.\n{details}",
+            )
+            return
+        self.notify(f"Exported {len(saved)} graph(s) to {options.directory}")
 
     def copy_figure_to_clipboard(self):
         """Copy the active graph to the clipboard as an image."""

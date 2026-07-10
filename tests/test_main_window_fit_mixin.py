@@ -147,7 +147,7 @@ def test_plot_fit_overlay_adds_annotation_and_status(qapp):
     assert len(ax.lines) == 1
     assert len(ax.texts) == 1
     assert "x (seconds from start)" in ax.texts[0].get_text()
-    assert window.statusBar().messages[-1] == "Fit สำเร็จ • R²=0.875  RMSE=0.125"
+    assert window.statusBar().messages[-1] == "Fit completed. R^2=0.875  RMSE=0.125"
 
 
 def test_open_fit_dialog_collects_series_and_stores_result(qapp, monkeypatch):

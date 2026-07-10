@@ -64,3 +64,41 @@ def test_format_describe_renders_all_keys():
     for key in ("count", "mean", "median", "mode", "std", "variance",
                 "skewness", "kurtosis", "min", "max"):
         assert key in text
+
+
+# ---------- result-sheet table builders (Analysis menu UX rework) ----------
+
+def test_descriptive_table_layout_and_values():
+    from analysis.descriptive import descriptive_table
+    df = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0, 4.0],
+        "z": [10.0, 10.0, 10.0, 10.0],
+        "label": list("abcd"),  # non-numeric skipped
+    })
+    table = descriptive_table(df)
+    assert list(table.columns) == ["statistic", "y", "z"]
+    mean_row = table[table["statistic"] == "mean"]
+    assert mean_row["y"].iloc[0] == pytest.approx(2.5)
+    assert mean_row["z"].iloc[0] == pytest.approx(10.0)
+    assert len(table) == 10  # count..max
+
+
+def test_descriptive_table_column_subset_and_empty_raises():
+    from analysis.descriptive import descriptive_table
+    df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+    table = descriptive_table(df, ["b"])
+    assert list(table.columns) == ["statistic", "b"]
+    with pytest.raises(ValueError):
+        descriptive_table(pd.DataFrame({"s": ["x", "y"]}))
+
+
+def test_covariance_table_has_named_first_column():
+    from analysis.descriptive import covariance_table
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [2.0, 4.0, 6.0]})
+    cov = covariance_table(df, kind="covariance")
+    assert list(cov.columns) == ["column", "a", "b"]
+    assert list(cov["column"]) == ["a", "b"]
+    corr = covariance_table(df, kind="correlation")
+    assert corr.iloc[0]["b"] == pytest.approx(1.0)
+    with pytest.raises(ValueError):
+        covariance_table(df, kind="nonsense")

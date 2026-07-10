@@ -3,6 +3,7 @@ JSON / HDF5 / MAT / XML loaders + Batch import through the real MainWindow."""
 from __future__ import annotations
 
 import os
+import importlib
 from pathlib import Path
 import sys
 
@@ -18,6 +19,13 @@ import pandas as pd
 import pytest
 
 from loaders import load_hdf5, load_json, load_mat, load_xml
+
+
+def _import_optional_h5py():
+    try:
+        return importlib.import_module("h5py")
+    except Exception as exc:
+        pytest.skip(f"h5py is installed but unavailable: {exc}")
 
 
 # ---------------- JSON ----------------
@@ -81,7 +89,7 @@ def test_load_mat_2d_fallback(tmp_path):
 # ---------------- HDF5 ----------------
 
 def test_load_hdf5_generic_1d_datasets(tmp_path):
-    h5py = pytest.importorskip("h5py")
+    h5py = _import_optional_h5py()
     p = tmp_path / "data.h5"
     with h5py.File(str(p), "w") as f:
         f.create_dataset("t", data=np.arange(10.0))
@@ -96,7 +104,7 @@ def test_load_hdf5_generic_1d_datasets(tmp_path):
 
 
 def test_load_hdf5_rejects_empty(tmp_path):
-    h5py = pytest.importorskip("h5py")
+    h5py = _import_optional_h5py()
     p = tmp_path / "empty.h5"
     with h5py.File(str(p), "w") as f:
         f.create_group("nothing")

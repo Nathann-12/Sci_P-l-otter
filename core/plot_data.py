@@ -140,7 +140,7 @@ def prepare_plot_data(x: Any, y: Any) -> tuple[list[Any], list[Any], bool]:
     if not mostly_numeric(filtered_x):
         try:
             import pandas as pd
-            ser = pd.to_datetime(filtered_x, errors="coerce")
+            ser = pd.to_datetime(filtered_x, errors="coerce", format="mixed")
             mask = ser.notna()
             valid = mask.sum()
             if valid >= max(2, int(0.6 * len(filtered_x))):

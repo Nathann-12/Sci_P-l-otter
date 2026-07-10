@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+from core.plot_request import BarRequest, HistogramRequest, PlotOptions, PlotRequest
 from loaders import (
     load_cdf_nc_on_demand, load_hdf5, load_json, load_mat, load_tabular, load_xml,
 )
@@ -33,12 +34,12 @@ class MainWindowDataMixin:
         if ext in [".csv", ".txt", ".tsv", ".xlsx"]:
             df, enc_note = load_tabular(path, ext)
             if df is None or df.empty:
-                raise ValueError("ไฟล์ตารางว่างหรืออ่านไม่สำเร็จ")
-            return df, "ตาราง", enc_note
+                raise ValueError("The table file is empty or could not be read.")
+            return df, "table", enc_note
         if ext in [".nc", ".cdf"]:
             df = load_cdf_nc_on_demand(self, path)
             if df is None or df.empty:
-                raise ValueError("ไฟล์ CDF/NetCDF ไม่มีข้อมูลที่ใช้พล็อตได้")
+                raise ValueError("The CDF/NetCDF file has no plottable data.")
             return df, "CDF/NetCDF", None
         if ext == ".json":
             df, note = load_json(path)
@@ -52,11 +53,11 @@ class MainWindowDataMixin:
         if ext == ".xml":
             df, note = load_xml(path)
             return df, "XML", note
-        raise ValueError("นามสกุลไฟล์ไม่รองรับ")
+        raise ValueError("Unsupported file extension.")
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "เลือกไฟล์ข้อมูล", "", DATA_FILE_FILTER)
+            self, "Select Data File", "", DATA_FILE_FILTER)
         if not path:
             return
         try:
@@ -65,8 +66,8 @@ class MainWindowDataMixin:
             except Exception as e:
                 ext = os.path.splitext(path)[1].lower()
                 if ext in [".nc", ".cdf"]:
-                    error_msg = f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{str(e)}"
-                    QMessageBox.critical(self, "ข้อผิดพลาด", error_msg)
+                    error_msg = f"Unable to read the CDF/NetCDF file:\n{str(e)}"
+                    QMessageBox.critical(self, "Error", error_msg)
                     return
                 raise
 
@@ -74,10 +75,10 @@ class MainWindowDataMixin:
             name = f"{os.path.basename(path)} [{kind}]"
             self._stage_insert(name, df, path)
             self.statusBar().showMessage(
-                f"เปิดเป็น Book แล้ว: {name} • เลือกคอลัมน์บนชีต แล้วคลิกไอคอนพล็อตด้านล่าง"
+                f"Opened as Book: {name} - select worksheet columns, then click a plot icon."
             )
         except Exception as e:
-            QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Open File Failed", f"Reason: {e}")
 
     def _open_book_for_dataset(self, name: str, df, path=None):
         """สร้าง Book window ใหม่ให้ dataset (Origin: 1 ชุดข้อมูล = 1 Book)
@@ -125,15 +126,17 @@ class MainWindowDataMixin:
                 import logging
                 logging.getLogger(__name__).debug("column reload on book switch failed", exc_info=True)
             try:
-                self.lblFile.setText(f"ใช้งาน Book: {title}")
+                self.lblFile.setText(f"Active Book: {title}")
             except Exception:
                 pass
             self.statusBar().showMessage(
-                f"ใช้ข้อมูลจาก Book: {title} ({len(df):,} แถว × {len(df.columns)} คอลัมน์)")
+                f"Using data from Book: {title} ({len(df):,} rows x {len(df.columns)} columns)")
         else:
+            self._df = None
+            self._current_path = None
             # Book เปล่า (เช่นพิมพ์เองยังไม่กด 'ใช้ข้อมูลนี้') — ชี้ workbook ไว้พอ
             self.statusBar().showMessage(
-                f"Book: {title} ยังไม่มีข้อมูล — พิมพ์ข้อมูลแล้วกด 'ใช้ข้อมูลนี้' หรือกดพล็อตได้เลย")
+                f"Book: {title} has no data yet - type data and click 'Use This Data' or plot from the worksheet.")
 
     def load_data(self, path: str):
         """โหลดไฟล์ (เช่นจาก drag & drop) → Book ใหม่ตามโมเดล Origin"""
@@ -144,17 +147,17 @@ class MainWindowDataMixin:
                 ext = os.path.splitext(path)[1].lower()
                 if ext in [".nc", ".cdf"]:
                     QMessageBox.critical(
-                        self, "ข้อผิดพลาด", f"ไม่สามารถอ่านไฟล์ CDF/NetCDF ได้:\n{e}")
-                    self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์ CDF/NetCDF")
+                        self, "Error", f"Unable to read the CDF/NetCDF file:\n{e}")
+                    self.statusBar().showMessage("Error opening CDF/NetCDF file.")
                     return
                 raise
             name = f"{os.path.basename(path)} [{kind}]"
             self._stage_insert(name, df, path)
             self.statusBar().showMessage(
-                f"เปิดเป็น Book แล้ว: {name} • เลือกคอลัมน์บนชีต แล้วคลิกไอคอนพล็อตด้านล่าง")
+                f"Opened as Book: {name} - select worksheet columns, then click a plot icon.")
         except Exception as e:
-            QMessageBox.critical(self, "เปิดไฟล์ไม่สำเร็จ", f"สาเหตุ: {e}")
-            self.statusBar().showMessage("เกิดข้อผิดพลาดในการเปิดไฟล์")
+            QMessageBox.critical(self, "Open File Failed", f"Reason: {e}")
+            self.statusBar().showMessage("Error opening file.")
 
     def adopt_workbook_data(self) -> bool:
         """ขั้น ① ของ workflow: นำข้อมูลที่พิมพ์/แก้ใน Book1 มาเป็น DataFrame หลัก
@@ -167,12 +170,12 @@ class MainWindowDataMixin:
         try:
             df = wb.dataframe()
         except Exception as e:
-            QMessageBox.critical(self, "อ่านตารางไม่สำเร็จ", f"สาเหตุ: {e}")
+            QMessageBox.critical(self, "Read Worksheet Failed", f"Reason: {e}")
             return False
         if df is None or df.empty:
             QMessageBox.information(
-                self, "ตารางยังว่าง",
-                "พิมพ์ข้อมูลลงตาราง Book1 ก่อน (คอลัมน์ A = X, คอลัมน์ B = Y)")
+                self, "Worksheet is Empty",
+                "Type data into Book1 first (column A = X, column B = Y).")
             return False
         self._df = df.copy()
         self._current_path = None
@@ -193,7 +196,7 @@ class MainWindowDataMixin:
             logging.getLogger(__name__).debug("book registry sync failed", exc_info=True)
         self.load_columns_from_df()
         self.statusBar().showMessage(
-            f"ใช้ข้อมูลจากตารางแล้ว ({len(df)} แถว × {len(df.columns)} คอลัมน์) → เลือก X/Y แล้วกดพล็อต")
+            f"Worksheet data is active ({len(df)} rows x {len(df.columns)} columns). Choose X/Y, then plot.")
         return True
 
     def _activate_book_by_name(self, name: str) -> bool:
@@ -223,19 +226,9 @@ class MainWindowDataMixin:
         return ""
 
     def load_columns_from_df(self):
-        if self._df is None:
-            try:
-                if hasattr(self, "lstFiles") and hasattr(self, "_datasets"):
-                    item = self.lstFiles.currentItem()
-                    if item is not None:
-                        data = self._datasets.get(item.text())
-                        if data and isinstance(data.get("df"), pd.DataFrame):
-                            self._df = data["df"].copy()
-                            self._current_path = data.get("path")
-            except Exception:
-                pass
-        if self._df is None:
-            QMessageBox.information(self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์ก่อน")
+        self._df = self._resolve_active_dataframe()
+        if not isinstance(self._df, pd.DataFrame):
+            QMessageBox.information(self, "No Data", "Open a data file first.")
             return
 
         rows_count = len(self._df)
@@ -262,20 +255,8 @@ class MainWindowDataMixin:
             import logging
             logging.getLogger(__name__).debug("smart X/Y default skipped", exc_info=True)
 
-        try:
-            self.cbHist.clear()
-            self.cbHist.addItems(cols)
-            try:
-                if hasattr(self, "tbCbHist") and self.tbCbHist is not None:
-                    self.tbCbHist.clear()
-                    self.tbCbHist.addItems(cols)
-            except Exception:
-                pass
-        except Exception:
-            pass
-
         self.statusBar().showMessage(
-            f"โหลดคอลัมน์เรียบร้อย • {rows_count:,} แถว, {cols_count} คอลัมน์ • เลือก X/Y แล้วพล็อตได้"
+            f"Columns loaded - {rows_count:,} rows, {cols_count} columns - choose X/Y, then plot."
         )
 
         try:
@@ -341,19 +322,88 @@ class MainWindowDataMixin:
         except Exception as e:
             return False, f"เกิดข้อผิดพลาดในการตรวจสอบคอลัมน์ '{col_name}': {e}"
 
-    def _get_xy(self):
+    def build_plot_request(
+        self,
+        x_column: str | None = None,
+        y_column: str | None = None,
+    ) -> PlotRequest | None:
+        """Build a widget-independent request from explicit or selected columns."""
+        if x_column is None:
+            x_column = self.cbX.currentText()
+        if y_column is None:
+            y_column = self.cbY.currentText()
+        x, y = self._get_xy(x_column, y_column)
+        if x is None:
+            return None
+        return PlotRequest(
+            x=x,
+            y=y,
+            x_column=x_column,
+            y_column=y_column,
+            x_is_datetime=self._is_datetime_column(x_column),
+        )
+
+    def build_histogram_request(
+        self,
+        column: str | None = None,
+        options: PlotOptions | None = None,
+    ) -> HistogramRequest | None:
+        """Build histogram input from an explicit or currently selected Y column."""
+        df = self._resolve_active_dataframe()
+        column = column or self.selected_y_column()
+        if not isinstance(df, pd.DataFrame) or not column or column not in df.columns:
+            return None
+        values = pd.to_numeric(df[column], errors="coerce").dropna().to_numpy()
+        if values.size == 0:
+            return None
+        return HistogramRequest(
+            values=values,
+            column=column,
+            options=options or self.current_plot_options(),
+        )
+
+    def build_bar_request(
+        self,
+        x_column: str,
+        y_column: str,
+        *,
+        title: str = "",
+        options: PlotOptions | None = None,
+    ) -> BarRequest | None:
+        """Build a bar request; categorical X values are valid for this plot."""
+        df = self._resolve_active_dataframe()
+        if (
+            not isinstance(df, pd.DataFrame)
+            or x_column not in df.columns
+            or y_column not in df.columns
+        ):
+            return None
+        y_values = pd.to_numeric(df[y_column], errors="coerce")
+        mask = df[x_column].notna() & y_values.notna()
+        if not mask.any():
+            return None
+        return BarRequest(
+            x=df.loc[mask, x_column].to_numpy(),
+            y=y_values.loc[mask].to_numpy(),
+            x_column=x_column,
+            y_column=y_column,
+            title=title,
+            options=options or self.current_plot_options(),
+        )
+
+    def _get_xy(self, x_col: str | None = None, y_col: str | None = None):
         if self._df is None:
             QMessageBox.warning(
                 self, "ยังไม่มีข้อมูล", "โปรดเปิดไฟล์/เลือกตัวแปร แล้วกด 'โหลดคอลัมน์'"
             )
             return None, None
 
-        if self.cbX.count() == 0 or self.cbY.count() == 0:
+        if (x_col is None or y_col is None) and (self.cbX.count() == 0 or self.cbY.count() == 0):
             QMessageBox.information(self, "ยังไม่ได้โหลดคอลัมน์", "กดปุ่ม 'โหลดคอลัมน์จากข้อมูล' ก่อน")
             return None, None
 
-        x_col = self.cbX.currentText()
-        y_col = self.cbY.currentText()
+        x_col = x_col if x_col is not None else self.cbX.currentText()
+        y_col = y_col if y_col is not None else self.cbY.currentText()
         if x_col not in self._df.columns or y_col not in self._df.columns:
             QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่")
             return None, None

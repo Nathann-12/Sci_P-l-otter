@@ -169,7 +169,7 @@ def test_on_spectrogram_preview_renders_and_stores_current_state(qapp, monkeypat
     assert len(window.canvas.ax.images) == 1
     assert window._last_cbar is not None
     assert window._cid_motion != prior_cid
-    assert window.statusBar().messages[-1] == "Spectrogram preview เสร็จสิ้น: STFT"
+    assert window.statusBar().messages[-1] == "Spectrogram preview completed: STFT"
 
 
 def test_spectrogram_export_image_and_csv_use_current_preview(qapp, monkeypatch, tmp_path):
@@ -202,7 +202,7 @@ def test_spectrogram_export_image_and_csv_use_current_preview(qapp, monkeypatch,
 
     assert saved["image"][0] == str(image_path)
     assert saved["image"][1]["dpi"] == 150
-    assert window.statusBar().messages[-1] == f"บันทึก Spectrogram เป็น {image_path}"
+    assert window.statusBar().messages[-1] == f"Spectrogram image saved: {image_path}"
 
     monkeypatch.setattr(
         spectrogram_mixin_module.QFileDialog,
@@ -224,7 +224,7 @@ def test_spectrogram_export_image_and_csv_use_current_preview(qapp, monkeypatch,
     np.testing.assert_allclose(saved["csv"][2], np.array([[1.0, 2.0], [3.0, 4.0]]))
     assert saved["csv"][3] == {"is_datetime": False}
     assert saved["csv"][4] == str(csv_path)
-    assert window.statusBar().messages[-1] == f"บันทึก Spectrogram CSV เป็น {csv_path}"
+    assert window.statusBar().messages[-1] == f"Spectrogram CSV saved: {csv_path}"
 
 
 def test_spectrogram_send_actions_and_mouse_move_status(qapp):
@@ -245,7 +245,7 @@ def test_spectrogram_send_actions_and_mouse_move_status(qapp):
     assert window.fft_calls == 1
     assert window.curvefit_calls == 1
     assert window.statusBar().messages[-3:] == [
-        "ส่งข้อมูลไปยัง FFT แล้ว",
-        "ส่งข้อมูลไปยัง CurveFit แล้ว",
+        "Spectrogram data sent to FFT.",
+        "Spectrogram data sent to Curve Fit.",
         "Time: 1.000 | Freq: 1.00 Hz | Power: 5.50 dB",
     ]

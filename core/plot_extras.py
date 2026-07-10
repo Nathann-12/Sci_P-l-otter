@@ -1,4 +1,4 @@
-"""Extra plot types: error bars, fill-between bands, secondary Y axis.
+"""Extra plot types: error bars, fill-between bands, secondary/broken axes.
 
 Pure matplotlib drawing helpers (take an Axes + arrays) so they are testable
 without Qt. The MainWindow mixin picks columns via a form and calls these.
@@ -58,3 +58,125 @@ def add_secondary_y(ax, x, y, label: Optional[str] = None,
         ax2.set_ylabel(ylabel, color=c)
     ax2.tick_params(axis="y", colors=c)
     return ax2, line
+
+
+def _line_style(line) -> dict[str, Any]:
+    return {
+        "label": line.get_label(),
+        "color": line.get_color(),
+        "linestyle": line.get_linestyle(),
+        "linewidth": line.get_linewidth(),
+        "marker": line.get_marker(),
+        "markersize": line.get_markersize(),
+        "alpha": line.get_alpha(),
+    }
+
+
+def _finite_line_data(ax):
+    payload = []
+    for line in ax.get_lines():
+        x, y = _clean(line.get_xdata(orig=False), line.get_ydata(orig=False))
+        payload.append((x, y, _line_style(line)))
+    if not payload:
+        raise ValueError("broken axis needs at least one line plot")
+    return payload
+
+
+def _break_marks_y(top, bottom) -> None:
+    d = 0.012
+    kwargs = dict(color="#d7dde6", clip_on=False, linewidth=1.0)
+    top.plot((-d, +d), (-d, +d), transform=top.transAxes, **kwargs)
+    top.plot((1 - d, 1 + d), (-d, +d), transform=top.transAxes, **kwargs)
+    bottom.plot((-d, +d), (1 - d, 1 + d), transform=bottom.transAxes, **kwargs)
+    bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), transform=bottom.transAxes, **kwargs)
+
+
+def _break_marks_x(left, right) -> None:
+    d = 0.012
+    kwargs = dict(color="#d7dde6", clip_on=False, linewidth=1.0)
+    left.plot((1 - d, 1 + d), (-d, +d), transform=left.transAxes, **kwargs)
+    left.plot((1 - d, 1 + d), (1 - d, 1 + d), transform=left.transAxes, **kwargs)
+    right.plot((-d, +d), (-d, +d), transform=right.transAxes, **kwargs)
+    right.plot((-d, +d), (1 - d, 1 + d), transform=right.transAxes, **kwargs)
+
+
+def draw_broken_axis(ax, axis: str, lower: float, upper: float) -> Tuple[Any, Any]:
+    """Redraw line plots on split axes with a hidden range between lower/upper."""
+    axis = str(axis).lower()[0]
+    if axis not in {"x", "y"}:
+        raise ValueError("axis must be x or y")
+    lower = float(lower)
+    upper = float(upper)
+    if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
+        raise ValueError("lower break must be less than upper break")
+
+    payload = _finite_line_data(ax)
+    title = ax.get_title()
+    xlabel = ax.get_xlabel()
+    ylabel = ax.get_ylabel()
+    figure = ax.figure
+    x_values = np.concatenate([x for x, _y, _style in payload])
+    y_values = np.concatenate([y for _x, y, _style in payload])
+    x_min, x_max = float(np.nanmin(x_values)), float(np.nanmax(x_values))
+    y_min, y_max = float(np.nanmin(y_values)), float(np.nanmax(y_values))
+    if axis == "y" and not (y_min < lower < upper < y_max):
+        raise ValueError("Y break range must be inside the plotted data range")
+    if axis == "x" and not (x_min < lower < upper < x_max):
+        raise ValueError("X break range must be inside the plotted data range")
+
+    figure.clf()
+    if axis == "y":
+        top, bottom = figure.subplots(
+            2,
+            1,
+            sharex=True,
+            gridspec_kw={"height_ratios": [1, 1], "hspace": 0.06},
+        )
+        target_axes = (top, bottom)
+        top.set_ylim(upper, y_max)
+        bottom.set_ylim(y_min, lower)
+        top.spines["bottom"].set_visible(False)
+        bottom.spines["top"].set_visible(False)
+        top.tick_params(labelbottom=False)
+        bottom.set_xlabel(xlabel)
+        top.set_ylabel(ylabel)
+        bottom.set_ylabel(ylabel)
+        _break_marks_y(top, bottom)
+    else:
+        left, right = figure.subplots(
+            1,
+            2,
+            sharey=True,
+            gridspec_kw={"width_ratios": [1, 1], "wspace": 0.06},
+        )
+        target_axes = (left, right)
+        left.set_xlim(x_min, lower)
+        right.set_xlim(upper, x_max)
+        left.spines["right"].set_visible(False)
+        right.spines["left"].set_visible(False)
+        right.tick_params(labelleft=False)
+        left.set_xlabel(xlabel)
+        right.set_xlabel(xlabel)
+        left.set_ylabel(ylabel)
+        _break_marks_x(left, right)
+
+    for target in target_axes:
+        for x, y, style in payload:
+            target.plot(x, y, **style)
+        target.grid(True, alpha=0.25)
+    if title:
+        figure.suptitle(title)
+    handles, labels = target_axes[0].get_legend_handles_labels()
+    pairs = [
+        (handle, label)
+        for handle, label in zip(handles, labels)
+        if label and not str(label).startswith("_")
+    ]
+    if pairs:
+        handles, labels = zip(*pairs)
+        target_axes[0].legend(handles, labels, loc="best")
+    try:
+        figure.tight_layout()
+    except Exception:
+        pass
+    return target_axes

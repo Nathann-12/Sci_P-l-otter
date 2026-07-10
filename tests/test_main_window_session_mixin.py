@@ -138,7 +138,7 @@ def test_stage_insert_deduplicates_names_and_stores_dataframe_copy():
 
     assert list(window._datasets) == ["sample.csv [ตาราง]", "sample.csv [ตาราง] (2)"]
     assert window.lstFiles.count() == 2
-    assert window.statusBar().messages[-1] == "เตรียมข้อมูล: sample.csv [ตาราง] (2)"
+    assert window.statusBar().messages[-1] == "Data ready: sample.csv [ตาราง] (2)"
 
 
 def test_load_dataset_from_path_uses_override_name(monkeypatch, tmp_path):
@@ -214,7 +214,7 @@ def test_stage_remove_selected_confirms_when_removing_active_dataset(monkeypatch
     assert "sample.csv [ตาราง]" not in window._datasets
     assert window.lstFiles.count() == 0
     assert recorder.calls[0][0] == "question"
-    assert window.statusBar().messages[-1] == "นำออกจากรายการแล้ว: sample.csv [ตาราง]"
+    assert window.statusBar().messages[-1] == "Removed from list: sample.csv [ตาราง]"
 
 
 def test_close_event_saves_session_and_calls_super(monkeypatch):

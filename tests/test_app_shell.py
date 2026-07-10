@@ -26,7 +26,7 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_register_context_shows_first_and_switches(qapp):
+def test_register_context_stays_hidden_until_explicitly_shown(qapp):
     shell = AppShell()
 
     page_data = QLabel("data context")
@@ -35,9 +35,16 @@ def test_register_context_shows_first_and_switches(qapp):
     shell.register_context("data", "ข้อมูล", page_data)
     shell.register_context("plot", "กราฟ", page_plot)
 
-    # first registered context is visible
+    # first registered context is selected internally, but visually parked so
+    # startup stays sheet-first instead of module-first.
     assert shell.current_context_id() == "data"
     assert shell.context_stack.currentWidget() is page_data
+    assert shell.rail.isHidden()
+    assert shell.context_stack.isHidden()
+
+    shell.show_activity_context()
+    assert not shell.rail.isHidden()
+    assert not shell.context_stack.isHidden()
 
     # switching the rail switches the visible context page
     shell.rail.set_active("plot")
@@ -71,9 +78,35 @@ def test_add_dock_creates_tab(qapp):
     dock = QLabel("AI")
     index = shell.add_dock("AI", dock)
 
+    assert not shell.dock_tabs.isHidden()
     assert shell.dock_tabs.count() == 1
     assert shell.dock_tabs.widget(index) is dock
     assert shell.dock_tabs.tabText(index) == "AI"
+
+
+def test_add_side_panel_creates_parked_vertical_tab(qapp):
+    from widgets.side_panel_tabs import SidePanelTabs
+
+    shell = AppShell()
+    explorer = QLabel("Project Explorer")
+    log = QLabel("Messages")
+
+    first = shell.add_side_panel("Project Explorer (1)", explorer)
+    second = shell.add_side_panel("Messages Log", log)
+
+    assert not shell.side_tabs.isHidden()
+    assert shell.side_tabs.count() == 2
+    assert shell.side_tabs.widget(first) is explorer
+    assert shell.side_tabs.widget(second) is log
+    assert shell.side_panel_widget("Project Explorer (1)") is explorer
+    assert shell.side_tabs.is_collapsed()
+    assert shell.layout().itemAt(0).widget() is shell.side_tabs
+    assert shell.side_tabs.maximumWidth() == SidePanelTabs.COLLAPSED_WIDTH
+
+    shell.side_tabs.tab_bar.tabBarClicked.emit(first)
+    assert not shell.side_tabs.is_collapsed()
+    shell.side_tabs.tab_bar.tabBarClicked.emit(first)
+    assert shell.side_tabs.is_collapsed()
 
 
 def test_command_palette_hook(qapp):
@@ -99,6 +132,7 @@ def test_shell_stylesheet_is_loaded(qapp):
     shell = AppShell()
     # shell.qss is layered onto the shell's own stylesheet on construction
     assert "#ActivityRail" in shell.styleSheet()
+    assert "#SidePanelTabs" in shell.styleSheet()
     assert "#CommandPalette" in shell.styleSheet()
 
 
@@ -117,23 +151,36 @@ def test_default_layout_sizes(qapp):
     # bottom dock is collapsible via the splitter; top panes are not
     assert shell._main_splitter.isCollapsible(1)
     assert not shell._top_splitter.childrenCollapsible()
+    assert shell.layout().itemAt(0).widget() is shell.side_tabs
+    assert shell.layout().itemAt(1).widget() is shell.rail
 
 
-def test_rail_hidden_until_a_context_is_registered(qapp):
+def test_rail_stays_hidden_until_context_is_explicitly_opened(qapp):
     shell = AppShell()
-    # Origin-pure shell: no contexts → no rail, no context column
     assert shell.rail.isHidden()
     assert shell.context_stack.isHidden()
 
     shell.register_context("gas", "Gas Sensor", QLabel("gas module"))
+    assert shell.rail.isHidden()
+    assert shell.context_stack.isHidden()
+
+    shell.show_activity_context("gas")
     assert not shell.rail.isHidden()
     assert not shell.context_stack.isHidden()
+
+    shell.hide_activity_context()
+    assert shell.rail.isHidden()
+    assert shell.context_stack.isHidden()
 
 
 def test_reselecting_active_activity_toggles_the_panel(qapp):
     shell = AppShell()
     shell.register_context("gas", "Gas", QLabel("gas"))
     shell.register_context("data", "Data", QLabel("data"))
+    assert shell.rail.isHidden()
+    assert shell.context_stack.isHidden()
+
+    shell.show_activity_context("gas")
     assert not shell.context_stack.isHidden()
 
     # click the active activity again → panel collapses (rail stays)

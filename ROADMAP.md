@@ -41,21 +41,22 @@
 - 🟡 Header detection
 - 🟡 Multi-sheet Excel reader
 - 🟡 Data preview
+- ✅ Data workflow menu (Active Book / Columns / Units + Metadata / Quick Transforms / Clean Data)
 - ✅ Column type detection
 - ✅ Time column detection
 - 🟡 Unit detection
 - 🟡 Metadata reader
 - ✅ Dataset tree (Origin multi-book: 1 ไฟล์ = 1 Book + Project Explorer)
-- ☐ Dataset grouping
-- 🟡 Dataset rename
-- ☐ Dataset duplicate
-- ☐ Dataset merge
-- ☐ Dataset split
-- ☐ Dataset filter
-- ☐ Dataset search
+- ✅ Dataset grouping
+- ✅ Dataset rename
+- ✅ Dataset duplicate
+- ✅ Dataset merge
+- ✅ Dataset split
+- ✅ Dataset filter
+- ✅ Dataset search
 
-## B. Data Cleaning — 🟢 ชุดทำความสะอาดมาตรฐานครบ (เมนู Process → Data Cleaning)
-- 🟡 Remove NaN
+## B. Data Cleaning — 🟢 ชุดทำความสะอาดมาตรฐานครบ (เมนู Process → Clean & Prepare Data)
+- ✅ Remove NaN
 - ✅ Fill missing value
 - ✅ Interpolate missing value
 - ✅ Remove duplicates
@@ -70,43 +71,58 @@
 - ✅ Smooth data (moving average)
 - ✅ Resample
 - ✅ Sort data
-- 🟡 Crop range (export visible range)
+- ✅ Crop range (export visible range)
 - ✅ Convert units
 - 🟡 Time alignment (add Bangkok time +7h)
-- ☐ Merge by timestamp
+- ✅ Merge by timestamp
 - ✅ Formula column (derived column)
 
 ## C. Plotting — 🟢 แกนครบ ขาดชนิดเฉพาะ + export หลายฟอร์แมต
+- ✅ Origin-style request/options seam (worksheet designation → immutable plot/export request → Graph ใหม่หรือ overlay)
+- ✅ Smart single-column worksheet plot (any single selected column → Y vs Row แบบ Excel)
+- ✅ Origin-style Charts mega menu บน menubar (sidebar หมวด + thumbnail grid + Recently Used)
+- ✅ Charts/Gallery data mapping dialog (เลือก Primary/X, Y series, Z, Group ก่อน registry/basic advanced plots)
+- ✅ Plot/export robustness audit (no-data gallery, duplicate-X export, invalid-plot graph guard, warning-free suite)
+- ✅ Graph-scoped toolbar actions target selected/last-selected Graph instead of Graph 1
+- ✅ Two-row Origin-style function toolbar (top icon bar + unique Material icons + QAction registry)
+- ✅ Function-menu QAction user-flow coverage (Process, Analysis, Plot, Export, Tools/Workflow, Annotation, Gas Sensor)
+- ✅ Origin-like Analysis menu categories (Statistics / Mathematics / Data Manipulation / Fitting / Signal Processing / Peaks and Baseline)
+- ✅ Process workflow menu grouped for real use (Quick Actions / Frequency & Spectrum / Smoothing & Filters / Signal Transforms / Correlation & Convolution / Clean & Prepare Data / Summarize & Aggregate)
 - ✅ Line plot
 - ✅ Scatter plot
 - ✅ Bar chart
 - ✅ Histogram
 - ✅ Box plot
-- ☐ Violin plot
-- ☐ Heatmap
-- ☐ Contour plot
+- ✅ Violin plot (Plot Gallery → Distribution)
+- ✅ Heatmap (numeric worksheet matrix + correlation heatmap)
+- ✅ Contour plot (filled contour + labeled contour lines จาก XYZ)
 - ✅ Surface plot (3D)
-- ☐ Waterfall plot
+- ✅ Waterfall plot (3D Waterfall + Stacked Lines by Y Offset)
 - ✅ Spectrogram
-- ☐ Polar plot
-- ☐ Phase plot
-- ☐ Nyquist plot
-- ☐ Bode plot
+- ✅ Polar plot
+- ✅ Phase plot
+- ✅ Nyquist plot
+- ✅ Bode plot
 - ✅ Error bar (Plot → Error Bar Plot)
 - ✅ Fill between / band (Plot → Fill Between)
 - ✅ Multi-axis plot (Plot → Add Secondary Y Axis)
-- ☐ Subplot grid
+- ✅ Subplot grid
 - ✅ Log X (View → Format Graph → Axes → X scale)
 - ✅ Log Y (View → Format Graph → Axes → Y scale)
-- ☐ Broken axis
+- ✅ Broken axis
 - ✅ Reverse axis (Format Graph → Axes → Reverse X/Y)
 - ✅ Date axis
-- ✅ Custom ticks (size/direction + major/minor spacing ใน Format Graph → Axes)
+- ✅ Custom ticks (size/direction ใน Ticks && Spines; major/minor increment + Anchor Tick + minor By Counts + rescale margin ใน Format Graph → Scale)
+- ✅ Tick label formula/display (Format Graph → Tick Labels: notation/decimals/divide/formula `2*x`/prefix/suffix)
+- ✅ Tick-label display editor (decimal/scientific/engineering/percent, divide factor, prefix/suffix, signs)
+- ✅ Reference line labels/width/opacity (Format Graph → Reference Lines)
 - ✅ Legend editor (Format Graph → Grid & Legend)
 - ✅ Label editor (Format Graph → Axes: title/x/y + font sizes)
 - ✅ Font editor (title/label/tick/legend sizes ใน Format Graph)
 - ✅ Color editor (per-curve color/style/marker ใน Format Graph → Lines)
+- ✅ Advanced graph effects (axes shadow/border, legend fill/shadow/rounded, line glow/shadow)
 - ✅ Theme preset (dark/default)
+- ✅ Compact useful Settings dialog (Appearance + Matplotlib + Plot Behavior, validated QSS/mplstyle paths)
 - ✅ Journal figure preset (IEEE/Nature/Science/ACS/Thesis — Format Graph → Presets)
 - ✅ Save figure template (Format Graph → Presets && Templates)
 - ✅ Export PNG
@@ -117,9 +133,10 @@
 - ✅ Transparent background (Export Figure option)
 - ✅ High DPI export (Export Figure — DPI up to 2400)
 - ✅ Copy to clipboard (Export → Copy Graph / Ctrl+Shift+C)
-- ☐ Batch export
+- ✅ Batch export
 
 ## D. Analysis Engine — 🟢 fitting แข็ง + สถิติเชิงพรรณนาครบ (เมนู Analysis → Descriptive Statistics)
+- ✅ Origin-like Analysis menu hierarchy
 - ✅ Mean
 - ✅ Median
 - ✅ Mode
@@ -151,20 +168,20 @@
 - 🟡 Chi-square
 - 🟡 Confidence interval
 
-## E. Signal Processing — 🟢 FFT/PSD/ชุด filter ครบ (เมนู Process → Filters)
+## E. Signal Processing — 🟢 FFT/PSD/filters + signal transforms ครบชุดหลัก (เมนู Process)
 - ✅ FFT
-- 🟡 IFFT (logic+test ใน `analysis/signal_filters.py` — ยังไม่มี UI)
+- ✅ IFFT (Process → Frequency & Spectrum → IFFT)
 - ✅ PSD
 - ✅ Welch PSD
-- 🟡 STFT
+- ✅ STFT (Process → Frequency & Spectrum → STFT)
 - ✅ Spectrogram
 - ✅ Wavelet transform
-- ☐ Hilbert transform
-- ☐ Envelope detection
+- ✅ Hilbert transform (Process → Signal Transforms → Hilbert Transform)
+- ✅ Envelope detection (Process → Signal Transforms → Envelope Detection)
 - ✅ Cross-correlation
-- 🟡 Auto-correlation
-- ☐ Convolution
-- ☐ Deconvolution
+- ✅ Auto-correlation (Process → Correlation & Convolution → Auto-correlation)
+- ✅ Convolution (Process → Correlation & Convolution → Convolution)
+- ✅ Deconvolution (Process → Correlation & Convolution → Deconvolution)
 - ✅ Low-pass filter
 - ✅ High-pass filter
 - ✅ Band-pass filter
@@ -174,19 +191,19 @@
 - ✅ Moving average
 - ✅ Median filter
 - ✅ Gaussian filter
-- ✅ Window function (Process → Filters → Apply Window)
+- ✅ Window function (Process → Smoothing & Filters → Apply Window)
 - ✅ Hann window
 - ✅ Hamming window
 - ✅ Blackman window
 - ✅ Kaiser window
-- 🟡 Zero padding (logic+test — ยังไม่มี UI)
+- ✅ Zero padding (Process → Signal Transforms → Zero Padding)
 - ✅ Peak detection
 - ✅ Peak area (Analysis → Peak Metrics)
 - ✅ FWHM (Analysis → Peak Metrics)
 - ✅ Noise floor (Analysis → Signal Quality)
 - ✅ SNR (Analysis → Signal Quality)
-- ☐ Harmonic analysis
-- ☐ Frequency tracking
+- ✅ Harmonic analysis
+- ✅ Frequency tracking / instantaneous frequency (Process → Signal Transforms → Instantaneous Frequency)
 
 ## F. Reproducibility System — 🟢 workflow ครบวงจร (เมนู Tools; core/history.py)
 - ✅ Analysis history
@@ -198,12 +215,12 @@
 - ✅ Import workflow
 - ✅ Re-run analysis
 - ✅ Auto-generate Python script
-- 🟡 Auto-generate report
+- ✅ Auto-generate report
 - ✅ Save project file (*.sciproj — File → Save/Open Project, ฝังข้อมูลในตัว)
-- 🟡 Project snapshot
+- ✅ Project snapshot
 - ✅ Undo/redo (annotations)
-- ☐ Compare versions
-- 🟡 Audit trail (history + checksum + op log — ยังไม่ immutable)
+- ✅ Compare versions
+- ✅ Audit trail (history + checksum + op log; session-level, not immutable)
 
 ## G. AI Assistant — ☐ ยังไม่เริ่ม (ตัวสร้างความต่างหลัก)
 - ☐ สั่งงานด้วยภาษาไทย
@@ -279,66 +296,66 @@
 - ☐ PCA gas classification
 - ☐ AI gas pattern recognition
 
-## I. Electrochemistry Module — ☐ ยังไม่เริ่ม
+## I. Electrochemistry Module — 🟡 first production workflow pass (menu/rail + result Books/Graphs)
 - ☐ Cyclic voltammetry import
-- ☐ CV peak current
-- ☐ CV peak potential
-- ☐ Oxidation peak detection
-- ☐ Reduction peak detection
-- ☐ ΔEp calculation
-- ☐ Scan rate analysis
-- ☐ Randles-Sevcik plot
-- ☐ ECSA calculation
-- ☐ Tafel plot
+- ✅ CV peak current
+- ✅ CV peak potential
+- ✅ Oxidation peak detection
+- ✅ Reduction peak detection
+- ✅ ΔEp calculation
+- ✅ Scan rate analysis
+- ✅ Randles-Sevcik plot
+- ✅ ECSA calculation
+- ✅ Tafel plot
 - ☐ Linear sweep voltammetry
 - ☐ Chronoamperometry
 - ☐ Chronopotentiometry
-- ☐ Charge/discharge curve
-- ☐ Specific capacitance
+- ✅ Charge/discharge curve
+- ✅ Specific capacitance
 - ☐ Coulombic efficiency
-- ☐ Energy density
-- ☐ Power density
+- ✅ Energy density
+- ✅ Power density
 - ☐ GCD cycle stability
 - ☐ Battery capacity analysis
-- ☐ EIS Nyquist plot
-- ☐ EIS Bode plot
+- ✅ EIS Nyquist plot
+- ✅ EIS Bode plot
 - ☐ Equivalent circuit fitting
-- ☐ Rs calculation
-- ☐ Rct calculation
+- ✅ Rs calculation
+- ✅ Rct calculation
 - ☐ Warburg element fitting
 - ☐ Double-layer capacitance
-- ☐ Impedance report
-- ☐ Supercapacitor module
+- 🟡 Impedance report (basic Rs/Rct + Bode result Book; no circuit fitting yet)
+- 🟡 Supercapacitor module (GCD capacitance/energy/power; no cycle stability yet)
 - ☐ Battery degradation module
 
-## J. Spectroscopy Module — ☐ ยังไม่เริ่ม
-- ☐ Raman spectrum viewer
+## J. Spectroscopy Module — 🟡 first production workflow pass
+- ✅ Raman spectrum viewer
 - ☐ FTIR spectrum viewer
 - ☐ UV-Vis spectrum viewer
 - ☐ PL spectrum viewer
 - ☐ XPS spectrum viewer
-- ☐ XRD pattern viewer
-- ☐ Spectrum baseline correction
+- ✅ XRD pattern viewer
+- ✅ Spectrum baseline correction
 - ☐ Spectrum smoothing
-- ☐ Peak detection
+- ✅ Peak detection
 - ☐ Peak fitting
-- ☐ Raman D/G ratio
+- ✅ Raman D/G ratio
 - ☐ Raman 2D peak analysis
 - ☐ FTIR functional group marker
-- ☐ UV-Vis absorbance peak
-- ☐ Band gap from Tauc plot
+- ✅ UV-Vis absorbance peak
+- ✅ Band gap from Tauc plot
 - ☐ PL intensity comparison
 - ☐ XPS peak deconvolution
 - ☐ XRD peak indexing
-- ☐ Scherrer crystallite size
-- ☐ FWHM calculation
-- ☐ Background subtraction
-- ☐ Normalize spectrum
+- ✅ Scherrer crystallite size
+- ✅ FWHM calculation
+- ✅ Background subtraction
+- ✅ Normalize spectrum
 - ☐ Compare spectra
 - ☐ Stack spectra
 - ☐ Waterfall spectra
 - ☐ Peak assignment notes
-- ☐ Export peak table
+- ✅ Export peak table
 - ☐ Auto spectrum report
 - ☐ AI functional group suggestion
 - ☐ AI material interpretation
@@ -398,31 +415,31 @@
 - ☐ Export event interval
 - ☐ Space physics report template
 
-## M. Materials Science Module — ☐ ยังไม่เริ่ม
+## M. Materials Science Module — 🟡 first production workflow pass
 - ☐ Sample database / Composition table
 - ☐ Synthesis condition log / Annealing temp / pH / Solvent / Precursor ratio
 - ☐ Drop-casting condition / Film thickness record / Substrate record
-- ☐ Conductivity / Resistivity / Sheet resistance calculation
-- ☐ Activation energy / Arrhenius plot
+- ✅ Conductivity / Resistivity / Sheet resistance calculation
+- ✅ Activation energy / Arrhenius plot
 - ☐ Tauc plot
 - ☐ BET surface area import / Pore volume analysis
-- ☐ Thermal analysis import (TGA / DSC) / Phase transition point
-- ☐ Composite ratio comparison / Material property table
-- ☐ Sample-to-sample comparison / Batch ranking / Best sample finder
+- ✅ Thermal analysis import (TGA / DSC) / Phase transition point
+- ✅ Composite ratio comparison / Material property table
+- ✅ Sample-to-sample comparison / Batch ranking / Best sample finder
 - ☐ AI material summary / Paper-ready material table / Experimental condition report
 
-## N. Physics / General Lab Module — ☐ ส่วนใหญ่ยังไม่เริ่ม (unit conversion มีแล้ว)
-- ☐ Error propagation
-- ☐ Least squares lab report
-- ☐ Linearization helper
-- ☐ Uncertainty table
+## N. Physics / General Lab Module — 🟡 first production workflow pass
+- ✅ Error propagation
+- ✅ Least squares lab report
+- ✅ Linearization helper
+- ✅ Uncertainty table
 - ☐ Significant figures checker
 - ✅ Unit conversion
 - ☐ Dimensional analysis
-- ☐ Pendulum analysis
+- ✅ Pendulum analysis
 - ☐ Hooke's law analysis
-- ☐ Ohm's law analysis
-- ☐ RC / RL / RLC fitting
+- ✅ Ohm's law analysis
+- ✅ RC / RL / RLC fitting
 - ☐ Op-amp experiment plot
 - ☐ Diode IV curve / Transistor IV curve
 - ☐ Hall effect analysis
@@ -453,12 +470,16 @@
 - ✅ Dark mode
 - ✅ Light mode
 - 🟡 Thai language
-- 🟡 English language
+- ✅ English language (UI normalization + visible shell/dialog text)
 - ☐ Plugin system
 - ☐ Python scripting
 - ☐ Macro recorder
 - ☐ Command palette
 - ✅ Keyboard shortcuts
+- ✅ Scalable activity rail / module dock
+- ✅ Parked side tabs for Project Explorer / Messages Log / Smart Hint Log
+- ✅ Clean sheet-first startup (no default Graph1, modules hidden by default)
+- ✅ Compact Settings dialog with real theme/font/plot-mode persistence
 - 🟡 Custom workspace (docks/inspector)
 - 🟡 Auto-save
 - 🟡 Crash recovery (session restore prompt)
@@ -470,6 +491,15 @@
 - ☐ Student license
 - ☐ Lab license
 - ☐ Update checker
+
+---
+
+## Latest verification
+- 2026-07-09: Spectroscopy module first production workflow pass added under Modules Gallery: baseline correction + normalization, peak table/FWHM/area, Raman D/G ratio, Tauc band gap, and XRD Scherrer size. Added pure analysis tests and MainWindow QAction/menu user-flow tests through real result Books/Graphs. Full suite: `715 passed, 3 skipped` with `-W error`.
+- 2026-07-09: Materials Science module first production workflow pass added under Modules Gallery: I-V conductivity/resistivity/sheet resistance, Arrhenius activation energy, TGA/DSC thermal metrics, and sample ranking. Added pure analysis tests and MainWindow QAction/menu user-flow tests through result Books/Graphs. Full suite: `721 passed, 3 skipped` with `-W error`.
+- 2026-07-09: Physics / General Lab module first production workflow pass added under Modules Gallery: Ohm's law fit, RC time constant, pendulum gravity fit, and power-product uncertainty propagation. Added pure analysis tests and MainWindow QAction/menu user-flow tests. Full suite: `727 passed, 3 skipped` with `-W error`.
+- 2026-07-08: Electrochemistry module first production workflow pass added: rail context + top menu, pure analysis helpers for CV peaks, Randles-Sevcik/ECSA, Tafel, GCD supercapacitor metrics, and EIS Rs/Rct/Nyquist/Bode result data. Added MainWindow user-flow tests through real QAction/menu paths. Focused suite: `98 passed` with `-W error`.
+- 2026-07-08: core module pass completed for dataset management, cleaning, harmonic analysis, reproducibility report/snapshot/compare/audit, English UI normalization, and Process menu workflow redesign. Added startup/test-suite optimization for Settings diff-apply, Qt test cleanup, cached toolbar icons, cached shell QSS, and quiet debug logging. Full suite: `687 passed, 8 skipped` in `224.36s / 0:03:44` with `-W error`.
 
 ---
 

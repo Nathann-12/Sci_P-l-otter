@@ -16,17 +16,18 @@ from __future__ import annotations
 from typing import List, Optional
 
 import pandas as pd
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QHBoxLayout,
+    QApplication,
     QHeaderView,
-    QLabel,
     QMenu,
     QPushButton,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -111,41 +112,47 @@ _WORKBOOK_QSS = f"""
     border-bottom: 1px solid {_BORDER};
 }}
 
-/* Action bar above the sheet (type data -> plot, Origin-style) */
-#WorkbookBar {{
-    background-color: {_SURFACE_2};
-    border-bottom: 1px solid {_BORDER};
+/* Bottom icon strip, following Origin's worksheet flow: edit data in the grid,
+   then use/plot/structure from a dense tool row below it. */
+QToolBar#WorkbookBottomBar {{
+    background-color: #17191c;
+    border: none;
+    border-top: 1px solid {_BORDER};
+    padding: 1px 4px;
+    spacing: 1px;
 }}
 
-#WorkbookBar QLabel {{
-    color: {_MUTED};
-    font-size: 11px;
+QToolBar#WorkbookBottomBar::separator {{
+    background-color: #3c424a;
+    width: 1px;
+    margin: 3px 4px;
 }}
 
-#WorkbookBar QPushButton {{
+QToolBar#WorkbookBottomBar QToolButton {{
     background: transparent;
     color: {_TEXT};
-    border: 1px solid {_BORDER};
-    border-radius: 6px;
-    padding: 3px 10px;
-    min-height: 22px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 2px;
+    margin: 0px;
+    min-width: 20px;
+    min-height: 20px;
+    max-width: 24px;
+    max-height: 24px;
 }}
 
-#WorkbookBar QPushButton:hover {{
-    background: rgba(255, 255, 255, 0.06);
-    border-color: {_ACCENT};
+QToolBar#WorkbookBottomBar QToolButton:hover {{
+    background: rgba(79, 156, 249, 0.14);
+    border-color: rgba(79, 156, 249, 0.35);
 }}
 
-#WorkbookBar QPushButton#WorkbookPlotButton {{
-    background: {_ACCENT};
-    color: #ffffff;
-    border-color: {_ACCENT};
-    font-weight: 600;
+QToolBar#WorkbookBottomBar QToolButton:pressed {{
+    background: rgba(79, 156, 249, 0.22);
 }}
 
-#WorkbookBar QPushButton#WorkbookPlotButton:hover {{
-    background: #5fa8fb;
-    border-color: #5fa8fb;
+QToolBar#WorkbookBottomBar QToolButton:disabled {{
+    color: #666666;
+    background: transparent;
 }}
 """
 
@@ -240,34 +247,28 @@ class WorkbookWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # --- action bar: makes the sheet self-explanatory (type -> plot) ---
-        bar = QWidget(self)
-        bar.setObjectName("WorkbookBar")
-        bar_layout = QHBoxLayout(bar)
-        bar_layout.setContentsMargins(8, 4, 8, 4)
-        bar_layout.setSpacing(6)
-
-        self.btn_add_row = QPushButton("+ Row", bar)
-        self.btn_add_col = QPushButton("+ Column", bar)
-        self.btn_use_data = QPushButton("Use This Data", bar)
+        # Hidden compatibility buttons: older tests/callers can still trigger
+        # the same signals, while the visible UI is the Origin-like toolbar.
+        self.btn_add_row = QPushButton("+R", self)
+        self.btn_add_row.setToolTip("Append one data row")
+        self.btn_add_col = QPushButton("+C", self)
+        self.btn_add_col.setToolTip("Append one worksheet column")
+        self.btn_use_data = QPushButton("Use", self)
         self.btn_use_data.setToolTip("Use this sheet as the active data (ready to plot / analyze)")
-        self.btn_plot_line = QPushButton("Plot Line", bar)
+        self.btn_plot_line = QPushButton("Plot Line", self)
         self.btn_plot_line.setObjectName("WorkbookPlotButton")
-        self.btn_plot_line.setToolTip("Plot the selected columns as a new graph (first selected = X)")
-        self.btn_plot_scatter = QPushButton("Plot Scatter", bar)
-        self.btn_plot_scatter.setToolTip("Scatter-plot the selected columns as a new graph (first selected = X)")
-
-        hint = QLabel("Type data → select columns → plot", bar)
-
-        bar_layout.addWidget(self.btn_add_row)
-        bar_layout.addWidget(self.btn_add_col)
-        bar_layout.addSpacing(8)
-        bar_layout.addWidget(self.btn_use_data)
-        bar_layout.addWidget(self.btn_plot_line)
-        bar_layout.addWidget(self.btn_plot_scatter)
-        bar_layout.addStretch(1)
-        bar_layout.addWidget(hint)
-        layout.addWidget(bar)
+        self.btn_plot_line.setToolTip(
+            "Plot selected columns as a new graph. One selected column plots against row number."
+        )
+        self.btn_plot_scatter = QPushButton("Plot Scatter", self)
+        self.btn_plot_scatter.setToolTip(
+            "Scatter-plot selected columns as a new graph. One selected column plots against row number."
+        )
+        self.btn_add_row.hide()
+        self.btn_add_col.hide()
+        self.btn_use_data.hide()
+        self.btn_plot_line.hide()
+        self.btn_plot_scatter.hide()
 
         self.btn_add_row.clicked.connect(self.add_data_row)
         self.btn_add_col.clicked.connect(self.add_data_column)
@@ -292,6 +293,9 @@ class WorkbookWidget(QWidget):
         self.table.horizontalHeader().setHighlightSections(False)
         layout.addWidget(self.table)
 
+        self.workbook_toolbar = self._create_workbook_toolbar()
+        layout.addWidget(self.workbook_toolbar)
+
         # Origin-style right-click: plot straight from the selection.
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
@@ -307,30 +311,183 @@ class WorkbookWidget(QWidget):
 
         self.clear_to_empty()
 
+    def _toolbar_icon(self, fallback_sp) -> object:
+        try:
+            return self.style().standardIcon(fallback_sp)
+        except Exception:
+            from PySide6.QtGui import QIcon
+
+            return QIcon()
+
+    def _add_workbook_action(
+        self,
+        toolbar: QToolBar,
+        key: str,
+        text: str,
+        slot,
+        fallback_sp,
+        *,
+        tooltip: str | None = None,
+    ) -> QAction:
+        action = QAction(self._toolbar_icon(fallback_sp), text, self)
+        action.setProperty("toolbarIconKey", f"workbook_{key}")
+        action.setToolTip(tooltip or text)
+        action.setStatusTip(tooltip or text)
+        action.triggered.connect(slot)
+        toolbar.addAction(action)
+        self.workbook_actions[key] = action
+        return action
+
+    def _create_workbook_toolbar(self) -> QToolBar:
+        toolbar = QToolBar("Workbook Flow", self)
+        toolbar.setObjectName("WorkbookBottomBar")
+        toolbar.setIconSize(QSize(16, 16))
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.NoToolBarArea)
+        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        toolbar.setContextMenuPolicy(Qt.PreventContextMenu)
+        self.workbook_actions = {}
+
+        self._add_workbook_action(
+            toolbar,
+            "use_data",
+            "Use Data",
+            self.use_data_requested.emit,
+            QStyle.StandardPixmap.SP_DialogApplyButton,
+            tooltip="Use this worksheet as active data",
+        )
+        toolbar.addSeparator()
+        for key, text, style, fallback in (
+            ("plot_line", "Line", "line", QStyle.StandardPixmap.SP_ArrowRight),
+            ("plot_scatter", "Scatter", "scatter", QStyle.StandardPixmap.SP_FileDialogContentsView),
+            ("plot_linesymbol", "Line + Symbol", "linesymbol", QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            ("plot_bar", "Column / Bar", "bar", QStyle.StandardPixmap.SP_TitleBarShadeButton),
+            ("plot_histogram", "Histogram", "histogram", QStyle.StandardPixmap.SP_FileDialogListView),
+        ):
+            self._add_workbook_action(
+                toolbar,
+                key,
+                text,
+                lambda _checked=False, s=style: self.plot_requested.emit(s),
+                fallback,
+                tooltip=f"Plot selected columns as {text}",
+            )
+        toolbar.addSeparator()
+        for key, text, style, fallback in (
+            ("overlay_line", "Add Line", "line", QStyle.StandardPixmap.SP_ArrowUp),
+            ("overlay_scatter", "Add Scatter", "scatter", QStyle.StandardPixmap.SP_ArrowForward),
+            ("overlay_bar", "Add Column / Bar", "bar", QStyle.StandardPixmap.SP_ArrowRight),
+        ):
+            self._add_workbook_action(
+                toolbar,
+                key,
+                text,
+                lambda _checked=False, s=style: self.overlay_requested.emit(s),
+                fallback,
+                tooltip=f"Add {text.replace('Add ', '').lower()} to current graph",
+            )
+        toolbar.addSeparator()
+        self._add_workbook_action(
+            toolbar,
+            "set_x",
+            "Set X",
+            lambda _checked=False: self.set_selected_columns_designation("X"),
+            QStyle.StandardPixmap.SP_ArrowLeft,
+            tooltip="Set selected/current column as X",
+        )
+        self._add_workbook_action(
+            toolbar,
+            "set_y",
+            "Set Y",
+            lambda _checked=False: self.set_selected_columns_designation("Y"),
+            QStyle.StandardPixmap.SP_ArrowRight,
+            tooltip="Set selected/current columns as Y",
+        )
+        self._add_workbook_action(
+            toolbar,
+            "set_ignore",
+            "Ignore",
+            lambda _checked=False: self.set_selected_columns_designation("ignore"),
+            QStyle.StandardPixmap.SP_DialogCancelButton,
+            tooltip="Ignore selected/current columns",
+        )
+        toolbar.addSeparator()
+        for key, text, slot, fallback in (
+            ("copy", "Copy", self.copy_selection_to_clipboard, QStyle.StandardPixmap.SP_FileIcon),
+            ("paste", "Paste", self.paste_from_clipboard, QStyle.StandardPixmap.SP_DialogOpenButton),
+            ("clear", "Clear", self.clear_selected_cells, QStyle.StandardPixmap.SP_DialogResetButton),
+            ("add_row", "Append Row", self.add_data_row, QStyle.StandardPixmap.SP_ArrowDown),
+            ("add_column", "Append Column", self.add_data_column, QStyle.StandardPixmap.SP_ArrowRight),
+            ("insert_row", "Insert Row Below", self.insert_data_row_after_selection, QStyle.StandardPixmap.SP_ArrowDown),
+            ("insert_column", "Insert Column Right", self.insert_data_column_after_selection, QStyle.StandardPixmap.SP_ArrowRight),
+            ("delete_rows", "Delete Rows", self.delete_selected_data_rows, QStyle.StandardPixmap.SP_TrashIcon),
+            ("delete_columns", "Delete Columns", self.delete_selected_columns, QStyle.StandardPixmap.SP_TrashIcon),
+        ):
+            self._add_workbook_action(toolbar, key, text, slot, fallback)
+        return toolbar
+
     def _show_context_menu(self, pos) -> None:
-        menu = QMenu(self.table)
-        menu.addAction("Line → new graph").triggered.connect(
-            lambda: self.plot_requested.emit("line"))
-        menu.addAction("Scatter → new graph").triggered.connect(
-            lambda: self.plot_requested.emit("scatter"))
-        menu.addAction("Line + Symbol → new graph").triggered.connect(
-            lambda: self.plot_requested.emit("linesymbol"))
-        menu.addAction("Column / Bar → new graph").triggered.connect(
-            lambda: self.plot_requested.emit("bar"))
-        menu.addAction("Histogram → new graph").triggered.connect(
-            lambda: self.plot_requested.emit("histogram"))
-        menu.addSeparator()
-        menu.addAction("Add line to current graph").triggered.connect(
-            lambda: self.overlay_requested.emit("line"))
-        menu.addAction("Add scatter to current graph").triggered.connect(
-            lambda: self.overlay_requested.emit("scatter"))
-        menu.addSeparator()
-        menu.addAction("Use this data").triggered.connect(
-            self.use_data_requested.emit)
-        menu.addSeparator()
-        menu.addAction("Add Row").triggered.connect(self.add_data_row)
-        menu.addAction("Add Column").triggered.connect(self.add_data_column)
+        menu = self._build_cell_context_menu()
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _build_cell_context_menu(self) -> QMenu:
+        """Create the production worksheet menu without opening a popup."""
+        menu = QMenu(self.table)
+        plot_menu = QMenu("Plot New Graph", menu)
+        menu.addMenu(plot_menu)
+        self._add_plot_actions(plot_menu, self.plot_requested)
+
+        overlay_menu = QMenu("Add To Current Graph", menu)
+        menu.addMenu(overlay_menu)
+        self._add_plot_actions(overlay_menu, self.overlay_requested, include_histogram=False)
+
+        set_as_menu = QMenu("Set Selected Columns As", menu)
+        menu.addMenu(set_as_menu)
+        set_as_menu.addAction("X").triggered.connect(
+            lambda: self.set_selected_columns_designation("X"))
+        set_as_menu.addAction("Y").triggered.connect(
+            lambda: self.set_selected_columns_designation("Y"))
+        set_as_menu.addAction("Ignore").triggered.connect(
+            lambda: self.set_selected_columns_designation("ignore"))
+
+        menu.addSeparator()
+        menu.addAction("Use This Data").triggered.connect(self.use_data_requested.emit)
+
+        edit_menu = QMenu("Edit", menu)
+        menu.addMenu(edit_menu)
+        edit_menu.addAction("Copy Selection").triggered.connect(self.copy_selection_to_clipboard)
+        edit_menu.addAction("Paste").triggered.connect(self.paste_from_clipboard)
+        edit_menu.addAction("Clear Selection").triggered.connect(self.clear_selected_cells)
+
+        structure_menu = QMenu("Structure", menu)
+        menu.addMenu(structure_menu)
+        structure_menu.addAction("Insert Row Below").triggered.connect(
+            self.insert_data_row_after_selection)
+        structure_menu.addAction("Delete Selected Rows").triggered.connect(
+            self.delete_selected_data_rows)
+        structure_menu.addAction("Insert Column Right").triggered.connect(
+            self.insert_data_column_after_selection)
+        structure_menu.addAction("Delete Selected Columns").triggered.connect(
+            self.delete_selected_columns)
+        structure_menu.addSeparator()
+        structure_menu.addAction("Append Row").triggered.connect(self.add_data_row)
+        structure_menu.addAction("Append Column").triggered.connect(self.add_data_column)
+        menu._owned_submenus = [plot_menu, overlay_menu, set_as_menu, edit_menu, structure_menu]
+        return menu
+
+    def _add_plot_actions(self, menu: QMenu, signal: Signal, include_histogram: bool = True) -> None:
+        actions = [
+            ("Line", "line"),
+            ("Scatter", "scatter"),
+            ("Line + Symbol", "linesymbol"),
+            ("Column / Bar", "bar"),
+        ]
+        if include_histogram:
+            actions.append(("Histogram", "histogram"))
+        for label, style in actions:
+            menu.addAction(label).triggered.connect(
+                lambda _checked=False, s=style: signal.emit(s))
 
     # ------------------------------------------------------------------ helpers
     def _on_item_changed(self, _item) -> None:
@@ -441,14 +598,37 @@ class WorkbookWidget(QWidget):
         col = header.logicalIndexAt(pos)
         if col < 0:
             return
-        menu = QMenu(header)
-        menu.addAction(f"Set As X — column {column_label(col)}").triggered.connect(
-            lambda: self.set_designation(col, "X"))
-        menu.addAction(f"Set As Y — column {column_label(col)}").triggered.connect(
-            lambda: self.set_designation(col, "Y"))
-        menu.addAction("Disregard this column").triggered.connect(
-            lambda: self.set_designation(col, "ignore"))
+        menu = self._build_header_context_menu(col)
         menu.exec(header.mapToGlobal(pos))
+
+    def _build_header_context_menu(self, col: int) -> QMenu:
+        header = self.table.horizontalHeader()
+        menu = QMenu(header)
+        label = column_label(col)
+
+        set_as_menu = QMenu(f"Set Column {label} As", menu)
+        menu.addMenu(set_as_menu)
+        set_as_menu.addAction("X").triggered.connect(lambda: self.set_designation(col, "X"))
+        set_as_menu.addAction("Y").triggered.connect(lambda: self.set_designation(col, "Y"))
+        set_as_menu.addAction("Ignore").triggered.connect(
+            lambda: self.set_designation(col, "ignore"))
+
+        plot_menu = QMenu("Plot Column", menu)
+        menu.addMenu(plot_menu)
+        self._add_plot_actions(plot_menu, self.plot_requested)
+
+        overlay_menu = QMenu("Add Column To Current Graph", menu)
+        menu.addMenu(overlay_menu)
+        self._add_plot_actions(overlay_menu, self.overlay_requested, include_histogram=False)
+
+        menu.addSeparator()
+        menu.addAction("Use This Data").triggered.connect(self.use_data_requested.emit)
+        menu.addAction("Insert Column Right").triggered.connect(
+            lambda: self._insert_column_after_index(col))
+        menu.addAction("Delete Column").triggered.connect(
+            lambda: self._delete_column_by_index(col))
+        menu._owned_submenus = [set_as_menu, plot_menu, overlay_menu]
+        return menu
 
     def _make_item(self, text: str, is_meta: bool) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -473,6 +653,192 @@ class WorkbookWidget(QWidget):
     @property
     def data_row_count(self) -> int:
         return max(0, self.table.rowCount() - META_ROW_COUNT)
+
+    def _selected_or_current_column_indexes(self) -> List[int]:
+        cols = self.selected_column_indexes()
+        if cols:
+            return cols
+        current_col = self.table.currentColumn()
+        if current_col >= 0:
+            return [current_col]
+        return []
+
+    def _selected_or_current_data_rows(self) -> List[int]:
+        rows = sorted({
+            index.row()
+            for index in self.table.selectedIndexes()
+            if index.row() >= META_ROW_COUNT
+        })
+        if rows:
+            return rows
+        current_row = self.table.currentRow()
+        if current_row >= META_ROW_COUNT:
+            return [current_row]
+        return []
+
+    def set_selected_columns_designation(self, kind: str) -> None:
+        """Apply an Origin-style X/Y/ignore designation to selected columns."""
+        cols = self._selected_or_current_column_indexes()
+        if not cols:
+            return
+        if kind == "X":
+            self.set_designation(cols[0], "X")
+            return
+        for col in cols:
+            self.set_designation(col, kind)
+
+    def insert_data_row_after_selection(self) -> None:
+        rows = self._selected_or_current_data_rows()
+        if rows:
+            insert_at = max(rows) + 1
+        elif self.table.currentRow() >= META_ROW_COUNT:
+            insert_at = self.table.currentRow() + 1
+        else:
+            insert_at = META_ROW_COUNT
+        insert_at = max(META_ROW_COUNT, min(insert_at, self.table.rowCount()))
+        with self._loading_guard():
+            self.table.insertRow(insert_at)
+            for col in range(self.table.columnCount()):
+                self.table.setItem(insert_at, col, self._make_item("", False))
+            self._apply_row_headers(self.data_row_count)
+        self._dirty = True
+
+    def insert_data_column_after_selection(self) -> None:
+        cols = self._selected_or_current_column_indexes()
+        insert_at = (max(cols) + 1) if cols else self.table.columnCount()
+        self._insert_column_at(insert_at)
+
+    def _insert_column_after_index(self, col: int) -> None:
+        self._insert_column_at(col + 1)
+
+    def _insert_column_at(self, insert_at: int) -> None:
+        insert_at = max(0, min(insert_at, self.table.columnCount()))
+        with self._loading_guard():
+            self.table.insertColumn(insert_at)
+            self._designations.insert(insert_at, "Y")
+            for row in range(self.table.rowCount()):
+                self.table.setItem(row, insert_at, self._make_item("", row < META_ROW_COUNT))
+            self._apply_column_headers(self.table.columnCount())
+        self._dirty = True
+
+    def _delete_column_by_index(self, col: int) -> None:
+        if not (0 <= col < self.table.columnCount()):
+            return
+        self._delete_columns({col})
+
+    def delete_selected_data_rows(self) -> None:
+        rows = self._selected_or_current_data_rows()
+        if not rows:
+            return
+        with self._loading_guard():
+            for row in sorted(rows, reverse=True):
+                if META_ROW_COUNT <= row < self.table.rowCount():
+                    self.table.removeRow(row)
+            self._apply_row_headers(self.data_row_count)
+        self._dirty = True
+
+    def delete_selected_columns(self) -> None:
+        cols = self._selected_or_current_column_indexes()
+        if not cols:
+            return
+        self._delete_columns(set(cols))
+
+    def _delete_columns(self, selected: set[int]) -> None:
+        col_count = self.table.columnCount()
+        remaining = [col for col in range(col_count) if col not in selected]
+        if not remaining:
+            selected.discard(min(selected))
+        if not selected:
+            return
+
+        with self._loading_guard():
+            self._ensure_designations(col_count)
+            for col in sorted(selected, reverse=True):
+                if 0 <= col < self.table.columnCount():
+                    self.table.removeColumn(col)
+                    if col < len(self._designations):
+                        self._designations.pop(col)
+            if self._designations and "X" not in self._designations:
+                self._designations[0] = "X"
+            self._apply_column_headers(self.table.columnCount())
+        self._dirty = True
+
+    def clear_selected_cells(self) -> None:
+        indexes = self.table.selectedIndexes()
+        if not indexes and self.table.currentRow() >= 0 and self.table.currentColumn() >= 0:
+            indexes = [self.table.currentIndex()]
+        if not indexes:
+            return
+        with self._loading_guard():
+            for index in indexes:
+                row, col = index.row(), index.column()
+                item = self.table.item(row, col)
+                if item is None:
+                    item = self._make_item("", row < META_ROW_COUNT)
+                    self.table.setItem(row, col, item)
+                item.setText("")
+        self._dirty = True
+
+    def copy_selection_to_clipboard(self) -> None:
+        indexes = self.table.selectedIndexes()
+        if not indexes and self.table.currentRow() >= 0 and self.table.currentColumn() >= 0:
+            indexes = [self.table.currentIndex()]
+        if not indexes:
+            return
+        rows = [index.row() for index in indexes]
+        cols = [index.column() for index in indexes]
+        min_row, max_row = min(rows), max(rows)
+        min_col, max_col = min(cols), max(cols)
+        lines = []
+        for row in range(min_row, max_row + 1):
+            values = []
+            for col in range(min_col, max_col + 1):
+                item = self.table.item(row, col)
+                values.append(item.text() if item is not None else "")
+            lines.append("\t".join(values))
+        QApplication.clipboard().setText("\n".join(lines))
+
+    def paste_from_clipboard(self) -> None:
+        text = QApplication.clipboard().text()
+        if not text:
+            return
+        start_row = self.table.currentRow()
+        start_col = self.table.currentColumn()
+        if start_row < 0:
+            start_row = META_ROW_COUNT
+        if start_col < 0:
+            start_col = 0
+        rows = [line.split("\t") for line in text.splitlines()]
+        if not rows:
+            return
+        needed_rows = start_row + len(rows)
+        needed_cols = start_col + max(len(row) for row in rows)
+
+        with self._loading_guard():
+            if needed_cols > self.table.columnCount():
+                old_cols = self.table.columnCount()
+                self.table.setColumnCount(needed_cols)
+                for col in range(old_cols, needed_cols):
+                    for row in range(self.table.rowCount()):
+                        self.table.setItem(row, col, self._make_item("", row < META_ROW_COUNT))
+                self._apply_column_headers(needed_cols)
+            if needed_rows > self.table.rowCount():
+                old_rows = self.table.rowCount()
+                self.table.setRowCount(needed_rows)
+                for row in range(old_rows, needed_rows):
+                    for col in range(self.table.columnCount()):
+                        self.table.setItem(row, col, self._make_item("", row < META_ROW_COUNT))
+                self._apply_row_headers(self.data_row_count)
+            for r_offset, values in enumerate(rows):
+                row = start_row + r_offset
+                for c_offset, value in enumerate(values):
+                    col = start_col + c_offset
+                    item = self.table.item(row, col)
+                    if item is None:
+                        item = self._make_item("", row < META_ROW_COUNT)
+                        self.table.setItem(row, col, item)
+                    item.setText(value)
+        self._dirty = True
 
     # -------------------------------------------------------------------- API
     def add_data_row(self) -> None:

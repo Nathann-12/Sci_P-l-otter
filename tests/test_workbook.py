@@ -17,7 +17,8 @@ import pytest
 pytest.importorskip("PySide6")
 
 import pandas as pd
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange, QToolBar
 
 from widgets.workbook import (
     META_ROW_COUNT,
@@ -67,6 +68,23 @@ def test_action_bar_buttons_exist(qapp):
     for name in ("btn_add_row", "btn_add_col", "btn_use_data",
                  "btn_plot_line", "btn_plot_scatter"):
         assert getattr(wb, name) is not None
+    assert wb.btn_add_row.text() == "+R"
+    assert wb.btn_add_col.text() == "+C"
+    assert wb.btn_use_data.text() == "Use"
+    assert wb.btn_add_row.isHidden()
+    assert wb.btn_add_col.isHidden()
+    assert wb.btn_use_data.isHidden()
+    assert wb.btn_plot_line.isHidden()
+    assert wb.btn_plot_scatter.isHidden()
+    assert wb.findChild(QToolBar, "WorkbookBottomBar") is wb.workbook_toolbar
+    assert wb.layout().indexOf(wb.workbook_toolbar) > wb.layout().indexOf(wb.table)
+    assert wb.workbook_toolbar.iconSize().width() == 16
+    assert wb.workbook_toolbar.toolButtonStyle() == Qt.ToolButtonIconOnly
+    assert "workbook_plot_line" in [
+        action.property("toolbarIconKey")
+        for action in wb.workbook_toolbar.actions()
+        if not action.isSeparator()
+    ]
 
 
 def test_add_data_row_and_column_grow_the_sheet(qapp):
@@ -94,6 +112,126 @@ def test_action_bar_emits_workflow_signals(qapp):
     wb.btn_plot_scatter.click()
 
     assert got == ["use", "line", "scatter"]
+
+
+def test_cell_context_menu_groups_real_workflow_actions(qapp):
+    wb = WorkbookWidget()
+    menu = wb._build_cell_context_menu()
+    titles = [
+        action.menu().title()
+        for action in menu.actions()
+        if action.menu() is not None
+    ]
+    assert titles == [
+        "Plot New Graph",
+        "Add To Current Graph",
+        "Set Selected Columns As",
+        "Edit",
+        "Structure",
+    ]
+    plot_titles = [action.text() for action in menu.actions()[0].menu().actions()]
+    structure_titles = [action.text() for action in menu.actions()[-1].menu().actions()]
+    assert plot_titles == ["Line", "Scatter", "Line + Symbol", "Column / Bar", "Histogram"]
+    assert "Insert Row Below" in structure_titles
+    assert "Delete Selected Columns" in structure_titles
+
+
+def test_bottom_workbook_toolbar_triggers_origin_flow_actions(qapp):
+    wb = WorkbookWidget()
+    got = []
+    wb.use_data_requested.connect(lambda: got.append("use"))
+    wb.plot_requested.connect(lambda style: got.append(f"plot:{style}"))
+    wb.overlay_requested.connect(lambda style: got.append(f"overlay:{style}"))
+
+    wb.workbook_actions["use_data"].trigger()
+    wb.workbook_actions["plot_line"].trigger()
+    wb.workbook_actions["overlay_scatter"].trigger()
+
+    rows0, cols0 = wb.table.rowCount(), wb.table.columnCount()
+    wb.workbook_actions["add_row"].trigger()
+    wb.workbook_actions["add_column"].trigger()
+
+    assert got == ["use", "plot:line", "overlay:scatter"]
+    assert wb.table.rowCount() == rows0 + 1
+    assert wb.table.columnCount() == cols0 + 1
+
+
+def test_header_context_menu_targets_clicked_column(qapp):
+    wb = WorkbookWidget()
+    menu = wb._build_header_context_menu(1)
+    titles = [
+        action.menu().title()
+        for action in menu.actions()
+        if action.menu() is not None
+    ]
+    assert titles == [
+        "Set Column B As",
+        "Plot Column",
+        "Add Column To Current Graph",
+    ]
+
+    set_as_menu = menu.actions()[0].menu()
+    set_as_menu.actions()[0].trigger()
+    assert wb.x_column_index() == 1
+    assert wb.table.horizontalHeaderItem(1).text() == "B(X)"
+
+
+def test_context_edit_clear_and_structure_operations(qapp):
+    from PySide6.QtCore import QItemSelectionModel
+
+    wb = WorkbookWidget()
+    wb.clear_to_empty(rows=3, cols=3)
+    wb.table.item(META_ROW_COUNT + 0, 0).setText("1")
+    wb.table.item(META_ROW_COUNT + 0, 1).setText("10")
+    wb.table.item(META_ROW_COUNT + 1, 0).setText("2")
+    wb.table.item(META_ROW_COUNT + 1, 1).setText("20")
+
+    wb.table.setCurrentCell(META_ROW_COUNT, 1)
+    wb.clear_selected_cells()
+    assert wb.table.item(META_ROW_COUNT, 1).text() == ""
+    assert wb.is_dirty is True
+
+    wb.mark_clean()
+    wb.table.clearSelection()
+    wb.table.setCurrentCell(META_ROW_COUNT, 0)
+    wb.insert_data_row_after_selection()
+    assert wb.data_row_count == 4
+    assert wb.table.verticalHeaderItem(META_ROW_COUNT + 1).text() == "2"
+    assert wb.is_dirty is True
+
+    wb.table.clearSelection()
+    wb.table.selectColumn(1)
+    wb.delete_selected_columns()
+    assert wb.table.columnCount() == 2
+    assert wb.table.horizontalHeaderItem(0).text() == "A(X)"
+
+    wb.table.clearSelection()
+    first_data_row = wb.table.model().index(META_ROW_COUNT, 0)
+    wb.table.selectionModel().select(first_data_row, QItemSelectionModel.Select)
+    wb.delete_selected_data_rows()
+    assert wb.data_row_count == 3
+    assert wb.table.verticalHeaderItem(META_ROW_COUNT).text() == "1"
+
+
+def test_context_copy_paste_expands_sheet(qapp):
+    wb = WorkbookWidget()
+    wb.clear_to_empty(rows=1, cols=1)
+    QApplication.clipboard().setText("1\t2\n3\t4")
+
+    wb.table.setCurrentCell(META_ROW_COUNT, 0)
+    wb.paste_from_clipboard()
+
+    assert wb.table.columnCount() == 2
+    assert wb.data_row_count == 2
+    assert wb.table.item(META_ROW_COUNT + 1, 1).text() == "4"
+
+    wb.table.clearSelection()
+    wb.table.setRangeSelected(
+        QTableWidgetSelectionRange(META_ROW_COUNT, 0, META_ROW_COUNT + 1, 1),
+        True,
+    )
+    wb.copy_selection_to_clipboard()
+    assert QApplication.clipboard().text().splitlines()[-1] == "3\t4"
 
 
 def test_selected_column_indexes_and_names(qapp):

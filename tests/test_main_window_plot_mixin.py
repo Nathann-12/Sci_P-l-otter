@@ -20,6 +20,7 @@ pytest.importorskip("numexpr")
 
 from PySide6.QtWidgets import QApplication, QWidget
 
+from core.plot_request import HistogramRequest, PlotOptions, PlotRequest
 from main_window_plot_mixin import MainWindowPlotMixin
 from widgets.plot_tabs import TabManager
 
@@ -37,22 +38,6 @@ class _Combo:
         return self._text
 
 
-class _Spin:
-    def __init__(self, value: int):
-        self._value = value
-
-    def value(self) -> int:
-        return self._value
-
-
-class _Check:
-    def __init__(self, checked: bool):
-        self._checked = checked
-
-    def isChecked(self) -> bool:
-        return self._checked
-
-
 class _StatusBar:
     def __init__(self):
         self.messages = []
@@ -68,11 +53,12 @@ class DummyWindow(QWidget, MainWindowPlotMixin):
         self.tabs = TabManager(self)
         self.cbX = _Combo("time")
         self.cbY = _Combo("value")
-        self.cbHist = _Combo("value")
-        self.spLineWidth = _Spin(2)
-        self.spHistBins = _Spin(3)
-        self.chkMarker = _Check(True)
-        self.chkHistFit = _Check(True)
+        self._plot_options = PlotOptions(
+            line_width=2,
+            show_marker=True,
+            histogram_bins=3,
+            fit_normal=True,
+        )
         self._status_bar = _StatusBar()
         self._current_path = "D:/data/sample.csv"
         self._datasets = {"Sample Data": {"path": self._current_path}}
@@ -83,6 +69,17 @@ class DummyWindow(QWidget, MainWindowPlotMixin):
 
     def _get_xy(self):
         return [1, 2, 3], [10, 20, 15]
+
+    def build_plot_request(self):
+        x, y = self._get_xy()
+        return PlotRequest(x, y, self.cbX.currentText(), self.cbY.currentText())
+
+    def build_histogram_request(self, column=None, options=None):
+        return HistogramRequest(
+            values=self._df["value"].to_numpy(),
+            column=column or "value",
+            options=options or self._plot_options,
+        )
 
     def _is_datetime_column(self, _name):
         return False
@@ -125,7 +122,7 @@ def test_plot_line_then_scatter_updates_current_tab_headless(qapp):
     line_layer = next(iter(graph_tab.layers.values()))
     assert line_layer["style"] == "line"
     assert line_layer["meta"]["style_kwargs"] == {"linewidth": 2, "marker": "o"}
-    assert window.statusBar().messages[-1] == "พล็อตกราฟเส้นสำเร็จ"
+    assert window.statusBar().messages[-1] == "Line plot created."
 
     window.plot_mode = "OVERLAY"
     window.plot_scatter()
@@ -134,7 +131,28 @@ def test_plot_line_then_scatter_updates_current_tab_headless(qapp):
     assert len(graph_tab.get_axes().collections) == 1
     scatter_layer = next(info for info in graph_tab.layers.values() if info["style"] == "scatter")
     assert scatter_layer["kwargs"]["s"] == 10
-    assert window.statusBar().messages[-1] == "พล็อตกราฟจุดสำเร็จ"
+    assert window.statusBar().messages[-1] == "Scatter plot created."
+
+
+def test_plot_line_accepts_widget_independent_request(qapp):
+    window = DummyWindow()
+    request = PlotRequest(
+        x=[0, 1],
+        y=[7, 9],
+        x_column="elapsed",
+        y_column="temperature",
+    )
+
+    window.plot_line(request, PlotOptions(line_width=4, show_marker=False))
+
+    graph_tab = window.tabs.tabs[window.tabs.get_current_tab_id()]
+    layer = next(iter(graph_tab.layers.values()))
+    assert layer["label"] == "temperature vs elapsed"
+    assert layer["meta"]["x_column"] == "elapsed"
+    assert layer["meta"]["y_column"] == "temperature"
+    assert layer["meta"]["style_kwargs"] == {"linewidth": 4}
+    assert graph_tab.get_axes().get_xlabel() == "elapsed"
+    assert graph_tab.get_axes().get_ylabel() == "temperature"
 
 
 def test_overlay_helpers_add_line_and_scatter_layers_headless(qapp):
@@ -166,7 +184,7 @@ def test_plot_histogram_and_bar_headless(qapp):
     assert ax.get_ylabel() == "Count"
     assert ax.get_title() == "Histogram of value (bins=3)"
     assert any(line.get_label().startswith("Normal fit mu=") for line in ax.lines)
-    assert window.statusBar().messages[-1] == "พล็อต Histogram สำเร็จ"
+    assert window.statusBar().messages[-1] == "Histogram created."
 
     window.plot_mode = "REPLACE"
     window.plot_bar(["alpha", "beta", "gamma"], [3, 1, 2], xlabel="group", ylabel="count", title="Counts")

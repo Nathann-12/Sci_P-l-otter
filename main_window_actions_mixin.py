@@ -17,60 +17,56 @@ if TYPE_CHECKING:  # shared MainWindow state this mixin relies on (set in MainWi
 class MainWindowActionsMixin:
     """Thin toolbar/menu dispatchers, dataframe accessors and drag-and-drop extracted from MainWindow."""
 
-    def _resolve_active_dataframe(self) -> pd.DataFrame:
-        """Return the current DataFrame, falling back to staged datasets."""
-        df = getattr(self, '_df', None)
-        if isinstance(df, pd.DataFrame):
-            return df
-        df = getattr(self, 'current_df', None)
-        if isinstance(df, pd.DataFrame):
-            return df
+    def _activate_dataframe_candidate(self, df: pd.DataFrame, path=None) -> pd.DataFrame:
+        """Cache a fallback candidate as the active dataset."""
+        self._df = df.copy()
+        self._current_path = path
+        return self._df
+
+    def _resolve_active_dataframe(self) -> pd.DataFrame | None:
+        """Resolve active data using one compatibility-aware precedence policy."""
+        for candidate in (
+            getattr(self, "_df", None),
+            getattr(self, "current_df", None),
+        ):
+            if isinstance(candidate, pd.DataFrame):
+                return candidate
+
+        workbook = getattr(self, "workbook", None)
+        source_df = getattr(workbook, "source_df", None)
+        if isinstance(source_df, pd.DataFrame):
+            return self._activate_dataframe_candidate(source_df)
+
+        datasets = getattr(self, "_datasets", {})
+        if not isinstance(datasets, dict):
+            return None
+
+        selected_name = None
+        list_widget = getattr(self, "lstFiles", None)
+        if list_widget is not None:
+            try:
+                current_item = list_widget.currentItem()
+                selected_name = current_item.text() if current_item is not None else None
+            except (AttributeError, RuntimeError):
+                selected_name = None
+
+        entries = []
+        if selected_name in datasets:
+            entries.append(datasets[selected_name])
+        entries.extend(data for name, data in datasets.items() if name != selected_name)
+
+        for data in entries:
+            if not isinstance(data, dict):
+                continue
+            candidate = data.get("df")
+            if isinstance(candidate, pd.DataFrame):
+                return self._activate_dataframe_candidate(candidate, data.get("path"))
+        return None
+
     def get_current_dataframe(self) -> pd.DataFrame:
-        """คืน DataFrame ปัจจุบัน (ถ้าไม่มีให้ผลลัพธ์ว่าง)."""
+        """Return the active DataFrame, or an empty frame when no data is active."""
         df = self._resolve_active_dataframe()
         return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
-
-        datasets = getattr(self, '_datasets', {}) if hasattr(self, '_datasets') else {}
-        lst_widget = getattr(self, 'lstFiles', None)
-        current_item = None
-        if lst_widget is not None:
-            try:
-                current_item = lst_widget.currentItem()
-            except Exception:
-                current_item = None
-        if current_item is not None and isinstance(datasets, dict):
-            data = datasets.get(current_item.text())
-            df_candidate = data.get('df') if isinstance(data, dict) else None
-            if isinstance(df_candidate, pd.DataFrame):
-                if getattr(self, '_df', None) is None:
-                    try:
-                        self._df = df_candidate.copy()
-                    except Exception:
-                        self._df = df_candidate
-                try:
-                    if isinstance(data, dict) and data.get('path'):
-                        self._current_path = data.get('path')
-                except Exception:
-                    pass
-                return df_candidate
-        if isinstance(datasets, dict):
-            for data in datasets.values():
-                if not isinstance(data, dict):
-                    continue
-                df_candidate = data.get('df')
-                if isinstance(df_candidate, pd.DataFrame):
-                    if getattr(self, '_df', None) is None:
-                        try:
-                            self._df = df_candidate.copy()
-                        except Exception:
-                            self._df = df_candidate
-                    try:
-                        if data.get('path'):
-                            self._current_path = data.get('path')
-                    except Exception:
-                        pass
-                    return df_candidate
-        return pd.DataFrame()
 
     # Action handlers
     def on_action_reload(self):
@@ -104,26 +100,6 @@ class MainWindowActionsMixin:
     def on_action_export_data(self):
         """Export data action handler"""
         self.export_visible_range_csv()
-
-    # Toolbar: histogram plot using compact controls
-    def _on_toolbar_plot_histogram(self):
-        try:
-            # Sync hidden panel controls then reuse existing logic
-            if hasattr(self, 'tbCbHist'):
-                col = self.tbCbHist.currentText()
-                if hasattr(self, 'cbHist'):
-                    try: self.cbHist.setCurrentText(col)
-                    except Exception: pass
-            if hasattr(self, 'tbHistBins') and hasattr(self, 'spHistBins'):
-                try: self.spHistBins.setValue(int(self.tbHistBins.value()))
-                except Exception: pass
-            if hasattr(self, 'tbHistFit') and hasattr(self, 'chkHistFit'):
-                try: self.chkHistFit.setChecked(bool(self.tbHistFit.isChecked()))
-                except Exception: pass
-            # Call existing workflow
-            self.plot_histogram()
-        except Exception as e:
-            print(f"Debug: toolbar histogram failed: {e}")
 
     # Menu: Plot Histogram (uses toolbar or panel controls)
     def on_histogram_menu(self):

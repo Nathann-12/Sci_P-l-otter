@@ -68,10 +68,11 @@ def test_load_csv_columns_and_plot_line_integration(qapp):
         assert win.cbX.count() > 0
         assert win.cbY.count() > 0
 
-        # pick two numeric columns and plot a line on the current tab
+        # pick two numeric columns and plot a line on an explicit graph
         win.cbX.setCurrentText("value2")
         win.cbY.setCurrentText("value1")
 
+        win.tabs.add_tab()
         tab_id = win.tabs.get_current_tab_id()
         graph_tab = win.tabs.tabs[tab_id]
         win.plot_line()
@@ -92,9 +93,10 @@ def test_workbook_fills_from_loaded_data(qapp):
 
     win = MainWindow()
     try:
-        # MDI workspace: the TabManager adapter is the MDI, with an initial graph
+        # MDI workspace: the TabManager adapter is the MDI. MainWindow starts
+        # sheet-first; graphs are created lazily by plot commands.
         assert win.tabs is win.mdi
-        assert win.mdi.count() >= 1              # Graph1 exists so canvas works
+        assert win.mdi.count() == 0
 
         win.load_data(str(csv_path))
         win.load_columns_from_df()

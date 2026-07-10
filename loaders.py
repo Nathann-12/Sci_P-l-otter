@@ -176,8 +176,10 @@ def load_hdf5(path: str | Path) -> tuple[pd.DataFrame, str]:
 
     try:
         import h5py
-    except ImportError as e:
-        raise RuntimeError("ต้องติดตั้ง h5py ก่อน (pip install h5py)") from e
+    except Exception as e:
+        raise RuntimeError(
+            "ไม่สามารถโหลด h5py สำหรับอ่าน HDF5 ได้; ตรวจสอบการติดตั้งหรือ policy ที่บล็อก DLL"
+        ) from e
 
     datasets: Dict[str, np.ndarray] = {}
     with h5py.File(path, "r") as f:

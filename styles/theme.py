@@ -146,6 +146,19 @@ def apply_qss(app: QApplication, qss_path: str = None):
     """
     extra_qss = _read_override_qss()
 
+    # Explicit QSS means "use this stylesheet as-is". This keeps the Settings
+    # dialog honest: selecting Light or Custom no longer falls back to the dark
+    # qdarktheme path on restart. Dark is represented by qss_path=None/empty.
+    if qss_path and os.path.isfile(qss_path):
+        try:
+            with open(qss_path, "r", encoding="utf-8") as f:
+                qss_content = f.read()
+            app.setStyleSheet(qss_content)
+            logger.info(f"QSS loaded explicitly: {qss_path}")
+            return
+        except Exception as e:
+            logger.error(f"Error applying explicit QSS ({qss_path}): {e}")
+
     # Base theme: qdarktheme if installed
     try:
         _setup_qdarktheme(app, extra_qss)
@@ -157,12 +170,9 @@ def apply_qss(app: QApplication, qss_path: str = None):
     # Fallback: legacy hand-rolled dark theme
     try:
         base_dir = os.path.dirname(__file__)
-        if qss_path and os.path.isfile(qss_path):
-            path = qss_path
-        else:
-            modern = os.path.join(base_dir, "dark_modern.qss")
-            legacy = os.path.join(base_dir, "qdark.qss")
-            path = modern if os.path.isfile(modern) else legacy
+        modern = os.path.join(base_dir, "dark_modern.qss")
+        legacy = os.path.join(base_dir, "qdark.qss")
+        path = modern if os.path.isfile(modern) else legacy
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as f:
                 qss_content = f.read()
@@ -422,33 +432,8 @@ def apply_theme_from_config(app: QApplication, config):
 
     # Apply QSS (prefer modern dark if available)
     try:
-        qss_path = getattr(config, 'qt_qss_path', None)
-        if qss_path and os.path.isfile(qss_path):
-            path = qss_path
-        else:
-            base = os.path.dirname(__file__)
-            modern = os.path.join(base, "dark_modern.qss")
-            legacy = os.path.join(base, "qdark.qss")
-            path = modern if os.path.isfile(modern) else legacy
-
-        # Base theme: qdarktheme (modern flat dark + QPalette) if available,
-        # with our component overrides (sidepanel/shell) layered on top.
-        extra_qss = _read_override_qss()
-        applied = False
-        try:
-            _setup_qdarktheme(app, extra_qss)
-            logger.info(f"Theme: qdarktheme dark + custom colors + overrides ({len(extra_qss)} chars)")
-            applied = True
-        except Exception as e:
-            logger.warning(f"qdarktheme unavailable, using {os.path.basename(path)}: {e}")
-        if not applied:
-            if os.path.isfile(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    qss_content = f.read()
-                app.setStyleSheet(qss_content + "\n" + extra_qss)
-                logger.info(f"QSS loaded: {path} (+overrides)")
-            else:
-                logger.warning("No QSS file found; skipping stylesheet application")
+        qss_path = getattr(config, 'qt_qss_path', None) or None
+        apply_qss(app, qss_path)
     except Exception as e:
         logger.error(f"Error loading QSS: {e}")
     
