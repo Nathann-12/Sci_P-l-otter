@@ -122,6 +122,8 @@ class _FakeWindow:
     def __init__(self, df):
         self._df = df
         self.plotted = []
+        self.added = []
+        self.result_books = []
 
     def _resolve_active_dataframe(self):
         return self._df
@@ -139,6 +141,19 @@ class _FakeWindow:
     def filter_column_butterworth(self, col, fs, kind="lowpass", cutoff=None):
         self.filtered = (col, fs, kind, cutoff)
         return f"{col}_{kind}"
+
+    def add_y_column_option(self, name):
+        self.added.append(name)
+
+    def _swap_dataframe(self, new_df):
+        self._df = new_df
+
+    def selected_x_column(self):
+        return ""
+
+    def _open_signal_result_book(self, name, df):
+        self.result_books.append((name, df))
+        return name
 
 
 def test_app_tools_read_and_drive_the_window():
@@ -232,6 +247,71 @@ def test_app_tools_filter_drives_core_with_fs():
     out = reg.execute("filter_signal", {"fs": 100, "kind": "lowpass", "cutoff": 10})
     assert window.filtered == ("y", 100.0, "lowpass", 10)
     assert "y_lowpass" in out
+
+
+# --- transform / clean tools calling the shared pure functions directly ------
+def test_app_tools_moving_average_adds_column():
+    window = _FakeWindow(pd.DataFrame({"t": range(30), "y": range(30)}))
+    out = build_app_registry(window).execute("moving_average", {"window": 5})
+    new_cols = [c for c in window._df.columns if c not in ("t", "y")]
+    assert new_cols and new_cols[0] in window.added
+    assert "moving average" in out.lower()
+
+
+def test_app_tools_fill_missing_adds_column():
+    import numpy as np
+    window = _FakeWindow(pd.DataFrame({"y": [1.0, np.nan, 3.0, np.nan, 5.0]}))
+    out = build_app_registry(window).execute("fill_missing", {"method": "mean"})
+    assert any(c != "y" for c in window._df.columns)
+    assert "filled" in out.lower()
+
+
+def test_app_tools_normalize_zscore_adds_column():
+    window = _FakeWindow(pd.DataFrame({"y": [1.0, 2.0, 3.0, 4.0, 5.0]}))
+    out = build_app_registry(window).execute("normalize", {"method": "zscore"})
+    assert "y_zscore" in window._df.columns
+    assert "normalized" in out.lower()
+
+
+def test_app_tools_detrend_adds_column():
+    window = _FakeWindow(pd.DataFrame({"y": [2.0, 4.0, 6.0, 8.0, 10.0]}))
+    out = build_app_registry(window).execute("detrend", {"order": 1})
+    assert any(c != "y" for c in window._df.columns)
+    assert "trend" in out.lower()
+
+
+def test_app_tools_remove_outliers_swaps_dataframe():
+    window = _FakeWindow(pd.DataFrame({"y": [1.0] * 12 + [50.0]}))
+    out = build_app_registry(window).execute("remove_outliers", {"method": "zscore", "threshold": 2})
+    assert len(window._df) < 13
+    assert "outlier" in out.lower()
+
+
+def test_app_tools_remove_duplicates_swaps_dataframe():
+    window = _FakeWindow(pd.DataFrame({"a": [1, 1, 2, 2], "b": [3, 3, 4, 4]}))
+    out = build_app_registry(window).execute("remove_duplicates", {})
+    assert len(window._df) == 2
+    assert "duplicate" in out.lower()
+
+
+def test_app_tools_sort_data_requires_valid_column():
+    window = _FakeWindow(pd.DataFrame({"a": [3, 1, 2]}))
+    reg = build_app_registry(window)
+    assert "valid 'column'" in reg.execute("sort_data", {}).lower()
+    out = reg.execute("sort_data", {"column": "a", "ascending": True})
+    assert list(window._df["a"]) == [1, 2, 3]
+    assert "sorted" in out.lower()
+
+
+def test_app_tools_run_fft_opens_result_book_and_reports_peak():
+    import numpy as np
+    t = np.linspace(0, 1, 256, endpoint=False)
+    y = np.sin(2 * np.pi * 10 * t)  # 10 Hz tone
+    window = _FakeWindow(pd.DataFrame({"t": t, "y": y}))
+    out = build_app_registry(window).execute("run_fft", {"column": "y", "x_column": "t"})
+    assert window.result_books and window.result_books[0][0] == "FFT_y"
+    assert "10" in out  # dominant frequency ~10 Hz
+    assert "dominant" in out.lower()
 
 
 # ------------------------------------------------------------------- dock wiring

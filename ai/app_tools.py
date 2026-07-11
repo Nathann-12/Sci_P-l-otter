@@ -166,6 +166,213 @@ def _tool_filter_signal(window, args: Dict[str, Any]) -> str:
         return f"Could not filter: {exc}"
 
 
+def _sync_new_column(window, new_col: str) -> None:
+    adder = getattr(window, "add_y_column_option", None)
+    if callable(adder):
+        try:
+            adder(new_col)
+        except Exception:
+            logger.debug("add_y_column_option failed for %s", new_col, exc_info=True)
+
+
+def _swap_dataframe(window, new_df) -> None:
+    swap = getattr(window, "_swap_dataframe", None)
+    if callable(swap):
+        swap(new_df)
+    else:
+        window._df = new_df
+
+
+def _tool_moving_average(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        from processors import add_moving_average
+
+        window_size = int(args.get("window", 25))
+        new_col = add_moving_average(df, col, window=window_size)
+        _sync_new_column(window, new_col)
+        return f"Added moving average (window {window_size}) of '{col}' as '{new_col}'."
+    except Exception as exc:
+        logger.debug("moving_average tool failed", exc_info=True)
+        return f"Could not compute moving average: {exc}"
+
+
+def _tool_fill_missing(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    method = str(args.get("method", "mean")).strip().lower()
+    value = args.get("value")
+    try:
+        from analysis.cleaning import fill_missing
+
+        new_col = fill_missing(df, col, method=method, value=value)
+        _sync_new_column(window, new_col)
+        return f"Filled missing values in '{col}' (method {method}) into '{new_col}'."
+    except Exception as exc:
+        logger.debug("fill_missing tool failed", exc_info=True)
+        return f"Could not fill missing values: {exc}"
+
+
+def _tool_interpolate(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        from analysis.cleaning import interpolate_missing
+
+        new_col = interpolate_missing(df, col)
+        _sync_new_column(window, new_col)
+        return f"Interpolated missing values in '{col}' into '{new_col}'."
+    except Exception as exc:
+        logger.debug("interpolate tool failed", exc_info=True)
+        return f"Could not interpolate: {exc}"
+
+
+def _tool_normalize(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    method = str(args.get("method", "zscore")).strip().lower()
+    try:
+        from analysis.cleaning import normalize_column
+
+        new_col = normalize_column(df, col, method=method)
+        _sync_new_column(window, new_col)
+        return f"Normalized '{col}' ({method}) into '{new_col}'."
+    except Exception as exc:
+        logger.debug("normalize tool failed", exc_info=True)
+        return f"Could not normalize: {exc}"
+
+
+def _tool_detrend(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    x_getter = getattr(window, "selected_x_column", None)
+    x_col = x_getter() if callable(x_getter) else None
+    if x_col not in getattr(df, "columns", []):
+        x_col = None
+    try:
+        from analysis.cleaning import detrend_polynomial
+
+        order = int(args.get("order", 1))
+        new_col = detrend_polynomial(df, col, order=order, x_col=x_col)
+        _sync_new_column(window, new_col)
+        return f"Removed order-{order} trend from '{col}' into '{new_col}'."
+    except Exception as exc:
+        logger.debug("detrend tool failed", exc_info=True)
+        return f"Could not detrend: {exc}"
+
+
+def _tool_remove_outliers(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    method = str(args.get("method", "zscore")).strip().lower()
+    threshold = args.get("threshold")
+    try:
+        from analysis.cleaning import remove_outliers
+
+        new_df, removed = remove_outliers(
+            df, col, method=method,
+            threshold=float(threshold) if threshold is not None else None,
+        )
+        _swap_dataframe(window, new_df)
+        return f"Removed {removed} outlier rows from '{col}' (method {method}); {len(new_df)} rows remain."
+    except Exception as exc:
+        logger.debug("remove_outliers tool failed", exc_info=True)
+        return f"Could not remove outliers: {exc}"
+
+
+def _tool_remove_duplicates(window, _args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    try:
+        from analysis.cleaning import remove_duplicates
+
+        new_df, removed = remove_duplicates(df)
+        _swap_dataframe(window, new_df)
+        return f"Removed {removed} duplicate rows; {len(new_df)} rows remain."
+    except Exception as exc:
+        logger.debug("remove_duplicates tool failed", exc_info=True)
+        return f"Could not remove duplicates: {exc}"
+
+
+def _tool_sort_data(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = args.get("column")
+    if not col or col not in df.columns:
+        return f"Provide a valid 'column' to sort by. Available: {', '.join(str(c) for c in df.columns)}."
+    ascending = args.get("ascending", True)
+    ascending = str(ascending).strip().lower() not in {"false", "0", "desc", "descending", "no"}
+    try:
+        from analysis.cleaning import sort_dataframe
+
+        new_df = sort_dataframe(df, col, ascending=ascending)
+        _swap_dataframe(window, new_df)
+        return f"Sorted data by '{col}' ({'ascending' if ascending else 'descending'})."
+    except Exception as exc:
+        logger.debug("sort_data tool failed", exc_info=True)
+        return f"Could not sort: {exc}"
+
+
+def _tool_fft(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data for FFT."
+    numeric = _numeric_columns(df)
+    if not numeric:
+        return "Need a numeric column for FFT."
+    y_col = _resolve_y_column(window, df, args)
+    x_req = args.get("x_column")
+    x_getter = getattr(window, "selected_x_column", None)
+    x_sel = x_getter() if callable(x_getter) else None
+    x_col = (x_req if x_req in df.columns else None) or (x_sel if x_sel in df.columns else None) or numeric[0]
+    if y_col is None or y_col == x_col:
+        y_col = next((c for c in numeric if c != x_col), y_col)
+    if y_col is None:
+        return "Need a numeric signal column for FFT."
+    try:
+        from processors import compute_fft
+
+        df_fft, fs = compute_fft(df, x_col=x_col, y_col=y_col)
+        opener = getattr(window, "_open_signal_result_book", None)
+        if callable(opener):
+            opener(f"FFT_{y_col}", df_fft)
+        peak_freq = float(df_fft.loc[df_fft["amplitude"].idxmax(), "freq_Hz"])
+        return (
+            f"Computed FFT of '{y_col}' (fs≈{fs:.4g} Hz). Dominant frequency "
+            f"≈ {peak_freq:.4g} Hz. Spectrum opened as a result Book."
+        )
+    except Exception as exc:
+        logger.debug("fft tool failed", exc_info=True)
+        return f"Could not compute FFT: {exc}"
+
+
 def _tool_open_file(window, args: Dict[str, Any]) -> str:
     import os
 
@@ -257,6 +464,87 @@ def build_app_registry(window) -> ToolRegistry:
             "column": {"type": "string", "description": "column to filter", "required": False},
         },
         lambda args: _tool_filter_signal(window, args),
+    )
+    registry.add(
+        "moving_average",
+        "Add a moving-average (rolling mean) column. window optional (default 25).",
+        {
+            "window": {"type": "number", "description": "window size", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_moving_average(window, args),
+    )
+    registry.add(
+        "fill_missing",
+        "Fill missing (NaN) values in a column into a new column. method: "
+        "mean | median | ffill | bfill | value (with 'value').",
+        {
+            "method": {"type": "string", "description": "fill method", "required": False},
+            "value": {"type": "number", "description": "value when method=value", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_fill_missing(window, args),
+    )
+    registry.add(
+        "interpolate",
+        "Interpolate missing values in a column into a new column.",
+        {"column": {"type": "string", "description": "column", "required": False}},
+        lambda args: _tool_interpolate(window, args),
+    )
+    registry.add(
+        "normalize",
+        "Rescale a column into a new column. method: zscore (mean 0/std 1) or minmax (0-1).",
+        {
+            "method": {"type": "string", "description": "zscore|minmax", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_normalize(window, args),
+    )
+    registry.add(
+        "detrend",
+        "Remove a polynomial trend/baseline from a column into a new column. "
+        "order optional (1 = linear).",
+        {
+            "order": {"type": "number", "description": "polynomial order", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_detrend(window, args),
+    )
+    registry.add(
+        "remove_outliers",
+        "Drop rows where a column is an outlier (replaces the active data). "
+        "method: zscore | iqr; threshold optional.",
+        {
+            "method": {"type": "string", "description": "zscore|iqr", "required": False},
+            "threshold": {"type": "number", "description": "threshold", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_remove_outliers(window, args),
+    )
+    registry.add(
+        "remove_duplicates",
+        "Remove duplicate rows from the active data (replaces it).",
+        {},
+        lambda args: _tool_remove_duplicates(window, args),
+    )
+    registry.add(
+        "sort_data",
+        "Sort the active data by a column (replaces it). ascending true/false.",
+        {
+            "column": {"type": "string", "description": "column to sort by", "required": True},
+            "ascending": {"type": "boolean", "description": "ascending order", "required": False},
+        },
+        lambda args: _tool_sort_data(window, args),
+    )
+    registry.add(
+        "run_fft",
+        "Compute the FFT amplitude/power spectrum of a signal column and open it "
+        "as a result Book; reports the dominant frequency. column/x_column optional.",
+        {
+            "column": {"type": "string", "description": "signal (Y) column", "required": False},
+            "x_column": {"type": "string", "description": "time/X column for fs", "required": False},
+        },
+        lambda args: _tool_fft(window, args),
     )
     registry.add(
         "open_file",
