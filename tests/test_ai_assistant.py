@@ -155,6 +155,9 @@ class _FakeWindow:
         self.result_books.append((name, df))
         return name
 
+    def _dataset_names(self, include_active=True):
+        return ["Book1", "Book2"]
+
 
 def test_app_tools_read_and_drive_the_window():
     df = pd.DataFrame({"time": [1, 2, 3], "voltage": [0.1, 0.2, 0.3]})
@@ -312,6 +315,31 @@ def test_app_tools_run_fft_opens_result_book_and_reports_peak():
     assert window.result_books and window.result_books[0][0] == "FFT_y"
     assert "10" in out  # dominant frequency ~10 Hz
     assert "dominant" in out.lower()
+
+
+def test_app_tools_list_books_reports_active():
+    window = _FakeWindow(pd.DataFrame({"y": [1, 2, 3]}))
+    out = build_app_registry(window).execute("list_books", {})
+    assert "Book1" in out and "Book2" in out
+    assert "active" in out.lower()
+
+
+def test_app_tools_envelope_adds_column():
+    import numpy as np
+    t = np.linspace(0, 1, 200)
+    window = _FakeWindow(pd.DataFrame({"y": np.sin(2 * np.pi * 20 * t)}))
+    out = build_app_registry(window).execute("envelope", {"column": "y"})
+    assert "y_envelope" in window._df.columns
+    assert "envelope" in out.lower()
+
+
+def test_app_tools_signal_quality_reports_snr():
+    import numpy as np
+    rng = np.random.RandomState(0)
+    t = np.linspace(0, 1, 500)
+    window = _FakeWindow(pd.DataFrame({"y": np.sin(2 * np.pi * 5 * t) + 0.05 * rng.randn(500)}))
+    out = build_app_registry(window).execute("signal_quality", {"fs": 500})
+    assert "snr" in out.lower() and "db" in out.lower()
 
 
 # ------------------------------------------------------------------- dock wiring

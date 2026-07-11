@@ -232,8 +232,10 @@
 - ✅ แปลผล/สรุปข้อมูล (tool `list_columns` + `describe_data`)
 - ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`)
 - ✅ Transform/Clean ผ่าน AI (tools `moving_average` + `fill_missing` + `interpolate` + `normalize` + `detrend` + `remove_outliers` + `remove_duplicates` + `sort_data`)
-- ✅ FFT ผ่าน AI (tool `run_fft` → result Book + dominant frequency)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม 18 AI tools
+- ✅ FFT / Envelope / Signal quality ผ่าน AI (tools `run_fft` + `envelope` + `signal_quality`)
+- ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **21 AI tools**
+- ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
 - ☐ "Fit peak นี้"
 - ☐ "หา anomaly"
 - ☐ "อธิบายกราฟนี้"
@@ -249,7 +251,7 @@
 - ☐ Generate Python code
 - ☐ Generate MATLAB code
 - ☐ Generate Origin-like workflow
-- ☐ Chat กับ dataset (หลาย tool ต่อเนื่อง — มีโครงแล้ว เหลือขยาย tool)
+- ✅ Chat กับ dataset (21 tools ต่อเนื่องบน active Book; เหลือขยาย tool signal/dataset ต่อ)
 
 ## H. Gas Sensor Module — 🟡 แกนวิเคราะห์เสร็จ ⭐ (เมนู/rail "Gas Sensor"; เหลือฝั่ง real-time ESP32)
 - ☐ Real-time serial data จาก ESP32

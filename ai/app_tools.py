@@ -340,6 +340,63 @@ def _tool_sort_data(window, args: Dict[str, Any]) -> str:
         return f"Could not sort: {exc}"
 
 
+def _tool_list_books(window, _args: Dict[str, Any]) -> str:
+    getter = getattr(window, "_dataset_names", None)
+    names = getter() if callable(getter) else None
+    if not names:
+        label = getattr(window, "_active_book_label", None)
+        active = label() if callable(label) else None
+        return f"Open Books: {active}" if active else "No Books are open."
+    active_getter = getattr(window, "_active_book_label", None)
+    active = active_getter() if callable(active_getter) else None
+    marked = [f"{n} (active)" if n == active else n for n in names]
+    return f"Open Books ({len(names)}): " + ", ".join(marked)
+
+
+def _tool_envelope(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        from analysis.signal_filters import signal_envelope
+
+        env = signal_envelope(df[col])
+        new_col = f"{col}_envelope"
+        df[new_col] = env
+        _sync_new_column(window, new_col)
+        return f"Computed the amplitude envelope of '{col}' as '{new_col}'."
+    except Exception as exc:
+        logger.debug("envelope tool failed", exc_info=True)
+        return f"Could not compute envelope: {exc}"
+
+
+def _tool_signal_quality(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        fs = float(args.get("fs", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        fs = 1.0
+    try:
+        from analysis.signal_filters import signal_quality_summary
+
+        summary = signal_quality_summary(df[col], fs=fs)
+        return (
+            f"Signal quality of '{col}' (fs={summary['fs_hz']:g} Hz): "
+            f"SNR ≈ {summary['snr_db']:.2f} dB, noise floor ≈ {summary['noise_floor']:.4g}."
+        )
+    except Exception as exc:
+        logger.debug("signal_quality tool failed", exc_info=True)
+        return f"Could not assess signal quality: {exc}"
+
+
 def _tool_fft(window, args: Dict[str, Any]) -> str:
     df = _active_df(window)
     if df is None or getattr(df, "empty", True):
@@ -545,6 +602,28 @@ def build_app_registry(window) -> ToolRegistry:
             "x_column": {"type": "string", "description": "time/X column for fs", "required": False},
         },
         lambda args: _tool_fft(window, args),
+    )
+    registry.add(
+        "envelope",
+        "Compute the amplitude (Hilbert) envelope of a signal column into a new column.",
+        {"column": {"type": "string", "description": "signal column", "required": False}},
+        lambda args: _tool_envelope(window, args),
+    )
+    registry.add(
+        "signal_quality",
+        "Report a signal's SNR (dB) and noise floor. fs optional (Hz).",
+        {
+            "fs": {"type": "number", "description": "sampling rate Hz", "required": False},
+            "column": {"type": "string", "description": "signal column", "required": False},
+        },
+        lambda args: _tool_signal_quality(window, args),
+    )
+    registry.add(
+        "list_books",
+        "List the open data Books (datasets) and which one is active. "
+        "Use this before operating on a specific Book.",
+        {},
+        lambda args: _tool_list_books(window, args),
     )
     registry.add(
         "open_file",
