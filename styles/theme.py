@@ -564,26 +564,27 @@ def themed_icon(source_icon: QIcon, palette: ThemePalette) -> QIcon:
     if source_icon.isNull():
         return QIcon()
     colors = icon_theme_colors(palette)
+    # active / selected / checked all resolve to the accent color, so tint it
+    # once and reuse. Rendering three fewer pixmaps per size roughly halves the
+    # per-icon cost (icon creation was the single biggest build hotspot).
     icon = QIcon()
     rendered = False
-    for extent in (16, 20, 24, 32, 48):
+    for extent in (16, 20, 24, 32):
         source = source_icon.pixmap(QSize(extent, extent), QIcon.Normal, QIcon.Off)
         if source.isNull():
             continue
         rendered = True
         normal = _tint_pixmap(source, colors["normal"])
         disabled = _tint_pixmap(source, colors["disabled"])
-        active = _tint_pixmap(source, colors["active"])
-        selected = _tint_pixmap(source, colors["selected"])
-        checked = _tint_pixmap(source, colors["checked"])
+        accent = _tint_pixmap(source, colors["active"])
         icon.addPixmap(normal, QIcon.Normal, QIcon.Off)
-        icon.addPixmap(checked, QIcon.Normal, QIcon.On)
+        icon.addPixmap(accent, QIcon.Normal, QIcon.On)
         icon.addPixmap(disabled, QIcon.Disabled, QIcon.Off)
         icon.addPixmap(disabled, QIcon.Disabled, QIcon.On)
-        icon.addPixmap(active, QIcon.Active, QIcon.Off)
-        icon.addPixmap(checked, QIcon.Active, QIcon.On)
-        icon.addPixmap(selected, QIcon.Selected, QIcon.Off)
-        icon.addPixmap(checked, QIcon.Selected, QIcon.On)
+        icon.addPixmap(accent, QIcon.Active, QIcon.Off)
+        icon.addPixmap(accent, QIcon.Active, QIcon.On)
+        icon.addPixmap(accent, QIcon.Selected, QIcon.Off)
+        icon.addPixmap(accent, QIcon.Selected, QIcon.On)
     result = icon if rendered else QIcon(source_icon)
     if not result.isNull():
         _MONOCHROME_ICON_KEYS.add(result.cacheKey())
@@ -654,6 +655,10 @@ def refresh_application_icons(app: QApplication, palette: ThemePalette) -> None:
 class _ApplicationThemeRuntime(QObject):
     """Keeps late-created dialogs and local component QSS on the active theme."""
 
+    # Rebuilt once, not per event: this app-level filter sees every event for
+    # every object, so a fresh set literal per call was pure overhead.
+    _THEME_EVENTS = frozenset({QEvent.Type.Show, QEvent.Type.Polish, QEvent.Type.StyleChange})
+
     def __init__(self, app: QApplication):
         super().__init__(app)
         self.app = app
@@ -662,17 +667,22 @@ class _ApplicationThemeRuntime(QObject):
         self.font_size = app.font().pointSize() if app.font().pointSize() > 0 else 10
         self.suspended = False
         self._guard = set()
+        # Bumped on every theme/font change. Widgets already themed at the
+        # current generation (with unchanged QSS) short-circuit apply_widget.
+        self.generation = 1
 
     def configure(self, palette: ThemePalette, font_family: str, font_size: int) -> None:
         self.palette = palette
         self.font_family = font_family or self.font_family
         self.font_size = max(8, min(24, int(font_size)))
+        self.generation += 1
 
     def eventFilter(self, watched, event):
+        # Cheapest checks first so the vast majority of events fall through fast.
         if (
             not self.suspended
+            and event.type() in self._THEME_EVENTS
             and isinstance(watched, QWidget)
-            and event.type() in {QEvent.Show, QEvent.Polish, QEvent.StyleChange}
         ):
             self.apply_widget(watched)
         return False
@@ -692,40 +702,52 @@ class _ApplicationThemeRuntime(QObject):
         identity = id(widget)
         if identity in self._guard:
             return
+        # Skip only the expensive QSS work when nothing changed since we last
+        # themed this widget at the current generation. Palette + font are still
+        # re-asserted below because Qt's QStyleSheetStyle re-derives them from the
+        # app stylesheet on every polish and would otherwise clobber our accent
+        # (that clobber is exactly why the redundant re-applies were load-bearing).
+        current_qss = widget.styleSheet() or ""
+        needs_qss_work = not (
+            widget.property("_sciplotterThemeGen") == self.generation
+            and current_qss == widget.property("_sciplotterThemeRenderedQss")
+        )
         self._guard.add(identity)
         try:
-            current_qss = widget.styleSheet() or ""
-            previous_render = widget.property("_sciplotterThemeRenderedQss")
             source_qss = widget.property("_sciplotterThemeSourceQss")
-            if previous_render is None or current_qss != previous_render:
-                source_qss = current_qss
-                widget.setProperty("_sciplotterThemeSourceQss", source_qss)
+            if needs_qss_work:
+                previous_render = widget.property("_sciplotterThemeRenderedQss")
+                if previous_render is None or current_qss != previous_render:
+                    source_qss = current_qss
+                    widget.setProperty("_sciplotterThemeSourceQss", source_qss)
+                source_qss = str(source_qss or "")
+
+                rendered_qss = render_theme_qss(
+                    source_qss,
+                    self.palette,
+                    self.font_family,
+                    self.font_size,
+                )
+                if current_qss != rendered_qss:
+                    widget.setStyleSheet(rendered_qss)
+                widget.setProperty("_sciplotterThemeRenderedQss", rendered_qss)
+
+                theme_hook = getattr(widget, "apply_application_theme", None)
+                if callable(theme_hook):
+                    theme_hook()
+
+                widget.setProperty("_sciplotterThemeGen", self.generation)
             source_qss = str(source_qss or "")
 
-            rendered_qss = render_theme_qss(
-                source_qss,
-                self.palette,
-                self.font_family,
-                self.font_size,
-            )
-            if current_qss != rendered_qss:
-                widget.setStyleSheet(rendered_qss)
-            widget.setProperty("_sciplotterThemeRenderedQss", rendered_qss)
-
-            # Explicit palettes were used by a few legacy dialogs to force a
-            # light surface. Rebase every built-in widget on the application
-            # palette so those controls follow both dark and light modes.
+            # Always re-assert: Qt re-derives these from the stylesheet on polish.
+            # Explicit palettes were used by a few legacy dialogs to force a light
+            # surface; rebasing on the app palette keeps every control on theme.
             widget.setPalette(self.app.palette())
-
             if not self._is_monospace(widget, source_qss):
                 font = QFont(widget.font())
                 font.setFamily(self.font_family)
                 font.setPointSize(self.font_size)
                 widget.setFont(font)
-
-            theme_hook = getattr(widget, "apply_application_theme", None)
-            if callable(theme_hook):
-                theme_hook()
         finally:
             self._guard.discard(identity)
 
