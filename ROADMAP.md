@@ -233,10 +233,11 @@
 - ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`)
 - ✅ Transform/Clean ผ่าน AI (tools `moving_average` + `fill_missing` + `interpolate` + `normalize` + `detrend` + `remove_outliers` + `remove_duplicates` + `sort_data`)
 - ✅ Signal analysis ผ่าน AI ครบชุด (tools `run_fft` + `power_spectrum` + `autocorrelation` + `instantaneous_frequency` + `harmonic_analysis` + `envelope` + `signal_quality`)
+- ✅ โมดูลเฉพาะทางผ่าน AI (tools `gas_response` + `cv_peaks` + `tafel_analysis` + `raman_dg` + `normalize_spectrum` + `iv_conductivity` + `arrhenius` + `ohms_law` + `rc_time_constant` + `pendulum_gravity` — logic ใน `ai/module_tools.py`)
 - ✅ Peak/Cross-correlation ผ่าน AI (tools `peak_metrics` + `detect_peaks` + `cross_correlation`)
 - ✅ Graph decoration + advanced charts ผ่าน AI (tools `format_graph` + `list_charts` + `plot_chart` — 45 chart types)
 - ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **31 AI tools**
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **41 AI tools**
 - ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
 - ☐ "Fit peak นี้"
 - ☐ "หา anomaly"

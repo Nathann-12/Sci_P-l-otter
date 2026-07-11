@@ -991,4 +991,11 @@ def build_app_registry(window) -> ToolRegistry:
         {"path": {"type": "string", "description": "absolute file path", "required": True}},
         lambda args: _tool_open_file(window, args),
     )
+    # Specialized science modules (Gas Sensor / Echem / Spectroscopy / ...).
+    try:
+        from ai.module_tools import register_module_tools
+
+        register_module_tools(registry, window)
+    except Exception:
+        logger.debug("module tools registration skipped", exc_info=True)
     return registry
