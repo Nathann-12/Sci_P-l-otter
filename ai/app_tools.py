@@ -430,6 +430,107 @@ def _tool_fft(window, args: Dict[str, Any]) -> str:
         return f"Could not compute FFT: {exc}"
 
 
+def _open_result(window, name: str, result_df) -> bool:
+    opener = getattr(window, "_open_signal_result_book", None)
+    if callable(opener):
+        opener(name, result_df)
+        return True
+    return False
+
+
+def _tool_power_spectrum(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        fs = float(args.get("fs", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        fs = 1.0
+    try:
+        import pandas as pd
+        from analysis.signal_filters import compute_psd
+
+        freqs, psd = compute_psd(df[col], fs=fs)
+        _open_result(window, f"PSD_{col}", pd.DataFrame({"freq_Hz": freqs, "psd": psd}))
+        peak = float(freqs[int(psd.argmax())]) if len(psd) else 0.0
+        return f"Power spectral density of '{col}' (fs={fs:g} Hz); peak at ≈ {peak:.4g} Hz. Opened as a Book."
+    except Exception as exc:
+        logger.debug("psd tool failed", exc_info=True)
+        return f"Could not compute PSD: {exc}"
+
+
+def _tool_autocorrelation(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        import pandas as pd
+        from analysis.signal_filters import autocorrelation
+
+        lags, corr = autocorrelation(df[col])
+        _open_result(window, f"Autocorr_{col}", pd.DataFrame({"lag": lags, "autocorr": corr}))
+        return f"Auto-correlation of '{col}' computed ({len(lags)} lags). Opened as a Book."
+    except Exception as exc:
+        logger.debug("autocorrelation tool failed", exc_info=True)
+        return f"Could not compute auto-correlation: {exc}"
+
+
+def _tool_instantaneous_frequency(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        fs = float(args.get("fs", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        fs = 1.0
+    try:
+        from analysis.signal_filters import instantaneous_frequency
+
+        inst = instantaneous_frequency(df[col], fs=fs)
+        new_col = f"{col}_inst_freq"
+        df[new_col] = inst
+        _sync_new_column(window, new_col)
+        return f"Instantaneous frequency of '{col}' (fs={fs:g} Hz) added as '{new_col}'."
+    except Exception as exc:
+        logger.debug("instantaneous_frequency tool failed", exc_info=True)
+        return f"Could not compute instantaneous frequency: {exc}"
+
+
+def _tool_harmonic_analysis(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    try:
+        fs = float(args.get("fs", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        fs = 1.0
+    try:
+        import numpy as np
+        import pandas as pd
+        from analysis.signal_filters import harmonic_analysis
+
+        result = harmonic_analysis(df[col], fs=fs)
+        columns = {k: np.asarray(v) for k, v in result.items() if np.ndim(v) > 0}
+        _open_result(window, f"Harmonics_{col}", pd.DataFrame(columns))
+        n = len(next(iter(columns.values()))) if columns else 0
+        return f"Harmonic analysis of '{col}' (fs={fs:g} Hz): {n} components. Opened as a Book."
+    except Exception as exc:
+        logger.debug("harmonic_analysis tool failed", exc_info=True)
+        return f"Could not run harmonic analysis: {exc}"
+
+
 def _tool_open_file(window, args: Dict[str, Any]) -> str:
     import os
 
@@ -617,6 +718,42 @@ def build_app_registry(window) -> ToolRegistry:
             "column": {"type": "string", "description": "signal column", "required": False},
         },
         lambda args: _tool_signal_quality(window, args),
+    )
+    registry.add(
+        "power_spectrum",
+        "Compute the power spectral density (PSD) of a signal column and open it "
+        "as a result Book; reports the peak. fs optional (Hz).",
+        {
+            "fs": {"type": "number", "description": "sampling rate Hz", "required": False},
+            "column": {"type": "string", "description": "signal column", "required": False},
+        },
+        lambda args: _tool_power_spectrum(window, args),
+    )
+    registry.add(
+        "autocorrelation",
+        "Compute the auto-correlation of a signal column and open it as a result Book.",
+        {"column": {"type": "string", "description": "signal column", "required": False}},
+        lambda args: _tool_autocorrelation(window, args),
+    )
+    registry.add(
+        "instantaneous_frequency",
+        "Add the instantaneous frequency (Hz, from the Hilbert phase) of a signal "
+        "column as a new column. fs optional.",
+        {
+            "fs": {"type": "number", "description": "sampling rate Hz", "required": False},
+            "column": {"type": "string", "description": "signal column", "required": False},
+        },
+        lambda args: _tool_instantaneous_frequency(window, args),
+    )
+    registry.add(
+        "harmonic_analysis",
+        "Find the strongest harmonic components of a signal column and open them "
+        "as a result Book. fs optional.",
+        {
+            "fs": {"type": "number", "description": "sampling rate Hz", "required": False},
+            "column": {"type": "string", "description": "signal column", "required": False},
+        },
+        lambda args: _tool_harmonic_analysis(window, args),
     )
     registry.add(
         "list_books",

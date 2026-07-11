@@ -342,6 +342,42 @@ def test_app_tools_signal_quality_reports_snr():
     assert "snr" in out.lower() and "db" in out.lower()
 
 
+def test_app_tools_power_spectrum_opens_book():
+    import numpy as np
+    t = np.linspace(0, 1, 256, endpoint=False)
+    window = _FakeWindow(pd.DataFrame({"y": np.sin(2 * np.pi * 8 * t)}))
+    out = build_app_registry(window).execute("power_spectrum", {"fs": 256, "column": "y"})
+    assert window.result_books and window.result_books[0][0] == "PSD_y"
+    assert "psd" in out.lower() or "power" in out.lower()
+
+
+def test_app_tools_autocorrelation_opens_book():
+    import numpy as np
+    window = _FakeWindow(pd.DataFrame({"y": np.sin(np.linspace(0, 20, 200))}))
+    out = build_app_registry(window).execute("autocorrelation", {"column": "y"})
+    assert window.result_books and window.result_books[0][0] == "Autocorr_y"
+    assert "correlation" in out.lower()
+
+
+def test_app_tools_instantaneous_frequency_adds_column():
+    import numpy as np
+    t = np.linspace(0, 1, 300)
+    window = _FakeWindow(pd.DataFrame({"y": np.sin(2 * np.pi * 15 * t)}))
+    out = build_app_registry(window).execute("instantaneous_frequency", {"fs": 300, "column": "y"})
+    assert "y_inst_freq" in window._df.columns
+    assert "instantaneous" in out.lower()
+
+
+def test_app_tools_harmonic_analysis_opens_book():
+    import numpy as np
+    t = np.linspace(0, 1, 512, endpoint=False)
+    y = np.sin(2 * np.pi * 5 * t) + 0.5 * np.sin(2 * np.pi * 10 * t)
+    window = _FakeWindow(pd.DataFrame({"y": y}))
+    out = build_app_registry(window).execute("harmonic_analysis", {"fs": 512, "column": "y"})
+    assert window.result_books and window.result_books[0][0] == "Harmonics_y"
+    assert "component" in out.lower()
+
+
 # ------------------------------------------------------------------- dock wiring
 from main_window_ai_mixin import MainWindowAIMixin  # noqa: E402
 

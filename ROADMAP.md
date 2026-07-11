@@ -232,9 +232,9 @@
 - ✅ แปลผล/สรุปข้อมูล (tool `list_columns` + `describe_data`)
 - ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`)
 - ✅ Transform/Clean ผ่าน AI (tools `moving_average` + `fill_missing` + `interpolate` + `normalize` + `detrend` + `remove_outliers` + `remove_duplicates` + `sort_data`)
-- ✅ FFT / Envelope / Signal quality ผ่าน AI (tools `run_fft` + `envelope` + `signal_quality`)
+- ✅ Signal analysis ผ่าน AI ครบชุด (tools `run_fft` + `power_spectrum` + `autocorrelation` + `instantaneous_frequency` + `harmonic_analysis` + `envelope` + `signal_quality`)
 - ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **21 AI tools**
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **25 AI tools**
 - ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
 - ☐ "Fit peak นี้"
 - ☐ "หา anomaly"
