@@ -8,6 +8,7 @@ without adding toolbar clutter.
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any, List
 
+import logging
 import numpy as np
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import QObject, QPoint
@@ -461,6 +462,8 @@ class ContextMenuManager(QObject):
 
     def _clear_overlays(self):
         for a in list(self._overlays):
-            try: a.remove()
-            except Exception: pass
+            try:
+                a.remove()
+            except Exception:
+                logging.getLogger(__name__).debug("overlay remove failed", exc_info=True)
         self._overlays.clear(); self.canvas.draw_idle()

@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List
 
 import json
+import logging
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
@@ -38,8 +39,10 @@ class PeakDetectorManager(QObject):
 
     def clear(self):
         for a in list(self._artists):
-            try: a.remove()
-            except Exception: pass
+            try:
+                a.remove()
+            except Exception:
+                logging.getLogger(__name__).debug("peak artist remove failed", exc_info=True)
         self._artists.clear(); self._last_results = None
         try:
             tab = self.mw.tabs.currentWidget(); tab.get_figure().canvas.draw_idle()

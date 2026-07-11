@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from core.plot_request import HistogramRequest, PlotOptions, PlotRequest
 from main_window_plot_mixin import MainWindowPlotMixin
+from main_window_view_access_mixin import MainWindowViewAccessMixin
 from widgets.plot_tabs import TabManager
 
 
@@ -46,7 +47,10 @@ class _StatusBar:
         self.messages.append(message)
 
 
-class DummyWindow(QWidget, MainWindowPlotMixin):
+class DummyWindow(QWidget, MainWindowPlotMixin, MainWindowViewAccessMixin):
+    """Mirrors the real MainWindow: plot logic reads columns through the
+    view-access seam (selected_x_column/...), never ``self.cbX`` directly."""
+
     def __init__(self):
         super().__init__()
         self.plot_mode = "REPLACE"
@@ -108,6 +112,22 @@ def test_layer_meta_helpers_include_dataset_context(qapp):
         "source": "plot_line",
         "style_kwargs": {"linewidth": 2},
     }
+
+
+def test_layer_meta_reads_columns_through_seam_without_widgets(qapp):
+    """Decoupling contract: _build_layer_meta must resolve x/y columns via the
+    view-access seam, so it works with the cbX/cbY widgets absent entirely."""
+    window = DummyWindow()
+    # Remove the concrete widgets and override the seam instead.
+    del window.cbX
+    del window.cbY
+    window.selected_x_column = lambda: "seam_x"
+    window.selected_y_column = lambda: "seam_y"
+
+    meta = window._build_layer_meta("scatter", "lbl", {"marker": "o"}, source="plot_scatter")
+
+    assert meta["x_column"] == "seam_x"
+    assert meta["y_column"] == "seam_y"
 
 
 def test_plot_line_then_scatter_updates_current_tab_headless(qapp):

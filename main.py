@@ -628,8 +628,10 @@ class MainWindow(
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม (ผ่าน toggle_inspector
         # เพื่อให้คอลัมน์ inspector ใน shell ยุบไปด้วย ไม่เหลือแถบว่างขวา)
         self.toggle_inspector(False)
-        try: self.actToggleInspector.setChecked(False)
-        except Exception: pass
+        try:
+            self.actToggleInspector.setChecked(False)
+        except Exception:
+            logging.getLogger(__name__).debug("inspector action sync failed", exc_info=True)
 
         try:
             self._apply_english_ui_texts()

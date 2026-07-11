@@ -41,12 +41,8 @@ class MainWindowPlotMixin:
             "label": label,
             "dataset_path": getattr(self, "_current_path", "") or "",
             "dataset_name": self._get_dataset_name_for_path(getattr(self, "_current_path", "")),
-            "x_column": request.x_column if request is not None else (
-                self.cbX.currentText() if hasattr(self, "cbX") else ""
-            ),
-            "y_column": request.y_column if request is not None else (
-                self.cbY.currentText() if hasattr(self, "cbY") else ""
-            ),
+            "x_column": request.x_column if request is not None else self.selected_x_column(),
+            "y_column": request.y_column if request is not None else self.selected_y_column(),
             "source": source,
         }
         if extra_kwargs:

@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any, List, Tuple
 
 import json
+import logging
 import numpy as np
 from PySide6 import QtCore
 from PySide6.QtCore import QObject, Signal, Qt
@@ -70,8 +71,10 @@ class CrossCorrManager(QObject):
             return
         if self._event_ids:
             for cid in self._event_ids:
-                try: fig.canvas.mpl_disconnect(cid)
-                except Exception: pass
+                try:
+                    fig.canvas.mpl_disconnect(cid)
+                except Exception:
+                    logging.getLogger(__name__).debug("mpl_disconnect failed", exc_info=True)
             self._event_ids.clear()
         self._event_ids.append(fig.canvas.mpl_connect('motion_notify_event', self._on_motion))
         self._event_ids.append(fig.canvas.mpl_connect('draw_event', self._on_draw))
@@ -83,8 +86,10 @@ class CrossCorrManager(QObject):
 
     def _clear_vlines(self):
         for ln in self._vlines:
-            try: ln.remove()
-            except Exception: pass
+            try:
+                ln.remove()
+            except Exception:
+                logging.getLogger(__name__).debug("vline remove failed", exc_info=True)
         self._vlines.clear()
 
     def _on_motion(self, ev):

@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any, Tuple
 
 import json
+import logging
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -456,7 +457,9 @@ class AnnotationListDialog(QDialog):
     def _delete(self):
         row = self.list.currentRow()
         if row >= 0 and row < len(self.mgr.artists):
-            try: self.mgr.artists[row].remove()
-            except Exception: pass
+            try:
+                self.mgr.artists[row].remove()
+            except Exception:
+                logging.getLogger(__name__).debug("annotation artist remove failed", exc_info=True)
             del self.mgr.items[row]; del self.mgr.artists[row]
             self.mgr.fig.canvas.draw_idle(); self._reload()

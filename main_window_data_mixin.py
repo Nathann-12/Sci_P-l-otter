@@ -329,9 +329,9 @@ class MainWindowDataMixin:
     ) -> PlotRequest | None:
         """Build a widget-independent request from explicit or selected columns."""
         if x_column is None:
-            x_column = self.cbX.currentText()
+            x_column = self.selected_x_column()
         if y_column is None:
-            y_column = self.cbY.currentText()
+            y_column = self.selected_y_column()
         x, y = self._get_xy(x_column, y_column)
         if x is None:
             return None
@@ -398,12 +398,12 @@ class MainWindowDataMixin:
             )
             return None, None
 
-        if (x_col is None or y_col is None) and (self.cbX.count() == 0 or self.cbY.count() == 0):
+        if (x_col is None or y_col is None) and (self.x_column_count() == 0 or self.y_column_count() == 0):
             QMessageBox.information(self, "ยังไม่ได้โหลดคอลัมน์", "กดปุ่ม 'โหลดคอลัมน์จากข้อมูล' ก่อน")
             return None, None
 
-        x_col = x_col if x_col is not None else self.cbX.currentText()
-        y_col = y_col if y_col is not None else self.cbY.currentText()
+        x_col = x_col if x_col is not None else self.selected_x_column()
+        y_col = y_col if y_col is not None else self.selected_y_column()
         if x_col not in self._df.columns or y_col not in self._df.columns:
             QMessageBox.warning(self, "คอลัมน์ไม่ถูกต้อง", "โปรดเลือกคอลัมน์ X/Y ใหม่")
             return None, None

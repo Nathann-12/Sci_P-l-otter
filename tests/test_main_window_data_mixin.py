@@ -14,6 +14,7 @@ import main_window_data_mixin as data_mixin_module
 from core.plot_request import PlotOptions
 from main_window_actions_mixin import MainWindowActionsMixin
 from main_window_data_mixin import MainWindowDataMixin
+from main_window_view_access_mixin import MainWindowViewAccessMixin
 
 
 class _ComboBoxStub:
@@ -98,7 +99,7 @@ class _MessageBoxRecorder:
         self.calls.append(("information", title, message))
 
 
-class _WindowStub(MainWindowDataMixin, MainWindowActionsMixin):
+class _WindowStub(MainWindowDataMixin, MainWindowActionsMixin, MainWindowViewAccessMixin):
     def __init__(self):
         self._df = None
         self._current_path = None
