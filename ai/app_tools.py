@@ -531,6 +531,174 @@ def _tool_harmonic_analysis(window, args: Dict[str, Any]) -> str:
         return f"Could not run harmonic analysis: {exc}"
 
 
+def _xy_arrays(window, df, args: Dict[str, Any]):
+    """Return (x, y) numpy arrays: y = resolved column, x = selected X or row index."""
+    import numpy as np
+
+    y_col = _resolve_y_column(window, df, args)
+    if y_col is None:
+        return None, None, None
+    x_getter = getattr(window, "selected_x_column", None)
+    x_col = x_getter() if callable(x_getter) else None
+    if x_col in getattr(df, "columns", []) and x_col != y_col:
+        x = df[x_col].to_numpy(dtype=float)
+    else:
+        x = np.arange(len(df), dtype=float)
+    return x, df[y_col].to_numpy(dtype=float), y_col
+
+
+def _tool_peak_metrics(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    x, y, col = _xy_arrays(window, df, args)
+    if y is None:
+        return "Need a numeric column."
+    try:
+        from analysis.signal_filters import peak_metrics_summary
+
+        m = peak_metrics_summary(x, y)
+        fwhm = f"{m['fwhm']:.4g}" if m.get("fwhm") is not None else "n/a"
+        return (
+            f"Main peak of '{col}': height {m['peak_height']:.4g} at x={m['peak_x']:.4g}, "
+            f"area {m['area']:.4g}, FWHM {fwhm}."
+        )
+    except Exception as exc:
+        logger.debug("peak_metrics tool failed", exc_info=True)
+        return f"Could not compute peak metrics: {exc}"
+
+
+def _tool_detect_peaks(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    x, y, col = _xy_arrays(window, df, args)
+    if y is None:
+        return "Need a numeric column."
+    try:
+        import numpy as np
+        import pandas as pd
+        from scipy.signal import find_peaks
+
+        kwargs = {}
+        if args.get("prominence") is not None:
+            kwargs["prominence"] = float(args["prominence"])
+        if args.get("distance") is not None:
+            kwargs["distance"] = max(1, int(args["distance"]))
+        idx, _props = find_peaks(y, **kwargs)
+        if len(idx) == 0:
+            return f"No peaks found in '{col}'. Try a lower prominence."
+        _open_result(
+            window, f"Peaks_{col}",
+            pd.DataFrame({"peak_x": x[idx], "peak_height": y[idx]}),
+        )
+        top = idx[np.argsort(y[idx])[::-1][:3]]
+        tops = ", ".join(f"x={x[i]:.4g} (h={y[i]:.4g})" for i in top)
+        return f"Found {len(idx)} peaks in '{col}'. Strongest: {tops}. Table opened as a Book."
+    except Exception as exc:
+        logger.debug("detect_peaks tool failed", exc_info=True)
+        return f"Could not detect peaks: {exc}"
+
+
+def _tool_cross_correlation(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    numeric = _numeric_columns(df)
+    a_col = args.get("column_a") or (numeric[0] if len(numeric) >= 1 else None)
+    b_col = args.get("column_b") or (numeric[1] if len(numeric) >= 2 else None)
+    if a_col not in df.columns or b_col not in df.columns or a_col == b_col:
+        return "Need two different numeric columns (column_a and column_b)."
+    try:
+        import numpy as np
+        import pandas as pd
+        from scipy.signal import correlate, correlation_lags
+
+        a = df[a_col].to_numpy(dtype=float)
+        b = df[b_col].to_numpy(dtype=float)
+        a = a - np.nanmean(a)
+        b = b - np.nanmean(b)
+        corr = correlate(a, b, mode="full")
+        lags = correlation_lags(len(a), len(b), mode="full")
+        denom = np.sqrt(np.sum(a * a) * np.sum(b * b)) or 1.0
+        corr = corr / denom
+        _open_result(window, f"XCorr_{a_col}_{b_col}", pd.DataFrame({"lag": lags, "xcorr": corr}))
+        best = int(np.argmax(np.abs(corr)))
+        return (
+            f"Cross-correlation of '{a_col}' vs '{b_col}': peak {corr[best]:.3f} at lag "
+            f"{int(lags[best])} samples. Result opened as a Book."
+        )
+    except Exception as exc:
+        logger.debug("cross_correlation tool failed", exc_info=True)
+        return f"Could not cross-correlate: {exc}"
+
+
+def _tool_format_graph(window, args: Dict[str, Any]) -> str:
+    axes_getter = getattr(window, "active_axes", None)
+    ax = axes_getter() if callable(axes_getter) else None
+    if ax is None:
+        return "No active graph to format. Create a plot first."
+    changed = []
+    try:
+        if args.get("title") is not None:
+            ax.set_title(str(args["title"])); changed.append("title")
+        if args.get("xlabel") is not None:
+            ax.set_xlabel(str(args["xlabel"])); changed.append("x-label")
+        if args.get("ylabel") is not None:
+            ax.set_ylabel(str(args["ylabel"])); changed.append("y-label")
+        if "grid" in args:
+            ax.grid(bool(args["grid"])); changed.append("grid")
+        if args.get("legend"):
+            ax.legend(); changed.append("legend")
+        if args.get("logx"):
+            ax.set_xscale("log"); changed.append("log-x")
+        if args.get("logy"):
+            ax.set_yscale("log"); changed.append("log-y")
+        fig = getattr(ax, "figure", None)
+        if fig is not None and getattr(fig, "canvas", None) is not None:
+            fig.canvas.draw_idle()
+    except Exception as exc:
+        logger.debug("format_graph tool failed", exc_info=True)
+        return f"Could not format the graph: {exc}"
+    return f"Updated the graph: {', '.join(changed)}." if changed else "Nothing to change."
+
+
+def _tool_list_charts(_window, _args: Dict[str, Any]) -> str:
+    try:
+        from plots.registry import all_plots
+
+        keys = [str(p.get("key")) for p in all_plots() if p.get("key")]
+        return f"Available chart types ({len(keys)}): " + ", ".join(keys)
+    except Exception as exc:
+        logger.debug("list_charts tool failed", exc_info=True)
+        return f"Could not list charts: {exc}"
+
+
+def _tool_plot_chart(window, args: Dict[str, Any]) -> str:
+    key = str(args.get("chart_type", "")).strip()
+    if not key:
+        return "Provide 'chart_type' (see list_charts for options)."
+    try:
+        from plots.registry import get_plot
+    except Exception as exc:
+        return f"Charts unavailable: {exc}"
+    entry = get_plot(key)
+    if entry is None:
+        return f"Unknown chart '{key}'. Use list_charts to see valid types."
+    if not callable(getattr(window, "plot_from_gallery", None)):
+        return "Charts are not available in this context."
+    previous = getattr(window, "_suppress_plot_mapping_dialog", False)
+    window._suppress_plot_mapping_dialog = True  # non-interactive: use active data
+    try:
+        window.plot_from_gallery(entry)
+    except Exception as exc:
+        logger.debug("plot_chart tool failed", exc_info=True)
+        return f"Could not create the chart: {exc}"
+    finally:
+        window._suppress_plot_mapping_dialog = previous
+    return f"Created a '{entry.get('title', key)}' chart in a new Graph."
+
+
 def _tool_open_file(window, args: Dict[str, Any]) -> str:
     import os
 
@@ -754,6 +922,61 @@ def build_app_registry(window) -> ToolRegistry:
             "column": {"type": "string", "description": "signal column", "required": False},
         },
         lambda args: _tool_harmonic_analysis(window, args),
+    )
+    registry.add(
+        "peak_metrics",
+        "Report the main peak of a column: height, position, area and FWHM.",
+        {"column": {"type": "string", "description": "signal column", "required": False}},
+        lambda args: _tool_peak_metrics(window, args),
+    )
+    registry.add(
+        "detect_peaks",
+        "Find peaks in a column and open a table of peak positions/heights as a Book. "
+        "prominence/distance optional.",
+        {
+            "column": {"type": "string", "description": "signal column", "required": False},
+            "prominence": {"type": "number", "description": "min prominence", "required": False},
+            "distance": {"type": "number", "description": "min samples between peaks", "required": False},
+        },
+        lambda args: _tool_detect_peaks(window, args),
+    )
+    registry.add(
+        "cross_correlation",
+        "Cross-correlate two numeric columns; report the peak correlation and its "
+        "lag, and open the full curve as a Book. Defaults to the first two numeric columns.",
+        {
+            "column_a": {"type": "string", "description": "first column", "required": False},
+            "column_b": {"type": "string", "description": "second column", "required": False},
+        },
+        lambda args: _tool_cross_correlation(window, args),
+    )
+    registry.add(
+        "format_graph",
+        "Decorate the active graph: set title / xlabel / ylabel, toggle grid or "
+        "legend, or switch axes to log (logx/logy).",
+        {
+            "title": {"type": "string", "description": "graph title", "required": False},
+            "xlabel": {"type": "string", "description": "x axis label", "required": False},
+            "ylabel": {"type": "string", "description": "y axis label", "required": False},
+            "grid": {"type": "boolean", "description": "show grid", "required": False},
+            "legend": {"type": "boolean", "description": "show legend", "required": False},
+            "logx": {"type": "boolean", "description": "log x axis", "required": False},
+            "logy": {"type": "boolean", "description": "log y axis", "required": False},
+        },
+        lambda args: _tool_format_graph(window, args),
+    )
+    registry.add(
+        "list_charts",
+        "List the advanced chart types available in the Chart Gallery.",
+        {},
+        lambda args: _tool_list_charts(window, args),
+    )
+    registry.add(
+        "plot_chart",
+        "Create an advanced chart from the active data in a new Graph. "
+        "chart_type is one of the keys from list_charts.",
+        {"chart_type": {"type": "string", "description": "chart key", "required": True}},
+        lambda args: _tool_plot_chart(window, args),
     )
     registry.add(
         "list_books",

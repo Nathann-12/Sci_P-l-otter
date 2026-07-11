@@ -124,6 +124,7 @@ class _FakeWindow:
         self.plotted = []
         self.added = []
         self.result_books = []
+        self.charts = []
 
     def _resolve_active_dataframe(self):
         return self._df
@@ -157,6 +158,17 @@ class _FakeWindow:
 
     def _dataset_names(self, include_active=True):
         return ["Book1", "Book2"]
+
+    def active_axes(self):
+        if getattr(self, "_ax", None) is None:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            _fig, self._ax = plt.subplots()
+        return self._ax
+
+    def plot_from_gallery(self, entry):
+        self.charts.append(entry.get("key"))
 
 
 def test_app_tools_read_and_drive_the_window():
@@ -376,6 +388,73 @@ def test_app_tools_harmonic_analysis_opens_book():
     out = build_app_registry(window).execute("harmonic_analysis", {"fs": 512, "column": "y"})
     assert window.result_books and window.result_books[0][0] == "Harmonics_y"
     assert "component" in out.lower()
+
+
+# --- peak / cross-correlation analysis ---------------------------------------
+def test_app_tools_peak_metrics_reports_main_peak():
+    import numpy as np
+    x = np.linspace(-5, 5, 200)
+    y = np.exp(-((x - 1.0) ** 2) / 0.5)  # gaussian peak at x=1
+    window = _FakeWindow(pd.DataFrame({"x": x, "y": y}))
+    out = build_app_registry(window).execute("peak_metrics", {"column": "y"})
+    assert "fwhm" in out.lower() and "height" in out.lower()
+
+
+def test_app_tools_detect_peaks_opens_table():
+    import numpy as np
+    t = np.linspace(0, 1, 400)
+    y = np.sin(2 * np.pi * 6 * t)  # 6 clear peaks
+    window = _FakeWindow(pd.DataFrame({"y": y}))
+    out = build_app_registry(window).execute("detect_peaks", {"prominence": 0.5})
+    assert window.result_books and window.result_books[0][0] == "Peaks_y"
+    assert "peaks" in out.lower()
+
+
+def test_app_tools_cross_correlation_reports_lag():
+    import numpy as np
+    base = np.sin(np.linspace(0, 20, 300))
+    shifted = np.roll(base, 10)
+    window = _FakeWindow(pd.DataFrame({"a": base, "b": shifted}))
+    out = build_app_registry(window).execute("cross_correlation", {"column_a": "a", "column_b": "b"})
+    assert window.result_books and window.result_books[0][0].startswith("XCorr_")
+    assert "lag" in out.lower()
+
+
+# --- graph decoration + advanced charts --------------------------------------
+def test_app_tools_format_graph_sets_title_and_grid():
+    window = _FakeWindow(pd.DataFrame({"y": [1, 2, 3]}))
+    out = build_app_registry(window).execute(
+        "format_graph", {"title": "My Plot", "xlabel": "Time", "grid": True}
+    )
+    ax = window.active_axes()
+    assert ax.get_title() == "My Plot"
+    assert ax.get_xlabel() == "Time"
+    assert "title" in out.lower()
+
+
+def test_app_tools_format_graph_without_axes():
+    window = _FakeWindow(pd.DataFrame({"y": [1, 2, 3]}))
+    window.active_axes = lambda: None
+    assert "no active graph" in build_app_registry(window).execute("format_graph", {"title": "x"}).lower()
+
+
+def test_app_tools_list_and_plot_chart():
+    window = _FakeWindow(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
+    reg = build_app_registry(window)
+    listed = reg.execute("list_charts", {})
+    assert "chart types" in listed.lower()
+    # first available key should plot without a dialog
+    from plots.registry import all_plots
+    key = all_plots()[0]["key"]
+    out = reg.execute("plot_chart", {"chart_type": key})
+    assert window.charts == [key]
+    assert "chart" in out.lower()
+
+
+def test_app_tools_plot_chart_unknown_type():
+    window = _FakeWindow(pd.DataFrame({"a": [1, 2, 3]}))
+    out = build_app_registry(window).execute("plot_chart", {"chart_type": "definitely_not_a_chart"})
+    assert "unknown chart" in out.lower()
 
 
 # ------------------------------------------------------------------- dock wiring
