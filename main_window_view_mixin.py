@@ -41,14 +41,24 @@ class MainWindowViewMixin:
         self.statusBar().showMessage("Graph cleared.")
 
     def _reset_view(self):
-        """Reset view for current tab."""
+        """Reset the current graph to show all data (Rescale to Show All).
+
+        Must actively autoscale: ``set_xlim(auto=True)`` only flips the
+        autoscale flag, and a plain ``draw()`` does not recompute the view, so
+        the graph stayed stuck at the zoomed limits (or off-screen). Autoscaling
+        from the axes' dataLim always brings every artist back into view.
+        """
         tab = self._get_current_tab()
         if tab is None:
             return
 
         ax = tab.get_axes()
-        ax.set_xlim(auto=True)
-        ax.set_ylim(auto=True)
+        try:
+            ax.autoscale(enable=True, axis="both", tight=False)
+            ax.autoscale_view()
+        except Exception:
+            ax.set_xlim(auto=True)
+            ax.set_ylim(auto=True)
         tab.draw()
 
     def _update_canvas_reference(self, *_):

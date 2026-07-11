@@ -1,5 +1,8 @@
 {
   "appearance": {
+    "theme_mode": "dark",
+    "accent_color": "#F06B5D",
+    "background_color": "#000000",
     "qt_qss_path": "",
     "font_family": "Arial",
     "font_size": 10
@@ -7,6 +10,7 @@
   "matplotlib": {
     "mpl_style_path": "styles/mpl_style_dark_pro.mplstyle",
     "font_family": "TH Sarabun New",
+    "font_size": 10,
     "grid_enabled": true,
     "grid_alpha": 0.25,
     "grid_linestyle": "-",

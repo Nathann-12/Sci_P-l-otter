@@ -9,6 +9,7 @@ class ColorButton(QPushButton):
     
     def __init__(self, color=QColor(0, 0, 0), parent=None):
         super().__init__(parent)
+        self.setProperty("preserveIconColors", True)
         self._color = color
         self.setFixedSize(60, 30)
         self.clicked.connect(self._show_color_dialog)

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -20,22 +21,80 @@ from PySide6.QtWidgets import (
 
 
 class _ModuleCard(QToolButton):
-    def __init__(self, module_id: str, title: str, subtitle: str, icon: Optional[QIcon], parent=None):
+    """A selectable module card: icon + title + muted subtitle + pin dot.
+
+    Kept a checkable QToolButton (so it still lives in the QButtonGroup) but the
+    label content is real child widgets — that gives proper typographic
+    hierarchy instead of cramming ``title\\nsubtitle`` into the button text.
+    Child labels are transparent to the mouse so a click always hits the card.
+    """
+
+    def __init__(self, module_id: str, title: str, subtitle: str,
+                 icon: Optional[QIcon], parent=None):
         super().__init__(parent)
-        self.setObjectName(f"ModuleCard_{module_id}")
+        self.setObjectName("ModuleCard")
         self.setProperty("moduleId", module_id)
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.setText(f"{title}\n{subtitle}")
-        if icon is not None:
-            self.setIcon(icon)
-        self.setMinimumHeight(58)
-        self.setMaximumHeight(72)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.setMinimumHeight(52)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(11, 8, 10, 8)
+        row.setSpacing(11)
+
+        self._icon_label = QLabel(self)
+        self._icon_label.setObjectName("ModuleCardIcon")
+        self._icon_label.setFixedSize(28, 28)
+        self._icon_label.setAlignment(Qt.AlignCenter)
+        self._icon_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        row.addWidget(self._icon_label, 0)
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
+        self._title_label = QLabel(title, self)
+        self._title_label.setObjectName("ModuleCardTitle")
+        self._title_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._subtitle_label = QLabel(subtitle, self)
+        self._subtitle_label.setObjectName("ModuleCardSubtitle")
+        self._subtitle_label.setWordWrap(False)  # one clean line -> uniform cards
+        self._subtitle_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        text_col.addWidget(self._title_label)
+        text_col.addWidget(self._subtitle_label)
+        row.addLayout(text_col, 1)
+
+        self._pin_dot = QLabel("●", self)  # ● shown only when pinned
+        self._pin_dot.setObjectName("ModuleCardPin")
+        self._pin_dot.setFixedWidth(12)
+        self._pin_dot.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self._pin_dot.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._pin_dot.setVisible(False)
+        row.addWidget(self._pin_dot, 0)
+
+        self.set_card_icon(icon)
+
+    def set_card_icon(self, icon: Optional[QIcon]) -> None:
+        if icon is not None and not icon.isNull():
+            self._icon_label.setPixmap(icon.pixmap(20, 20))
+        else:
+            self._icon_label.clear()
+
+    def set_meta(self, title: str, subtitle: str) -> None:
+        self._title_label.setText(title)
+        self._subtitle_label.setText(subtitle)
+
+    def set_pinned(self, pinned: bool) -> None:
+        self._pin_dot.setVisible(bool(pinned))
 
 
 class ModulesPanel(QWidget):
-    """Text-first gallery for specialty/domain modules."""
+    """Text-first gallery for specialty/domain modules.
+
+    Styled to the app's single design system (accent #4F9CF9, surface #23272e,
+    border #3a3f44, text #e6e6e6) so it reads as part of SciPlotter rather than
+    a bolted-on panel.
+    """
 
     module_selected = Signal(str)
     pin_changed = Signal(str, bool)
@@ -55,6 +114,7 @@ class ModulesPanel(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
+        # ---- header: eyebrow + title + close ----
         eyebrow = QLabel("SPECIALTY MODULES", self)
         eyebrow.setObjectName("ModulesEyebrow")
         root.addWidget(eyebrow)
@@ -65,51 +125,56 @@ class ModulesPanel(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
 
-        title = QLabel("Modules Gallery", self)
+        # short title (the eyebrow already says SPECIALTY MODULES) so it never
+        # clips in a narrow splitter pane
+        title = QLabel("Modules", self)
         title.setObjectName("ModulesTitle")
+        title.setMinimumWidth(0)
         header_layout.addWidget(title, 1)
 
-        self.close_button = QPushButton("Close", self)
+        self.close_button = QToolButton(self)
         self.close_button.setObjectName("ModulesCloseButton")
+        self.close_button.setText("✕")  # ✕
+        self.close_button.setCursor(Qt.PointingHandCursor)
         self.close_button.setToolTip("Close Modules Gallery")
+        self.close_button.setFixedSize(24, 24)
         self.close_button.clicked.connect(self.close_requested.emit)
-        header_layout.addWidget(self.close_button)
+        header_layout.addWidget(self.close_button, 0, Qt.AlignTop)
         root.addWidget(header)
 
         intro = QLabel(
-            "Domain-specific tools stay here so the main toolbar remains focused on universal plotting and data work.",
+            "Domain-specific tools live here so the main toolbar stays focused "
+            "on universal plotting and data work.",
             self,
         )
         intro.setObjectName("ModulesIntro")
         intro.setWordWrap(True)
         root.addWidget(intro)
 
+        # ---- search + pin filter on one row ----
+        controls = QWidget(self)
+        controls.setObjectName("ModulesControls")
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(8)
+
         self.search_edit = QLineEdit(self)
         self.search_edit.setObjectName("ModulesSearch")
-        self.search_edit.setPlaceholderText("Search modules, methods, or domains...")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setPlaceholderText("Search modules…")
         self.search_edit.textChanged.connect(self._apply_filters)
-        root.addWidget(self.search_edit)
+        controls_layout.addWidget(self.search_edit, 1)
 
         self.pin_filter_button = QPushButton("Pinned", self)
         self.pin_filter_button.setObjectName("ModulesPinnedFilter")
         self.pin_filter_button.setCheckable(True)
+        self.pin_filter_button.setCursor(Qt.PointingHandCursor)
         self.pin_filter_button.setToolTip("Show only pinned specialty modules")
         self.pin_filter_button.toggled.connect(self._set_pinned_filter)
+        controls_layout.addWidget(self.pin_filter_button, 0)
+        root.addWidget(controls)
 
-        self.pin_current_button = QPushButton("Pin Current", self)
-        self.pin_current_button.setObjectName("ModulesPinCurrent")
-        self.pin_current_button.setToolTip("Pin or unpin the selected module")
-        self.pin_current_button.clicked.connect(self.toggle_current_pin)
-
-        actions_row = QWidget(self)
-        actions_row.setObjectName("ModulesActionsRow")
-        actions_layout = QVBoxLayout(actions_row)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(6)
-        actions_layout.addWidget(self.pin_filter_button)
-        actions_layout.addWidget(self.pin_current_button)
-        root.addWidget(actions_row)
-
+        # ---- scrollable card list ----
         self._card_group = QButtonGroup(self)
         self._card_group.setExclusive(True)
 
@@ -126,16 +191,7 @@ class ModulesPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(self._card_pane)
-        root.addWidget(scroll, 0)
-
-        divider = QFrame(self)
-        divider.setObjectName("ModulesDivider")
-        divider.setFrameShape(QFrame.HLine)
-        root.addWidget(divider)
-
-        self._active_label = QLabel("Select a module", self)
-        self._active_label.setObjectName("ModulesActiveLabel")
-        root.addWidget(self._active_label)
+        root.addWidget(scroll, 3)
 
         self._empty_label = QLabel("No modules match this filter.", self)
         self._empty_label.setObjectName("ModulesEmptyLabel")
@@ -143,90 +199,112 @@ class ModulesPanel(QWidget):
         self._empty_label.hide()
         root.addWidget(self._empty_label)
 
+        # ---- active-module section ----
+        active_row = QWidget(self)
+        active_row.setObjectName("ModulesActiveRow")
+        active_layout = QHBoxLayout(active_row)
+        active_layout.setContentsMargins(0, 6, 0, 0)
+        active_layout.setSpacing(8)
+
+        self._active_label = QLabel("Select a module", self)
+        self._active_label.setObjectName("ModulesActiveLabel")
+        active_layout.addWidget(self._active_label, 1)
+
+        self.pin_current_button = QPushButton("Pin", self)
+        self.pin_current_button.setObjectName("ModulesPinCurrent")
+        self.pin_current_button.setCursor(Qt.PointingHandCursor)
+        self.pin_current_button.setToolTip("Pin or unpin the selected module")
+        self.pin_current_button.clicked.connect(self.toggle_current_pin)
+        active_layout.addWidget(self.pin_current_button, 0)
+        root.addWidget(active_row)
+
         self._stack = QStackedWidget(self)
         self._stack.setObjectName("ModulesStack")
-        root.addWidget(self._stack, 1)
+        root.addWidget(self._stack, 5)
 
-        self.setStyleSheet(
-            """
+        self.setStyleSheet(self._build_qss())
+
+    # ------------------------------------------------------------------ style
+    @staticmethod
+    def _build_qss() -> str:
+        return """
             #ModulesPanel {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #111820, stop:0.52 #151b24, stop:1 #0e141b);
+                background: #1e2126;
             }
             #ModulesEyebrow {
-                color: #7dd3fc; font-size: 8pt; font-weight: 700; letter-spacing: 1.4px;
+                color: #4F9CF9; font-size: 8pt; font-weight: 700;
+                letter-spacing: 1.5px;
             }
             #ModulesTitle {
-                color: #f8fafc; font-size: 15pt; font-weight: 700;
+                color: #f0f3f7; font-size: 13.5pt; font-weight: 700;
             }
-            #ModulesIntro, #ModulesActiveLabel, #ModulesEmptyLabel {
-                color: #aab5c2; font-size: 9pt;
+            #ModulesIntro {
+                color: #8b95a3; font-size: 8.5pt;
             }
-            #ModulesSearch {
-                min-height: 30px;
-                color: #e5eef8;
-                background: rgba(255,255,255,0.07);
-                border: 1px solid rgba(255,255,255,0.12);
-                border-radius: 10px;
-                padding: 4px 9px;
-                selection-background-color: rgba(45,212,191,0.45);
+            #ModulesActiveLabel {
+                color: #c7ced8; font-size: 9pt; font-weight: 600;
             }
-            #ModulesSearch:focus {
-                border-color: rgba(125,211,252,0.70);
-                background: rgba(255,255,255,0.095);
-            }
-            #ModulesPinnedFilter, #ModulesPinCurrent, #ModulesCloseButton {
-                min-height: 28px;
-                border-radius: 9px;
-                padding: 4px 8px;
-                color: #dbeafe;
-                background: rgba(148,163,184,0.12);
-                border: 1px solid rgba(148,163,184,0.24);
-            }
-            #ModulesPinnedFilter:checked {
-                color: #0f172a;
-                background: #7dd3fc;
-                border-color: #7dd3fc;
+            #ModulesEmptyLabel {
+                color: #8b95a3; font-size: 9pt; padding: 18px 0;
             }
             #ModulesCloseButton {
-                color: #fee2e2;
-                background: rgba(248,113,113,0.12);
-                border-color: rgba(248,113,113,0.26);
+                color: #9aa4b2; font-size: 11pt; font-weight: 700;
+                border: 1px solid transparent; border-radius: 6px; background: transparent;
             }
             #ModulesCloseButton:hover {
-                background: rgba(248,113,113,0.22);
-                border-color: rgba(248,113,113,0.55);
+                color: #f0f3f7; background: rgba(248,113,113,0.16);
+                border-color: rgba(248,113,113,0.45);
             }
-            #ModulesPinCurrent:hover, #ModulesPinnedFilter:hover {
-                border-color: rgba(125,211,252,0.60);
+            #ModulesSearch {
+                min-height: 30px; color: #e6e6e6;
+                background: #23272e; border: 1px solid #3a3f44;
+                border-radius: 8px; padding: 4px 10px;
+                selection-background-color: #4F9CF9;
             }
-            #ModulesDivider {
-                color: rgba(255,255,255,0.10);
-                background: rgba(255,255,255,0.10);
-                max-height: 1px;
+            #ModulesSearch:focus {
+                border-color: #4F9CF9; background: #262b33;
             }
-            #ModulesCardScroll {
-                background: transparent;
+            #ModulesPinnedFilter, #ModulesPinCurrent {
+                min-height: 30px; padding: 4px 14px; font-weight: 600;
+                color: #c7ced8; background: #23272e;
+                border: 1px solid #3a3f44; border-radius: 8px;
             }
-            #ModulesPanel QToolButton {
-                text-align: left;
-                color: #e5eef8;
-                background: rgba(255,255,255,0.055);
-                border: 1px solid rgba(255,255,255,0.10);
-                border-radius: 12px;
-                padding: 8px 10px;
+            #ModulesPinnedFilter:hover, #ModulesPinCurrent:hover {
+                border-color: #4F9CF9; color: #f0f3f7;
             }
-            #ModulesPanel QToolButton:hover {
-                background: rgba(125,211,252,0.13);
-                border-color: rgba(125,211,252,0.45);
+            #ModulesPinnedFilter:checked {
+                color: #0f1620; background: #4F9CF9; border-color: #4F9CF9;
             }
-            #ModulesPanel QToolButton:checked {
-                background: rgba(45,212,191,0.16);
-                border-color: rgba(45,212,191,0.65);
+            #ModulesCardScroll { background: transparent; }
+            #ModulesCardPane { background: transparent; }
+            #ModuleCard {
+                text-align: left; background: #23272e;
+                border: 1px solid #3a3f44; border-radius: 10px;
             }
-            """
-        )
+            #ModuleCard:hover {
+                background: #262c34; border-color: #4a5666;
+            }
+            #ModuleCard:checked {
+                background: rgba(79,156,249,0.14); border-color: #4F9CF9;
+            }
+            #ModuleCardIcon {
+                background: transparent; border: none;
+            }
+            #ModuleCardTitle {
+                color: #eef2f7; font-size: 10.5pt; font-weight: 600;
+                background: transparent; border: none;
+            }
+            #ModuleCardSubtitle {
+                color: #8b95a3; font-size: 8.5pt;
+                background: transparent; border: none;
+            }
+            #ModuleCard:checked #ModuleCardTitle { color: #ffffff; }
+            #ModuleCardPin {
+                color: #4F9CF9; font-size: 9pt; background: transparent; border: none;
+            }
+        """
 
+    # ----------------------------------------------------------------- public
     def add_module(
         self,
         module_id: str,
@@ -259,9 +337,10 @@ class ModulesPanel(QWidget):
             self._cards[module_id] = card
             self._card_layout.addWidget(card)
         else:
-            card.setText(self._card_text(module_id))
+            card.set_meta(title, subtitle)
             if icon is not None:
-                card.setIcon(icon)
+                card.set_card_icon(icon)
+        card.set_pinned(module_id in self._pinned)
 
         if self._current is None:
             self.show_module(module_id)
@@ -308,7 +387,7 @@ class ModulesPanel(QWidget):
         is_pinned = module_id in self._pinned
         card = self._cards.get(module_id)
         if card is not None:
-            card.setText(self._card_text(module_id))
+            card.set_pinned(is_pinned)
         self._update_pin_button()
         self._apply_filters()
         if was_pinned != is_pinned:
@@ -319,16 +398,10 @@ class ModulesPanel(QWidget):
             return
         self.set_module_pinned(self._current, self._current not in self._pinned)
 
+    # ---------------------------------------------------------------- private
     def _set_pinned_filter(self, checked: bool) -> None:
         self._show_pinned_only = bool(checked)
         self._apply_filters()
-
-    def _card_text(self, module_id: str) -> str:
-        meta = self._meta.get(module_id, {})
-        title = meta.get("title", module_id)
-        subtitle = meta.get("subtitle", "")
-        prefix = "* " if module_id in self._pinned else ""
-        return f"{prefix}{title}\n{subtitle}"
 
     def _matches_filter(self, module_id: str, query: str) -> bool:
         if self._show_pinned_only and module_id not in self._pinned:
@@ -356,7 +429,7 @@ class ModulesPanel(QWidget):
 
     def _update_pin_button(self) -> None:
         if self._current is None:
-            self.pin_current_button.setText("Pin Current")
+            self.pin_current_button.setText("Pin")
             return
         pinned = self._current in self._pinned
-        self.pin_current_button.setText("Unpin Current" if pinned else "Pin Current")
+        self.pin_current_button.setText("Unpin" if pinned else "Pin")

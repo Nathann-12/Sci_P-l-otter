@@ -48,7 +48,11 @@ def _seed_book(win, rows=None):
 
 
 def _toolbar_action(win, text):
-    for toolbar in (getattr(win, "tb", None), getattr(win, "function_toolbar", None)):
+    # search the top two rows AND the categorized left/right/bottom docks — a
+    # tool may live on any surface after the toolbar reorganization
+    toolbars = [getattr(win, "tb", None), getattr(win, "function_toolbar", None)]
+    toolbars.extend((getattr(win, "side_toolbars", {}) or {}).values())
+    for toolbar in toolbars:
         if toolbar is None:
             continue
         for action in toolbar.actions():
@@ -307,7 +311,7 @@ def test_add_tab_toolbar_creates_and_selects_graph_after_book_focus(win, qapp):
     before_count = win.tabs.count()
 
     _focus_book(win, qapp)
-    _toolbar_action(win, "Add Tab").trigger()
+    _toolbar_action(win, "New Graph").trigger()
 
     assert win.tabs.count() == before_count + 1
     assert win.tabs.currentWidget() is next(reversed(win.tabs.tabs.values()))

@@ -53,8 +53,9 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QBrush, QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QMdiArea,
     QMdiSubWindow,
     QSizePolicy,
@@ -112,13 +113,9 @@ def _sub_window_icon(kind: str):
     Replaces the default Qt logo icon; matches main.py's thin mdi icon style.
     """
     try:
-        import qtawesome as qta
-        try:
-            from main import ICON_COLOR as _c
-        except Exception:
-            _c = "#b8bec6"
+        from main import _qtawesome_icon
         name = "mdi.chart-line" if kind == "graph" else "mdi.table"
-        return qta.icon(name, color=_c)
+        return _qtawesome_icon(name)
     except Exception:
         logger.debug("qtawesome sub-window icon unavailable", exc_info=True)
         return None
@@ -195,23 +192,8 @@ class MdiWorkspace(QWidget):
         layout.addWidget(self.mdi)
 
         self.setStyleSheet(_MDI_STYLESHEET)
-        # Origin-like muted title bars: the style draws QMdiSubWindow titles
-        # from QPalette.Highlight/HighlightedText, which the base theme sets to
-        # the bright accent blue. Override on the MDI area (inherited by every
-        # sub-window) with a deep desaturated navy for active windows and a
-        # neutral frame tone for inactive ones.
-        try:
-            # Fusion lightens Highlight when painting the title gradient, so
-            # these are set a step darker than the tone we actually want on
-            # screen (~#2b4066 for the active bar).
-            pal = self.mdi.palette()
-            pal.setColor(QPalette.Active, QPalette.Highlight, QColor("#253853"))
-            pal.setColor(QPalette.Inactive, QPalette.Highlight, QColor("#242a33"))
-            pal.setColor(QPalette.Active, QPalette.HighlightedText, QColor("#e8eef7"))
-            pal.setColor(QPalette.Inactive, QPalette.HighlightedText, QColor("#9aa3af"))
-            self.mdi.setPalette(pal)
-        except Exception:
-            logger.debug("MDI title palette override skipped", exc_info=True)
+        # MDI title bars intentionally inherit Highlight/HighlightedText from
+        # QApplication so the selected theme color reaches every sub-window.
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.mdi.subWindowActivated.connect(self._on_sub_window_activated)
@@ -221,6 +203,16 @@ class MdiWorkspace(QWidget):
         # startup and creates graphs lazily when the user plots.
         if start_with_graph:
             self.add_tab("Graph 1")
+
+    def apply_application_theme(self) -> None:
+        """Sync QMdiArea's viewport brush, which QSS alone does not repaint."""
+        app = QApplication.instance()
+        if app is None or not hasattr(self, "mdi"):
+            return
+        color = app.palette().color(QPalette.Window)
+        self.mdi.setBackground(QBrush(color))
+        self.mdi.viewport().setPalette(app.palette())
+        self.mdi.viewport().update()
 
     # ======================================================================
     # MainWindow accessor (TabManager used parent() to reach MainWindow for

@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AppearanceConfig:
     """Appearance settings for Qt UI"""
-    # Empty means the supported built-in dark theme. Non-empty is either a
-    # built-in legacy QSS path (for example styles/light.qss) or a custom file.
+    # qt_qss_path is retained for custom themes and migration from older
+    # configs. Built-in themes are selected explicitly with theme_mode.
+    theme_mode: str = "dark"
+    accent_color: str = "#4F9CF9"
+    background_color: str = ""  # empty = use the selected theme's default
     qt_qss_path: str = ""
     font_family: str = "Segoe UI"
     font_size: int = 10
@@ -26,6 +29,7 @@ class MatplotlibConfig:
     """Matplotlib style and plot settings"""
     mpl_style_path: str = "styles/mpl_style_dark_pro.mplstyle"
     font_family: str = ""  # empty = Auto (Thai-capable)
+    font_size: int = 10
     grid_enabled: bool = True
     grid_alpha: float = 0.25
     grid_linestyle: str = "-"
@@ -81,7 +85,33 @@ class SettingsManager:
             # Load appearance
             if 'appearance' in data:
                 app_data = data['appearance']
-                self.config.appearance.qt_qss_path = app_data.get('qt_qss_path', self.config.appearance.qt_qss_path)
+                qss_path = app_data.get('qt_qss_path', self.config.appearance.qt_qss_path)
+                self.config.appearance.qt_qss_path = qss_path
+                theme_mode = str(app_data.get('theme_mode', '')).strip().lower()
+                if theme_mode not in {'dark', 'light', 'custom'}:
+                    qss_name = Path(qss_path or '').name.lower()
+                    if qss_name == 'light.qss':
+                        theme_mode = 'light'
+                    elif qss_path and qss_name not in {'dark.qss', 'dark_modern.qss', 'qdark.qss'}:
+                        theme_mode = 'custom'
+                    else:
+                        theme_mode = 'dark'
+                self.config.appearance.theme_mode = theme_mode
+                accent = str(app_data.get('accent_color', self.config.appearance.accent_color)).strip()
+                if len(accent) == 7 and accent.startswith('#'):
+                    try:
+                        int(accent[1:], 16)
+                        self.config.appearance.accent_color = accent.upper()
+                    except ValueError:
+                        pass
+                background = str(app_data.get('background_color', '')).strip()
+                if background:
+                    if len(background) == 7 and background.startswith('#'):
+                        try:
+                            int(background[1:], 16)
+                            self.config.appearance.background_color = background.upper()
+                        except ValueError:
+                            pass
                 self.config.appearance.font_family = app_data.get('font_family', self.config.appearance.font_family)
                 self.config.appearance.font_size = app_data.get('font_size', self.config.appearance.font_size)
             
@@ -90,6 +120,7 @@ class SettingsManager:
                 mpl_data = data['matplotlib']
                 self.config.matplotlib.mpl_style_path = mpl_data.get('mpl_style_path', self.config.matplotlib.mpl_style_path)
                 self.config.matplotlib.font_family = mpl_data.get('font_family', self.config.matplotlib.font_family)
+                self.config.matplotlib.font_size = mpl_data.get('font_size', self.config.matplotlib.font_size)
                 self.config.matplotlib.grid_enabled = mpl_data.get('grid_enabled', self.config.matplotlib.grid_enabled)
                 self.config.matplotlib.grid_alpha = mpl_data.get('grid_alpha', self.config.matplotlib.grid_alpha)
                 self.config.matplotlib.grid_linestyle = mpl_data.get('grid_linestyle', self.config.matplotlib.grid_linestyle)

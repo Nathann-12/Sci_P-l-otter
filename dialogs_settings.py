@@ -23,8 +23,27 @@ from PySide6.QtGui import QFontDatabase, QColor, QPalette, QFont
 from PySide6.QtWidgets import QApplication
 
 from settings import SettingsManager, AppConfig
-from widgets.color_button import ColorButtonWithLabel
+from widgets.color_button import ColorButton, ColorButtonWithLabel
 from widgets.mpl_preview import MatplotlibPreview
+
+
+ACCENT_PRESETS = (
+    ("Origin Blue", "#4F9CF9"),
+    ("Ocean Teal", "#20B8A6"),
+    ("Emerald", "#34C77B"),
+    ("Amber", "#F0A638"),
+    ("Coral", "#F06B5D"),
+    ("Magenta", "#D768D7"),
+)
+
+BACKGROUND_PRESETS = (
+    ("Theme Default", ""),
+    ("Graphite", "#1E2126"),
+    ("Midnight Navy", "#111827"),
+    ("Deep Forest", "#10231D"),
+    ("Warm Paper", "#F4EFE6"),
+    ("Cool Paper", "#EEF3F7"),
+)
 
 class ColorCycleEditor(QWidget):
     """Editor for matplotlib color cycle"""
@@ -33,9 +52,7 @@ class ColorCycleEditor(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Set font that supports multiple languages
-        self.setFont(QFont("Segoe UI", 9))
-            
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(4)
@@ -184,30 +201,13 @@ class SettingsDialog(QDialog):
     
     def __init__(self, settings_manager: SettingsManager, parent=None):
         super().__init__(parent)
-        
-        # Set font that supports multiple languages
-        self.setFont(QFont("Segoe UI", 9))
-            
+
         self.settings_manager = settings_manager
         self.original_config = self.settings_manager.config
         self._last_apply_ok = False
         
         # Force English locale for number inputs
         self.setLocale(QLocale(QLocale.English, QLocale.UnitedStates))
-        
-        # Set default font that supports multiple languages
-        app = QApplication.instance()
-        if app:
-            # Try to set a font that supports multiple languages
-            default_font = QFont("Segoe UI", 9)
-            if not default_font.exactMatch():
-                default_font = QFont("Arial", 9)
-            if not default_font.exactMatch():
-                default_font = QFont("Helvetica", 9)
-            app.setFont(default_font)
-            
-            # Set font for this dialog
-            self.setFont(default_font)
         
         self.setWindowTitle("Settings - SciPlotter")
         self.setModal(True)
@@ -280,9 +280,23 @@ class SettingsDialog(QDialog):
             return "Built-in Light"
         return "Custom QSS"
 
+    def _theme_text_from_mode(self, mode: str, qss_path: str = "") -> str:
+        normalized = str(mode or "").strip().lower()
+        if normalized == "light":
+            return "Built-in Light"
+        if normalized == "custom":
+            return "Custom QSS"
+        if normalized == "dark":
+            return "Built-in Dark"
+        return self._theme_from_qss_path(qss_path)
+
+    def _theme_mode(self) -> str:
+        return {
+            "Built-in Light": "light",
+            "Custom QSS": "custom",
+        }.get(self.theme_combo.currentText(), "dark")
+
     def _qss_path_for_theme(self, theme: str) -> str:
-        if theme == "Built-in Light":
-            return self._styles_path("light.qss")
         if theme == "Custom QSS":
             return self.qss_path_edit.text().strip()
         return ""
@@ -310,6 +324,48 @@ class SettingsDialog(QDialog):
         self.theme_combo.addItems(["Built-in Dark", "Built-in Light", "Custom QSS"])
         self.theme_combo.setMinimumWidth(180)
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
+
+        self.accent_preset_combo = QComboBox()
+        self.accent_preset_combo.setMinimumWidth(180)
+        for name, color in ACCENT_PRESETS:
+            self.accent_preset_combo.addItem(name, color)
+        self.accent_preset_combo.addItem("Custom...", None)
+        self.accent_preset_combo.setToolTip("Choose the color used for selections, active tools, and primary actions")
+
+        self.accent_color_button = ColorButton(QColor(ACCENT_PRESETS[0][1]))
+        self.accent_color_button.setFixedSize(52, 28)
+        self.accent_color_button.setToolTip("Choose a custom theme color")
+        self.accent_hex_label = QLabel(ACCENT_PRESETS[0][1])
+        self.accent_hex_label.setMinimumWidth(68)
+
+        accent_layout = QHBoxLayout()
+        accent_layout.setContentsMargins(0, 0, 0, 0)
+        accent_layout.setSpacing(8)
+        accent_layout.addWidget(self.accent_preset_combo, 1)
+        accent_layout.addWidget(self.accent_color_button)
+        accent_layout.addWidget(self.accent_hex_label)
+
+        self.background_preset_combo = QComboBox()
+        self.background_preset_combo.setMinimumWidth(180)
+        for name, color in BACKGROUND_PRESETS:
+            self.background_preset_combo.addItem(name, color)
+        self.background_preset_combo.addItem("Custom...", None)
+        self.background_preset_combo.setToolTip(
+            "Choose the app background; text, surfaces, borders, and icons adapt automatically"
+        )
+
+        self.background_color_button = ColorButton(QColor("#1E2126"))
+        self.background_color_button.setFixedSize(52, 28)
+        self.background_color_button.setToolTip("Choose any custom application background color")
+        self.background_hex_label = QLabel("Auto")
+        self.background_hex_label.setMinimumWidth(68)
+
+        background_layout = QHBoxLayout()
+        background_layout.setContentsMargins(0, 0, 0, 0)
+        background_layout.setSpacing(8)
+        background_layout.addWidget(self.background_preset_combo, 1)
+        background_layout.addWidget(self.background_color_button)
+        background_layout.addWidget(self.background_hex_label)
         
         self.qss_path_edit = QLineEdit()
         self.qss_path_edit.setPlaceholderText("Path to custom QSS file")
@@ -321,6 +377,8 @@ class SettingsDialog(QDialog):
         qss_layout.addWidget(self.qss_browse_btn)
         
         theme_layout.addRow("Theme:", self.theme_combo)
+        theme_layout.addRow("Accent Color:", accent_layout)
+        theme_layout.addRow("Background:", background_layout)
         theme_layout.addRow("Custom QSS:", qss_layout)
         
         layout.addWidget(theme_group)
@@ -334,9 +392,14 @@ class SettingsDialog(QDialog):
         
         self.font_family_combo = QComboBox()
         # Get available fonts and prioritize common fonts that support multiple languages
+        from styles.theme import register_bundled_qt_fonts
+        register_bundled_qt_fonts()
         available_fonts = list(QFontDatabase.families())
         # Prioritize fonts that are known to work well with multiple languages
-        priority_fonts = ["Segoe UI", "Arial", "Helvetica", "DejaVu Sans", "Liberation Sans", "Ubuntu", "Noto Sans"]
+        priority_fonts = [
+            "Segoe UI", "Tahoma", "TH Sarabun New", "Sarabun", "Noto Sans Thai",
+            "Arial", "Helvetica", "DejaVu Sans", "Liberation Sans", "Ubuntu", "Noto Sans",
+        ]
         if not available_fonts:
             available_fonts = priority_fonts.copy()
         
@@ -408,6 +471,7 @@ class SettingsDialog(QDialog):
         self.theme_preview_label.setAlignment(Qt.AlignCenter)
         self.theme_preview_label.setFrameStyle(QFrame.Box)
         self.theme_preview_label.setFixedHeight(42)
+        self.theme_preview_label.setProperty("sciplotterThemeBypass", True)
         preview_layout.addWidget(self.theme_preview_label)
         
         layout.addWidget(preview_group)
@@ -513,6 +577,12 @@ class SettingsDialog(QDialog):
             "DejaVu Sans",
         ])
         overrides_layout.addRow("Font Family:", self.mpl_font_combo)
+
+        self.mpl_font_size_spin = QSpinBox()
+        self.mpl_font_size_spin.setRange(6, 32)
+        self.mpl_font_size_spin.setValue(10)
+        self.mpl_font_size_spin.setMaximumWidth(90)
+        overrides_layout.addRow("Font Size:", self.mpl_font_size_spin)
         
         left_layout.addWidget(self.overrides_group)
         
@@ -539,6 +609,10 @@ class SettingsDialog(QDialog):
         """Setup signal connections"""
         # Theme changes
         self.theme_combo.currentTextChanged.connect(self._update_theme_preview)
+        self.accent_preset_combo.currentIndexChanged.connect(self._on_accent_preset_changed)
+        self.accent_color_button.colorChanged.connect(self._on_accent_color_changed)
+        self.background_preset_combo.currentIndexChanged.connect(self._on_background_preset_changed)
+        self.background_color_button.colorChanged.connect(self._on_background_color_changed)
         
         # Font changes
         self.font_family_combo.currentTextChanged.connect(self._update_font_preview)
@@ -549,6 +623,69 @@ class SettingsDialog(QDialog):
         is_custom = theme_text == "Custom QSS"
         self.qss_path_edit.setEnabled(is_custom)
         self.qss_browse_btn.setEnabled(is_custom)
+        if self.background_preset_combo.currentData() == "":
+            self._on_background_preset_changed(self.background_preset_combo.currentIndex())
+        self._update_theme_preview()
+
+    def _on_accent_preset_changed(self, _index: int) -> None:
+        color_value = self.accent_preset_combo.currentData()
+        if not color_value:
+            return
+        color = QColor(str(color_value))
+        self.accent_color_button.blockSignals(True)
+        self.accent_color_button.setColor(color)
+        self.accent_color_button.blockSignals(False)
+        self.accent_hex_label.setText(color.name().upper())
+        self._update_theme_preview()
+
+    def _on_accent_color_changed(self, color: QColor) -> None:
+        color_name = color.name().upper()
+        self.accent_hex_label.setText(color_name)
+        matching_index = self.accent_preset_combo.count() - 1
+        for index in range(self.accent_preset_combo.count() - 1):
+            if str(self.accent_preset_combo.itemData(index)).upper() == color_name:
+                matching_index = index
+                break
+        self.accent_preset_combo.blockSignals(True)
+        self.accent_preset_combo.setCurrentIndex(matching_index)
+        self.accent_preset_combo.blockSignals(False)
+        self._update_theme_preview()
+
+    def _default_background_color(self) -> QColor:
+        from styles.theme import build_theme_palette
+
+        mode = "light" if self.theme_combo.currentText() == "Built-in Light" else "dark"
+        return QColor(build_theme_palette(mode).background)
+
+    def _background_color_value(self) -> str:
+        if self.background_preset_combo.currentData() == "":
+            return ""
+        return self.background_color_button.color().name().upper()
+
+    def _on_background_preset_changed(self, _index: int) -> None:
+        color_value = self.background_preset_combo.currentData()
+        if color_value is None:
+            self.background_hex_label.setText(self.background_color_button.color().name().upper())
+            self._update_theme_preview()
+            return
+        color = self._default_background_color() if color_value == "" else QColor(str(color_value))
+        self.background_color_button.blockSignals(True)
+        self.background_color_button.setColor(color)
+        self.background_color_button.blockSignals(False)
+        self.background_hex_label.setText("Auto" if color_value == "" else color.name().upper())
+        self._update_theme_preview()
+
+    def _on_background_color_changed(self, color: QColor) -> None:
+        color_name = color.name().upper()
+        matching_index = self.background_preset_combo.count() - 1
+        for index in range(1, self.background_preset_combo.count() - 1):
+            if str(self.background_preset_combo.itemData(index)).upper() == color_name:
+                matching_index = index
+                break
+        self.background_preset_combo.blockSignals(True)
+        self.background_preset_combo.setCurrentIndex(matching_index)
+        self.background_preset_combo.blockSignals(False)
+        self.background_hex_label.setText(color_name)
         self._update_theme_preview()
     
     def _on_mpl_mode_changed(self, mode_text):
@@ -576,15 +713,29 @@ class SettingsDialog(QDialog):
     def _update_theme_preview(self):
         """Update theme preview"""
         theme = self.theme_combo.currentText()
-        if theme == "Built-in Dark":
-            self.theme_preview_label.setText("Dark Theme - supported default UI")
-            self.theme_preview_label.setStyleSheet("background-color: #2b2b2b; color: #ffffff; padding: 10px;")
+        from styles.theme import build_theme_palette
+
+        preview_mode = "light" if theme == "Built-in Light" else "dark"
+        background = self._background_color_value()
+        palette = build_theme_palette(
+            preview_mode,
+            self.accent_color_button.color().name(),
+            background,
+        )
+        if background:
+            self.theme_preview_label.setText(
+                f"Custom Background  |  automatic {palette.mode.title()} contrast"
+            )
+        elif theme == "Built-in Dark":
+            self.theme_preview_label.setText("Dark Theme  |  menus, tools, workbooks, and dialogs")
         elif theme == "Built-in Light":
-            self.theme_preview_label.setText("Light Theme - legacy QSS, partial shell coverage")
-            self.theme_preview_label.setStyleSheet("background-color: #f0f0f0; color: #000000; padding: 10px;")
+            self.theme_preview_label.setText("Light Theme  |  menus, tools, workbooks, and dialogs")
         else:  # Custom QSS
-            self.theme_preview_label.setText("Custom QSS - external stylesheet")
-            self.theme_preview_label.setStyleSheet("background-color: #e8f4fd; color: #0066cc; padding: 10px;")
+            self.theme_preview_label.setText("Custom QSS  |  app font and popup safety remain active")
+        self.theme_preview_label.setStyleSheet(
+            f"background-color: {palette.surface}; color: {palette.text}; "
+            f"border: 2px solid {palette.accent}; border-radius: 7px; padding: 8px;"
+        )
     
     def _get_linestyle_from_description(self, description_text: str) -> str:
         """Convert description to matplotlib linestyle value"""
@@ -643,9 +794,24 @@ class SettingsDialog(QDialog):
             mpl_config = self.settings_manager.get_matplotlib()
             
             # Appearance
-            theme = self._theme_from_qss_path(app_config.qt_qss_path)
+            theme = self._theme_text_from_mode(
+                getattr(app_config, "theme_mode", ""),
+                app_config.qt_qss_path,
+            )
             self.theme_combo.setCurrentText(theme)
             self.qss_path_edit.setText(app_config.qt_qss_path if theme == "Custom QSS" else "")
+            accent = QColor(getattr(app_config, "accent_color", ACCENT_PRESETS[0][1]))
+            if not accent.isValid():
+                accent = QColor(ACCENT_PRESETS[0][1])
+            self.accent_color_button.setColor(accent)
+            self._on_accent_color_changed(accent)
+            background = QColor(getattr(app_config, "background_color", ""))
+            if background.isValid():
+                self.background_color_button.setColor(background)
+                self._on_background_color_changed(background)
+            else:
+                self.background_preset_combo.setCurrentIndex(0)
+                self._on_background_preset_changed(0)
             
             # Set font family, fallback to a known working font if the saved font doesn't exist
             if app_config.font_family in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
@@ -718,6 +884,9 @@ class SettingsDialog(QDialog):
                     self.mpl_font_combo.setCurrentText(fam)
             else:
                 self.mpl_font_combo.setCurrentText("Auto (Thai)")
+            self.mpl_font_size_spin.setValue(
+                int(getattr(mpl_config, "font_size", app_config.font_size) or app_config.font_size)
+            )
             
             # Update previews
             self._on_theme_changed(self.theme_combo.currentText())
@@ -741,6 +910,9 @@ class SettingsDialog(QDialog):
         return {
             'appearance': {
                 'theme': self.theme_combo.currentText(),
+                'theme_mode': self._theme_mode(),
+                'accent_color': self.accent_color_button.color().name().upper(),
+                'background_color': self._background_color_value(),
                 'qt_qss_path': self._qss_path_for_theme(self.theme_combo.currentText()),
                 'font_family': app_font,
                 'font_size': self.font_size_spin.value(),
@@ -758,7 +930,13 @@ class SettingsDialog(QDialog):
                 'axes_edgecolor': self.axes_color_button.color().name(),
                 'text_color': self.text_color_button.color().name(),
                 'color_cycle': self.color_cycle_editor.get_colors(),
-                'font_family': mpl_font
+                'font_family': mpl_font,
+                'font_size': (
+                    self.font_size_spin.value()
+                    if self.apply_to_matplotlib_check.isChecked()
+                    or self.mpl_font_combo.currentText() == "Same as App"
+                    else self.mpl_font_size_spin.value()
+                ),
             }
         }
     
@@ -769,6 +947,10 @@ class SettingsDialog(QDialog):
             
             # Appearance
             self.theme_combo.setCurrentText("Built-in Dark")
+            self.accent_color_button.setColor(QColor(default_config.appearance.accent_color))
+            self._on_accent_color_changed(self.accent_color_button.color())
+            self.background_preset_combo.setCurrentIndex(0)
+            self._on_background_preset_changed(0)
             self.qss_path_edit.clear()
             # Set default font family, fallback to a known working font
             if default_config.appearance.font_family in [self.font_family_combo.itemText(i) for i in range(self.font_family_combo.count())]:
@@ -801,6 +983,7 @@ class SettingsDialog(QDialog):
             self.text_color_button.setColor(QColor(default_config.matplotlib.text_color))
             self.color_cycle_editor.set_colors(default_config.matplotlib.color_cycle)
             self.mpl_font_combo.setCurrentText("Auto (Thai)")
+            self.mpl_font_size_spin.setValue(default_config.matplotlib.font_size)
             
             # Update previews
             self._update_font_preview()
@@ -813,7 +996,7 @@ class SettingsDialog(QDialog):
     def _validate_settings(self, settings: dict) -> bool:
         theme = settings['appearance']['theme']
         qss_path = settings['appearance']['qt_qss_path']
-        if theme in {"Built-in Light", "Custom QSS"} and (not qss_path or not os.path.isfile(qss_path)):
+        if theme == "Custom QSS" and (not qss_path or not os.path.isfile(qss_path)):
             self._set_status(f"QSS file not found: {qss_path}", error=True)
             return False
 
@@ -823,21 +1006,21 @@ class SettingsDialog(QDialog):
             return False
         return True
 
-    def _apply_mpl_font(self, font_family: str) -> None:
-        if not font_family:
-            return
+    def _apply_mpl_font(self, font_family: str, font_size: int) -> None:
         try:
             import matplotlib
-            matplotlib.rcParams["font.family"] = [
-                font_family,
-                "Noto Sans Thai",
-                "TH Sarabun New",
-                "Sarabun",
-                "Tahoma",
-                "Segoe UI",
-                "Arial",
-                "DejaVu Sans",
-            ]
+            if font_family:
+                matplotlib.rcParams["font.family"] = [
+                    font_family,
+                    "Noto Sans Thai",
+                    "TH Sarabun New",
+                    "Sarabun",
+                    "Tahoma",
+                    "Segoe UI",
+                    "Arial",
+                    "DejaVu Sans",
+                ]
+            matplotlib.rcParams["font.size"] = int(font_size)
             matplotlib.rcParams["axes.unicode_minus"] = False
             matplotlib.rcParams["text.usetex"] = False
         except Exception:
@@ -846,6 +1029,9 @@ class SettingsDialog(QDialog):
     def _current_appearance_dict(self) -> dict:
         config = self.settings_manager.get_appearance()
         return {
+            "theme_mode": getattr(config, "theme_mode", "dark"),
+            "accent_color": str(getattr(config, "accent_color", ACCENT_PRESETS[0][1])).upper(),
+            "background_color": str(getattr(config, "background_color", "") or "").upper(),
             "qt_qss_path": getattr(config, "qt_qss_path", ""),
             "font_family": getattr(config, "font_family", ""),
             "font_size": int(getattr(config, "font_size", 0) or 0),
@@ -862,12 +1048,16 @@ class SettingsDialog(QDialog):
             "text_color": str(getattr(config, "text_color", "")),
             "color_cycle": list(getattr(config, "color_cycle", []) or []),
             "font_family": getattr(config, "font_family", ""),
+            "font_size": int(getattr(config, "font_size", 10) or 10),
         }
 
     def _settings_apply_snapshot(self) -> dict:
         settings = self.collect()
         return {
             "appearance": {
+                "theme_mode": settings['appearance']['theme_mode'],
+                "accent_color": settings['appearance']['accent_color'],
+                "background_color": settings['appearance']['background_color'],
                 "qt_qss_path": settings['appearance']['qt_qss_path'],
                 "font_family": settings['appearance']['font_family'],
                 "font_size": int(settings['appearance']['font_size']),
@@ -881,6 +1071,7 @@ class SettingsDialog(QDialog):
                 "text_color": settings['matplotlib']['text_color'],
                 "color_cycle": list(settings['matplotlib']['color_cycle']),
                 "font_family": settings['matplotlib']['font_family'],
+                "font_size": int(settings['matplotlib']['font_size']),
             },
         }
     
@@ -893,6 +1084,9 @@ class SettingsDialog(QDialog):
                 return False
 
             new_appearance = {
+                "theme_mode": settings['appearance']['theme_mode'],
+                "accent_color": settings['appearance']['accent_color'],
+                "background_color": settings['appearance']['background_color'],
                 "qt_qss_path": settings['appearance']['qt_qss_path'],
                 "font_family": settings['appearance']['font_family'],
                 "font_size": int(settings['appearance']['font_size']),
@@ -906,6 +1100,7 @@ class SettingsDialog(QDialog):
                 "text_color": settings['matplotlib']['text_color'],
                 "color_cycle": list(settings['matplotlib']['color_cycle']),
                 "font_family": settings['matplotlib']['font_family'],
+                "font_size": int(settings['matplotlib']['font_size']),
             }
             baseline = getattr(self, "_apply_baseline", None)
             if isinstance(baseline, dict):
@@ -918,19 +1113,23 @@ class SettingsDialog(QDialog):
             # Update appearance
             self.settings_manager.update_appearance(**new_appearance)
             
-            # Apply QSS theme
+            # Apply the complete appearance in one pass. The runtime signature
+            # check also repairs sessions created by older Settings code, which
+            # used to reset QApplication's font as soon as the dialog opened.
             app = QApplication.instance()
-            if app and appearance_changed:
-                from styles.theme import apply_qss, apply_font
-                if settings['appearance']['theme'] == "Built-in Dark":
-                    apply_qss(app)
-                elif settings['appearance']['theme'] == "Built-in Light":
-                    apply_qss(app, settings['appearance']['qt_qss_path'])
-                elif settings['appearance']['theme'] == "Custom QSS" and settings['appearance']['qt_qss_path']:
-                    apply_qss(app, settings['appearance']['qt_qss_path'])
-                
-                # Apply font
-                apply_font(app, settings['appearance']['font_family'], settings['appearance']['font_size'])
+            runtime_matches = False
+            if app:
+                app_font = app.font()
+                runtime_matches = (
+                    str(app.property("sciplotterThemeMode") or "") == new_appearance["theme_mode"]
+                    and str(app.property("sciplotterAccentColor") or "").upper() == new_appearance["accent_color"]
+                    and str(app.property("sciplotterBackgroundColor") or "").upper() == new_appearance["background_color"]
+                    and app_font.family().casefold() == new_appearance["font_family"].casefold()
+                    and app_font.pointSize() == new_appearance["font_size"]
+                )
+            if app and (appearance_changed or not runtime_matches):
+                from styles.theme import apply_theme_from_config
+                apply_theme_from_config(app, self.settings_manager.get_appearance())
             
             # Apply matplotlib settings only when they changed. Re-applying font
             # managers and stylesheets gets very expensive when the QApplication
@@ -939,7 +1138,10 @@ class SettingsDialog(QDialog):
                 from styles.theme import apply_mpl_style, apply_mpl_overrides
                 if settings['matplotlib']['mode'] == "Use .mplstyle file" and settings['matplotlib']['mpl_style_path']:
                     apply_mpl_style(settings['matplotlib']['mpl_style_path'])
-                    self._apply_mpl_font(settings['matplotlib']['font_family'])
+                    self._apply_mpl_font(
+                        settings['matplotlib']['font_family'],
+                        settings['matplotlib']['font_size'],
+                    )
                 else:
                     apply_mpl_overrides(
                         grid_enabled=settings['matplotlib']['grid_enabled'],
@@ -948,7 +1150,8 @@ class SettingsDialog(QDialog):
                         axes_color=settings['matplotlib']['axes_edgecolor'],
                         text_color=settings['matplotlib']['text_color'],
                         color_cycle=settings['matplotlib']['color_cycle'],
-                        font_family=settings['matplotlib']['font_family']
+                        font_family=settings['matplotlib']['font_family'],
+                        font_size=settings['matplotlib']['font_size'],
                     )
             
             # Update matplotlib

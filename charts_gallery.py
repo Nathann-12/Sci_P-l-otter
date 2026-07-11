@@ -245,6 +245,7 @@ class ChartGalleryMenu(QMenu):
         # Create grid buttons
         for i, spec in enumerate(self.specs):
             btn = QToolButton(w)
+            btn.setProperty("preserveIconColors", True)
             btn.setText(spec.title)
             btn.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             if spec.icon:

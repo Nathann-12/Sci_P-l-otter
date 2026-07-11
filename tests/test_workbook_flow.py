@@ -362,7 +362,12 @@ def test_main_function_toolbar_uses_small_unique_semantic_icons(win):
 
     assert all(icon_keys)
     assert len(icon_keys) == len(set(icon_keys))
-    assert len(icon_keys) >= 70
+    # the top bar is intentionally lean now (essentials + plot); the specialized
+    # tools moved to the categorized left/right/bottom docks
+    assert 24 <= len(icon_keys) <= 45
+    # …but the whole command surface (top + docks) stays comprehensive, and all
+    # of these keys remain reachable by their stable dict key
+    assert len(win.toolbar_actions) >= 90
     for key in (
         "open",
         "use_active_book",

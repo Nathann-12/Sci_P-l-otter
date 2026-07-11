@@ -469,6 +469,7 @@
 ## P. App System — 🟡 พื้นฐานมี ขาด plugin/scripting/AI mode
 - ✅ Dark mode
 - ✅ Light mode
+- ✅ Customizable theme (accent + background สีใดก็ได้, auto light/dark contrast, app-wide runtime retint)
 - 🟡 Thai language
 - ✅ English language (UI normalization + visible shell/dialog text)
 - ☐ Plugin system

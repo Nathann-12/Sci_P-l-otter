@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QSizePolicy,
@@ -35,10 +35,26 @@ class _VerticalSideTabBar(QTabBar):
         self.update()
         super().leaveEvent(event)
 
+    @staticmethod
+    def _mix(source: QColor, target: QColor, amount: float) -> QColor:
+        amount = max(0.0, min(1.0, amount))
+        return QColor(
+            round(source.red() + (target.red() - source.red()) * amount),
+            round(source.green() + (target.green() - source.green()) * amount),
+            round(source.blue() + (target.blue() - source.blue()) * amount),
+        )
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.TextAntialiasing, True)
-        painter.fillRect(self.rect(), QColor("#202225"))
+        palette = self.palette()
+        window = palette.color(QPalette.Window)
+        surface = palette.color(QPalette.Button)
+        text = palette.color(QPalette.WindowText)
+        muted = palette.color(QPalette.PlaceholderText)
+        accent = palette.color(QPalette.Highlight)
+        border = self._mix(window, text, 0.16)
+        painter.fillRect(self.rect(), window)
 
         for index in range(self.count()):
             rect = self.tabRect(index)
@@ -47,16 +63,22 @@ class _VerticalSideTabBar(QTabBar):
 
             selected = index == self.currentIndex()
             hovered = index == self._hover_index
-            bg = QColor("#1f2630" if selected else "#2a2e34" if hovered else "#242424")
-            fg = QColor("#ffffff" if selected else "#c8cdd3")
+            bg = (
+                self._mix(surface, accent, 0.18)
+                if selected
+                else self._mix(surface, accent, 0.08) if hovered else surface
+            )
+            fg = text if selected else muted
             painter.fillRect(rect, bg)
-            painter.setPen(QColor("#33373d"))
+            painter.setPen(border)
             painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
             if selected:
-                painter.fillRect(QRect(rect.left(), rect.top(), 2, rect.height()), QColor("#4F9CF9"))
+                painter.fillRect(QRect(rect.left(), rect.top(), 2, rect.height()), accent)
 
-            font = QFont("Segoe UI", 8)
+            font = QFont(self.font())
+            if font.pointSizeF() > 0:
+                font.setPointSizeF(max(7.0, font.pointSizeF() * 0.85))
             font.setWeight(QFont.DemiBold if selected else QFont.Medium)
             painter.setFont(font)
             painter.setPen(fg)

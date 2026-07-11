@@ -430,6 +430,7 @@ class OriginChartMenu(QMenu):
             if item is None:
                 continue
             tile = QToolButton(self.grid_host)
+            tile.setProperty("preserveIconColors", True)
             tile.setText(_tile_caption(item.title))
             tile.setToolTip(item.description)
             tile.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)

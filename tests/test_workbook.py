@@ -18,6 +18,7 @@ pytest.importorskip("PySide6")
 
 import pandas as pd
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange, QToolBar
 
 from widgets.workbook import (
@@ -391,3 +392,33 @@ def test_clear_to_empty_custom_size(qapp):
     assert wb.table.columnCount() == 4
     assert wb.data_row_count == 5
     assert wb.table.horizontalHeaderItem(3).text() == "D(Y)"
+
+
+def test_existing_workbook_item_brushes_follow_application_theme(qapp):
+    from styles.theme import apply_font, apply_qss
+
+    wb = WorkbookWidget()
+    wb.show()
+    qapp.processEvents()
+    family = qapp.font().family()
+
+    try:
+        apply_font(qapp, family, 12)
+        apply_qss(
+            qapp,
+            theme_mode="light",
+            accent_color="#20B8A6",
+            font_family=family,
+            font_size=12,
+        )
+        qapp.processEvents()
+
+        meta_item = wb.table.item(0, 0)
+        assert meta_item.background().color() == qapp.palette().color(QPalette.AlternateBase)
+        assert meta_item.foreground().color() == qapp.palette().color(QPalette.PlaceholderText)
+        assert meta_item.font().family() == qapp.font().family()
+        assert meta_item.font().pointSize() == 12
+    finally:
+        apply_font(qapp, family, 10)
+        apply_qss(qapp, theme_mode="dark", font_family=family, font_size=10)
+        wb.close()

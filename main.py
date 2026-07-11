@@ -76,7 +76,14 @@ except Exception:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 
-from styles.theme import apply_theme, apply_theme_from_config, apply_mpl_from_config
+from styles.theme import (
+    apply_theme,
+    apply_theme_from_config,
+    apply_mpl_from_config,
+    build_theme_palette,
+    icon_theme_colors,
+    themed_icon,
+)
 from settings import settings_manager
 from core.plot_request import PlotOptions
 from main_window_data_mixin import MainWindowDataMixin
@@ -181,6 +188,15 @@ _QTA_ICON_MAP = {
     "window_cascade": "mdi.dock-window",
     "window_tile": "mdi.view-grid-outline",
     "reset_view": "mdi.restore",
+    "zoom_in": "mdi.magnify-plus-outline",
+    "zoom_out": "mdi.magnify-minus-outline",
+    "annotate": "mdi.comment-text-outline",
+    "annotate_manage": "mdi.comment-multiple-outline",
+    "plot_line": "mdi.chart-line",
+    "plot_scatter": "mdi.scatter-plot-outline",
+    "plot_linesymbol": "mdi.chart-line-variant",
+    "plot_bar": "mdi.chart-bar",
+    "plot_histogram": "mdi.chart-histogram",
     "moving_average": "mdi.chart-line-variant",
     "magnitude": "mdi.vector-triangle",
     "bangkok_time": "mdi.clock-time-seven-outline",
@@ -262,6 +278,20 @@ _ICON_CACHE: Dict[tuple[str, object], QIcon] = {}
 _ICON_PATH_CACHE: Dict[str, Optional[str]] = {}
 
 
+def _current_icon_theme_palette():
+    app = QApplication.instance()
+    if app is None:
+        return build_theme_palette("dark", "#4F9CF9")
+    mode = str(app.property("sciplotterThemeMode") or "dark")
+    accent = str(app.property("sciplotterAccentColor") or "#4F9CF9")
+    background = str(app.property("sciplotterBackgroundColor") or "")
+    return build_theme_palette(mode, accent, background)
+
+
+def _current_icon_theme_colors() -> dict[str, str]:
+    return icon_theme_colors(_current_icon_theme_palette())
+
+
 def _fallback_icon_key(fallback_sp: QStyle.StandardPixmap) -> object:
     try:
         return fallback_sp.value
@@ -287,7 +317,9 @@ def _qtawesome_module():
 
 
 def _qtawesome_icon(qta_id: str) -> Optional[QIcon]:
-    cache_key = ("qta", qta_id, ICON_COLOR)
+    colors = _current_icon_theme_colors()
+    signature = tuple(colors[key] for key in ("normal", "disabled", "active", "selected"))
+    cache_key = ("qta", qta_id, signature)
     cached = _ICON_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -295,7 +327,14 @@ def _qtawesome_icon(qta_id: str) -> Optional[QIcon]:
     if qta is None:
         return None
     try:
-        icon = qta.icon(qta_id, color=ICON_COLOR)
+        source_icon = qta.icon(
+            qta_id,
+            color=colors["normal"],
+            color_disabled=colors["disabled"],
+            color_active=colors["active"],
+            color_selected=colors["selected"],
+        )
+        icon = themed_icon(source_icon, _current_icon_theme_palette())
     except Exception:
         return None
     _ICON_CACHE[cache_key] = icon
@@ -510,6 +549,12 @@ class MainWindow(
                 pass
         
         self._init_menu()
+        # Origin-style left / right / bottom tool docks (after the menu so the
+        # annotation/window actions they surface already exist)
+        try:
+            self.build_side_toolbars()
+        except Exception:
+            logging.getLogger(__name__).debug("side toolbars skipped", exc_info=True)
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
 
         # โมดูลเฉพาะทางตัวแรก: Gas Sensor ลงทะเบียนไว้ แต่ไม่เปิด rail/context
@@ -805,7 +850,14 @@ class MainWindow(
             logging.getLogger(__name__).debug("Status error: %s", msg)
 
     def _icon(self, name: str, fallback_sp: QStyle.StandardPixmap) -> QIcon:
-        cache_key = (name, _fallback_icon_key(fallback_sp))
+        colors = _current_icon_theme_colors()
+        cache_key = (
+            name,
+            _fallback_icon_key(fallback_sp),
+            colors["normal"],
+            colors["disabled"],
+            colors["active"],
+        )
         cached = _ICON_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -854,6 +906,10 @@ def main():
         except Exception:
             logger.debug('Failed to set AppUserModelID', exc_info=True)
 
+    # Native Windows dialogs do not consume Qt palettes/QSS. Keep menus and
+    # file/color dialogs inside Qt so Appearance settings cover every popup.
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
+    QApplication.setAttribute(Qt.AA_DontUseNativeMenuWindows, True)
     app = QApplication(sys.argv)
     try:
         if os.path.isfile(APP_ICON_PATH):

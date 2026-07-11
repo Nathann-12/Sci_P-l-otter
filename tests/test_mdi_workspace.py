@@ -47,15 +47,45 @@ def test_starts_with_one_graph(qapp):
     assert ws.tabs[tab_id] is ws.currentWidget()
 
 
-def test_mdi_title_bar_palette_is_muted_navy(qapp):
+def test_mdi_title_bar_palette_follows_application_theme(qapp):
     from PySide6.QtGui import QPalette
 
     host = _Host()
     ws = MdiWorkspace(host)
     pal = ws.mdi.palette()
-    # active window title bar: deep desaturated navy, not the bright accent
-    assert pal.color(QPalette.Active, QPalette.Highlight).name() == "#253853"
-    assert pal.color(QPalette.Inactive, QPalette.Highlight).name() == "#242a33"
+    app_palette = qapp.palette()
+    assert pal.color(QPalette.Active, QPalette.Highlight) == app_palette.color(
+        QPalette.Active, QPalette.Highlight
+    )
+    assert pal.color(QPalette.Inactive, QPalette.Highlight) == app_palette.color(
+        QPalette.Inactive, QPalette.Highlight
+    )
+
+
+def test_mdi_backdrop_follows_custom_application_background(qapp):
+    from styles.theme import apply_qss
+
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.show()
+    try:
+        apply_qss(
+            qapp,
+            theme_mode="dark",
+            background_color="#F7E7CE",
+            font_family=qapp.font().family(),
+            font_size=max(8, qapp.font().pointSize()),
+        )
+        qapp.processEvents()
+        assert ws.mdi.background().color().name().upper() == "#F7E7CE"
+    finally:
+        apply_qss(
+            qapp,
+            theme_mode="dark",
+            font_family=qapp.font().family(),
+            font_size=max(8, qapp.font().pointSize()),
+        )
+        ws.close()
 
 
 def test_sub_windows_get_themed_icons(qapp):

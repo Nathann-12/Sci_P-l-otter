@@ -239,12 +239,20 @@ class MainWindowToolbarMixin:
         )
 
     def _create_toolbar_actions(self):
-        """Populate both rows with direct, testable app actions."""
+        """Populate the top two rows with only the everyday essentials.
+
+        Row 1 = File / Data / View, Row 2 = Plot. The specialized processing,
+        cleaning, signal, analysis, dataset, annotation and workflow tools are
+        moved out to the categorized left/right/bottom docks (see
+        :meth:`build_side_toolbars`) so the top bar stays uncluttered — but every
+        action still registers under the same ``toolbar_actions`` key so callers
+        and tests keep working regardless of which surface hosts it.
+        """
         self._ensure_core_actions()
         top = self.tb
-        bottom = self.function_toolbar
+        plot_row = self.function_toolbar
 
-        # Row 1: file/data/plot/view/export shell controls.
+        # --- Row 1: File ---
         self._add_toolbar_action(
             top, "open", "Open", None, "open",
             QStyle.StandardPixmap.SP_DialogOpenButton,
@@ -265,6 +273,7 @@ class MainWindowToolbarMixin:
             "save_project", QStyle.StandardPixmap.SP_DialogSaveButton,
         )
         self._add_separator(top)
+        # --- Row 1: Data / worksheet ---
         self._add_toolbar_action(
             top, "use_active_book", "Use Active Data", self.adopt_workbook_data,
             "use_active_book", QStyle.StandardPixmap.SP_DialogApplyButton,
@@ -297,78 +306,7 @@ class MainWindowToolbarMixin:
             "units_calibration", QStyle.StandardPixmap.SP_FileDialogInfoView,
         )
         self._add_separator(top)
-
-        act_plot = self._add_toolbar_action(
-            top, "plot", "Plot", self.on_action_plot, "plot",
-            QStyle.StandardPixmap.SP_FileDialogContentsView,
-            tooltip="Plot selected worksheet columns on the active/last graph",
-        )
-        act_spec = self._add_toolbar_action(
-            top, "spectrogram", "Spectrogram", self.on_action_spectrogram,
-            "spectrogram", QStyle.StandardPixmap.SP_MediaPlay,
-        )
-        self._add_separator(top)
-        for name, icons, tip, style in self._PLOT_BAR_SPECS:
-            action = QAction(self._plot_bar_icon(icons), name, self)
-            action.setProperty("toolbarIconKey", f"plot_{style}")
-            action.setToolTip(tip)
-            action.setStatusTip(tip)
-            action.triggered.connect(
-                lambda _=False, s=style: self.plot_from_workbook(s, new_graph=True)
-            )
-            top.addAction(action)
-            self.plot_bar_actions[style] = action
-            self.toolbar_actions[f"plot_{style}"] = action
-        gallery = QAction(
-            self._plot_bar_icon(
-                ("mdi.view-gallery-outline", "mdi.grid-large", "mdi.chart-box-outline")
-            ),
-            "Gallery",
-            self,
-        )
-        gallery.setProperty("toolbarIconKey", "plot_gallery")
-        gallery.setToolTip("Open the Origin-style chart gallery")
-        gallery.triggered.connect(self.open_plot_gallery)
-        top.addAction(gallery)
-        self.plot_bar_actions["gallery"] = gallery
-        self.toolbar_actions["plot_gallery"] = gallery
-        self._add_separator(top)
-        self._add_toolbar_action(
-            top, "error_bars", "Error Bars", self._toolbar_slot("plot_error_bars"),
-            "error_bars", QStyle.StandardPixmap.SP_FileDialogDetailedView,
-        )
-        self._add_toolbar_action(
-            top, "fill_band", "Fill Band", self._toolbar_slot("plot_fill_between"),
-            "fill_band", QStyle.StandardPixmap.SP_FileDialogContentsView,
-        )
-        self._add_toolbar_action(
-            top, "secondary_y", "Secondary Y", self._toolbar_slot("plot_secondary_axis"),
-            "secondary_y", QStyle.StandardPixmap.SP_ArrowRight,
-        )
-        self._add_toolbar_action(
-            top, "broken_axis", "Broken Axis", self._toolbar_slot("plot_broken_axis"),
-            "broken_axis", QStyle.StandardPixmap.SP_TitleBarShadeButton,
-        )
-        self._add_toolbar_action(
-            top, "plot_equation", "Plot Equation", None, "Plot_from_Equation",
-            QStyle.StandardPixmap.SP_DialogApplyButton,
-            existing_action=self.actPlotEquation,
-        )
-        self._add_separator(top)
-        self._add_toolbar_action(
-            top, "addtab", "Add Tab", self.on_action_add_tab, "addtab",
-            QStyle.StandardPixmap.SP_FileDialogNewFolder,
-        )
-        self._add_toolbar_action(
-            top, "window_cascade", "Cascade",
-            lambda *_: getattr(getattr(self, "mdi", None), "mdi", None).cascadeSubWindows(),
-            "window_cascade", QStyle.StandardPixmap.SP_TitleBarNormalButton,
-        )
-        self._add_toolbar_action(
-            top, "window_tile", "Tile",
-            lambda *_: getattr(getattr(self, "mdi", None), "mdi", None).tileSubWindows(),
-            "window_tile", QStyle.StandardPixmap.SP_TitleBarMaxButton,
-        )
+        # --- Row 1: View / graph inspection ---
         self._add_toolbar_action(
             top, "format_graph", "Format Graph", None, "format",
             QStyle.StandardPixmap.SP_DesktopIcon,
@@ -401,31 +339,84 @@ class MainWindowToolbarMixin:
             checkable=True,
             existing_action=self.actErrorPanel,
         )
-        self._add_separator(top)
-        self._add_toolbar_action(
-            top, "export_figure", "Export Figure", self.on_action_export_figure,
-            "export_figure", QStyle.StandardPixmap.SP_DialogSaveButton,
-        )
-        self._add_toolbar_action(
-            top, "export_data", "Export Data", self.on_action_export_data,
-            "export_data", QStyle.StandardPixmap.SP_DialogSaveButton,
-        )
-        self._add_toolbar_action(
-            top, "batch_export", "Batch Export", self._toolbar_slot("export_figures_batch"),
-            "batch_export", QStyle.StandardPixmap.SP_DriveFDIcon,
-        )
-        self._add_toolbar_action(
-            top, "copy_graph", "Copy Graph",
-            self._toolbar_slot("copy_figure_to_clipboard"),
-            "copy_graph", QStyle.StandardPixmap.SP_FileDialogContentsView,
-        )
         self._add_toolbar_action(
             top, "settings", "Settings", None, "settings",
             QStyle.StandardPixmap.SP_FileDialogDetailedView,
             existing_action=self.actSettings,
         )
 
-        # Row 2: processing, analysis, annotation, gas, reproducibility.
+        # --- Row 2: Plot ---
+        act_plot = self._add_toolbar_action(
+            plot_row, "plot", "Plot", self.on_action_plot, "plot",
+            QStyle.StandardPixmap.SP_FileDialogContentsView,
+            tooltip="Plot selected worksheet columns on the active/last graph",
+        )
+        act_spec = self._add_toolbar_action(
+            plot_row, "spectrogram", "Spectrogram", self.on_action_spectrogram,
+            "spectrogram", QStyle.StandardPixmap.SP_MediaPlay,
+        )
+        self._add_separator(plot_row)
+        for name, icons, tip, style in self._PLOT_BAR_SPECS:
+            action = QAction(self._plot_bar_icon(icons), name, self)
+            action.setProperty("toolbarIconKey", f"plot_{style}")
+            action.setToolTip(tip)
+            action.setStatusTip(tip)
+            action.triggered.connect(
+                lambda _=False, s=style: self.plot_from_workbook(s, new_graph=True)
+            )
+            plot_row.addAction(action)
+            self.plot_bar_actions[style] = action
+            self.toolbar_actions[f"plot_{style}"] = action
+        gallery = QAction(
+            self._plot_bar_icon(
+                ("mdi.view-gallery-outline", "mdi.grid-large", "mdi.chart-box-outline")
+            ),
+            "Gallery",
+            self,
+        )
+        gallery.setProperty("toolbarIconKey", "plot_gallery")
+        gallery.setToolTip("Open the Origin-style chart gallery")
+        gallery.triggered.connect(self.open_plot_gallery)
+        plot_row.addAction(gallery)
+        self.plot_bar_actions["gallery"] = gallery
+        self.toolbar_actions["plot_gallery"] = gallery
+        self._add_separator(plot_row)
+        self._add_toolbar_action(
+            plot_row, "error_bars", "Error Bars", self._toolbar_slot("plot_error_bars"),
+            "error_bars", QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        )
+        self._add_toolbar_action(
+            plot_row, "fill_band", "Fill Band", self._toolbar_slot("plot_fill_between"),
+            "fill_band", QStyle.StandardPixmap.SP_FileDialogContentsView,
+        )
+        self._add_toolbar_action(
+            plot_row, "secondary_y", "Secondary Y", self._toolbar_slot("plot_secondary_axis"),
+            "secondary_y", QStyle.StandardPixmap.SP_ArrowRight,
+        )
+        self._add_toolbar_action(
+            plot_row, "broken_axis", "Broken Axis", self._toolbar_slot("plot_broken_axis"),
+            "broken_axis", QStyle.StandardPixmap.SP_TitleBarShadeButton,
+        )
+        self._add_toolbar_action(
+            plot_row, "plot_equation", "Plot Equation", None, "Plot_from_Equation",
+            QStyle.StandardPixmap.SP_DialogApplyButton,
+            existing_action=self.actPlotEquation,
+        )
+
+        # Compatibility alias (tests/callers expect plot_toolbar == the top bar).
+        self.plot_toolbar = self.tb
+        # The specialized tool groups are registered into the docks so the
+        # top stays lean. Keep local variables referenced.
+        _ = (act_plot, act_spec)
+        return
+
+    def _create_dock_tool_groups(self, left, right, bottom):
+        """Register the relocated tool groups onto the categorized docks, keeping
+        the original ``toolbar_actions`` keys. Left = annotation, Right = dataset
+        ops, Bottom = process / clean / signal / analysis / peak / workflow.
+        Called by :meth:`build_side_toolbars`.
+        """
+        # ---- BOTTOM: quick transforms ----
         for key, text, method, icon, fallback in (
             ("processors", "Processors", "on_action_open_processors", "processors", QStyle.StandardPixmap.SP_FileDialogDetailedView),
             ("moving_average", "Moving Average", "feature_add_moving_average", "moving_average", QStyle.StandardPixmap.SP_MediaSeekForward),
@@ -436,6 +427,8 @@ class MainWindowToolbarMixin:
             self._add_toolbar_action(bottom, key, text, self._toolbar_slot(method), icon, fallback)
         self._add_separator(bottom)
 
+        # ---- RIGHT: dataset / Book operations ----
+        self._add_separator(right)
         for key, text, method, icon in (
             ("dataset_duplicate", "Duplicate Book", "feature_dataset_duplicate", "dataset_duplicate"),
             ("dataset_rename", "Rename Book", "feature_dataset_rename", "dataset_rename"),
@@ -446,11 +439,11 @@ class MainWindowToolbarMixin:
             ("dataset_search", "Search Book", "feature_dataset_search", "dataset_search"),
         ):
             self._add_toolbar_action(
-                bottom, key, text, self._toolbar_slot(method), icon,
+                right, key, text, self._toolbar_slot(method), icon,
                 QStyle.StandardPixmap.SP_FileDialogDetailedView,
             )
-        self._add_separator(bottom)
 
+        # ---- BOTTOM: clean & prepare ----
         for key, text, method, icon in (
             ("fill_missing", "Fill Missing", "feature_clean_fill_missing", "fill_missing"),
             ("interpolate_missing", "Interpolate", "feature_clean_interpolate", "interpolate_missing"),
@@ -533,8 +526,8 @@ class MainWindowToolbarMixin:
             bottom, "peak_clear", "Peak Clear", self._trigger_action_attr("actPkClear"),
             "peak_clear", QStyle.StandardPixmap.SP_DialogResetButton,
         )
-        self._add_separator(bottom)
-
+        # ---- LEFT: annotation & history ----
+        self._add_separator(left)
         for key, text, attr, icon in (
             ("ann_enable", "Annotate", "actAnnEnable", "ann_enable"),
             ("ann_text", "Text", "actAnnText", "ann_text"),
@@ -548,11 +541,12 @@ class MainWindowToolbarMixin:
             ("redo", "Redo", "actRedo", "redo"),
         ):
             self._add_toolbar_action(
-                bottom, key, text, self._trigger_action_attr(attr), icon,
+                left, key, text, self._trigger_action_attr(attr), icon,
                 QStyle.StandardPixmap.SP_FileDialogContentsView,
             )
-        self._add_separator(bottom)
 
+        # ---- BOTTOM: reproducibility / workflow ----
+        self._add_separator(bottom)
         for key, text, method, icon in (
             ("workflow_history", "Workflow History", "wf_show_history", "workflow_history"),
             ("workflow_export", "Workflow Export", "wf_export", "workflow_export"),
@@ -568,13 +562,6 @@ class MainWindowToolbarMixin:
                 bottom, key, text, self._toolbar_slot(method), icon,
                 QStyle.StandardPixmap.SP_FileDialogDetailedView,
             )
-
-        # Compatibility alias used by existing tests and callers. Plot shortcuts
-        # now live in the top two-row bar rather than a bottom-only toolbar.
-        self.plot_toolbar = self.tb
-        # Keep local variables referenced so linters do not collapse these key
-        # compatibility actions during future refactors.
-        _ = (act_plot, act_spec)
 
     def build_plot_toolbar(self):
         """Compatibility no-op; plot buttons are part of the two-row top bar."""
@@ -641,12 +628,148 @@ class MainWindowToolbarMixin:
                     color: #4F9CF9;
                 }
                 """
+            self._toolbar_qss_text = qss  # reused by the side/bottom docks
             for toolbar in self._function_toolbars():
                 toolbar.setStyleSheet(qss)
         except Exception as exc:
             logging.getLogger(__name__).warning(
                 "Failed to apply toolbar styling: %s", exc
             )
+
+    # ================= Origin-style side & bottom tool docks =================
+    # Left = graph interaction + annotation; Right = window/layout + export;
+    # Bottom = plot types + analysis shortcuts. Every action is wired to a real
+    # handler (no dead icons), reusing the existing checkable actions (crosshair,
+    # inspector) so their state stays in sync with the top function bar.
+
+    def _make_dock_toolbar(self, title: str, object_name: str, area) -> QToolBar:
+        toolbar = QToolBar(title, self)
+        toolbar.setObjectName(object_name)
+        toolbar.setIconSize(QSize(self.TOOLBAR_ICON_SIZE, self.TOOLBAR_ICON_SIZE))
+        toolbar.setMovable(True)
+        toolbar.setFloatable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.addToolBar(area, toolbar)
+        try:
+            qss = getattr(self, "_toolbar_qss_text", None)
+            if qss:
+                toolbar.setStyleSheet(qss)
+        except Exception:
+            logging.getLogger(__name__).debug("dock toolbar styling skipped", exc_info=True)
+        return toolbar
+
+    def _reuse_action(self, toolbar: QToolBar, key: str) -> QAction | None:
+        """Add the already-built top-bar action *key* to *toolbar* too, so both
+        surfaces drive (and reflect) the exact same command/checked state."""
+        action = self.toolbar_actions.get(key) if hasattr(self, "toolbar_actions") else None
+        if action is not None:
+            toolbar.addAction(action)
+        return action
+
+    def _zoom_active_axes(self, scale: float) -> None:
+        """Zoom the active graph's axes about its center (scale<1 = zoom in)."""
+        ax = None
+        try:
+            ax = self.active_axes()
+        except Exception:
+            ax = None
+        if ax is None:
+            return
+        try:
+            for get_lim, set_lim in ((ax.get_xlim, ax.set_xlim), (ax.get_ylim, ax.set_ylim)):
+                lo, hi = get_lim()
+                center = (lo + hi) / 2.0
+                half = (hi - lo) * float(scale) / 2.0
+                set_lim(center - half, center + half)
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            logging.getLogger(__name__).debug("zoom active axes failed", exc_info=True)
+
+    def build_side_toolbars(self):
+        """Create the categorized left / right / bottom Origin-style tool docks.
+
+        Called after the menu is built so the annotation/window actions the docks
+        surface already exist. Layout:
+          Left   — Graph Tools: crosshair, box zoom, zoom in/out, reset, format
+                   + annotation tools + undo/redo
+          Right  — Windows & Export: new graph, tile, cascade, inspector, export
+                   figure/data, batch export, copy + Book operations
+          Bottom — Process · Clean · Signal · Analyze · Peak · Workflow
+        Checkable tools that also live on the top bar (crosshair/box zoom/reset/
+        format/inspector) are the *same* action objects (state stays in sync).
+        """
+        SP = QStyle.StandardPixmap
+        self.side_toolbars = {}
+
+        # ---------------- LEFT: graph interaction ----------------
+        left = self._make_dock_toolbar("Graph Tools", "GraphToolsToolbar", Qt.LeftToolBarArea)
+        self.left_toolbar = left
+        self.side_toolbars["left"] = left
+        self._reuse_action(left, "crosshair")
+        self._reuse_action(left, "boxzoom")
+        self._add_toolbar_action(
+            left, "left_zoom_in", "Zoom In", lambda: self._zoom_active_axes(0.8),
+            "zoom_in", SP.SP_FileDialogContentsView, tooltip="Zoom in (center)")
+        self._add_toolbar_action(
+            left, "left_zoom_out", "Zoom Out", lambda: self._zoom_active_axes(1.25),
+            "zoom_out", SP.SP_FileDialogContentsView, tooltip="Zoom out (center)")
+        self._reuse_action(left, "reset_view")
+        self._reuse_action(left, "format_graph")
+        # annotation + undo/redo appended by _create_dock_tool_groups
+
+        # ---------------- RIGHT: windows & export ----------------
+        right = self._make_dock_toolbar("Windows", "WindowsToolbar", Qt.RightToolBarArea)
+        self.right_toolbar = right
+        self.side_toolbars["right"] = right
+        self._add_toolbar_action(
+            right, "addtab", "New Graph", self._toolbar_slot("on_action_add_tab"),
+            "addtab", SP.SP_FileDialogNewFolder, tooltip="New Graph window")
+        self._add_toolbar_action(
+            right, "window_tile", "Tile Windows", self._mdi_slot("tile"),
+            "window_tile", SP.SP_FileDialogListView, tooltip="Tile Book/Graph windows")
+        self._add_toolbar_action(
+            right, "window_cascade", "Cascade Windows", self._mdi_slot("cascade"),
+            "window_cascade", SP.SP_TitleBarNormalButton, tooltip="Cascade windows")
+        self._reuse_action(right, "inspector")
+        self._add_separator(right)
+        self._add_toolbar_action(
+            right, "export_figure", "Export Figure",
+            self._toolbar_slot("on_action_export_figure"), "export_figure",
+            SP.SP_DialogSaveButton, tooltip="Export the active graph")
+        self._add_toolbar_action(
+            right, "export_data", "Export Data",
+            self._toolbar_slot("on_action_export_data"), "export_data",
+            SP.SP_DialogSaveButton, tooltip="Export the active graph's data")
+        self._add_toolbar_action(
+            right, "batch_export", "Batch Export",
+            self._toolbar_slot("export_figures_batch"), "batch_export",
+            SP.SP_DriveFDIcon, tooltip="Export every graph to a folder")
+        self._add_toolbar_action(
+            right, "copy_graph", "Copy Graph",
+            self._toolbar_slot("copy_figure_to_clipboard"), "copy_graph",
+            SP.SP_FileDialogContentsView, tooltip="Copy the active graph to the clipboard")
+        # Book operations appended by _create_dock_tool_groups
+
+        # ---------------- BOTTOM: process · analyze ----------------
+        bottom = self._make_dock_toolbar("Process & Analyze", "PlotAnalyzeToolbar",
+                                         Qt.BottomToolBarArea)
+        self.bottom_toolbar = bottom
+        self.side_toolbars["bottom"] = bottom
+
+        # relocate the specialized groups onto the categorized docks
+        self._create_dock_tool_groups(left, right, bottom)
+
+        self._update_compact_ui()
+        return self.side_toolbars
+
+    def _mdi_slot(self, method_name: str) -> Callable:
+        def _run(*_args):
+            tabs = getattr(self, "tabs", None)
+            method = getattr(tabs, method_name, None)
+            if callable(method):
+                return method()
+            return None
+        return _run
 
     def _update_compact_ui(self):
         """Keep both toolbar rows icon-only at every window width."""

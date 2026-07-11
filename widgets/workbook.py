@@ -17,7 +17,7 @@ from typing import List, Optional
 
 import pandas as pd
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QFont
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -516,6 +516,28 @@ class WorkbookWidget(QWidget):
 
     def mark_clean(self) -> None:
         self._dirty = False
+
+    def apply_application_theme(self) -> None:
+        """Refresh item-level brushes/fonts that cannot be changed by QSS."""
+        app = QApplication.instance()
+        if app is None or not hasattr(self, "table"):
+            return
+        palette = app.palette()
+        self._brush_meta = QBrush(palette.color(QPalette.AlternateBase))
+        self._brush_data = QBrush(palette.color(QPalette.Base))
+        self._brush_muted = QBrush(palette.color(QPalette.PlaceholderText))
+        self._font_meta = QFont(app.font())
+        self._font_meta.setItalic(True)
+
+        with self._loading_guard():
+            for row in range(min(META_ROW_COUNT, self.table.rowCount())):
+                for column in range(self.table.columnCount()):
+                    item = self.table.item(row, column)
+                    if item is None:
+                        continue
+                    item.setBackground(self._brush_meta)
+                    item.setForeground(self._brush_muted)
+                    item.setFont(self._font_meta)
 
     def _meta_brush(self) -> QBrush:
         return self._brush_meta

@@ -246,10 +246,22 @@ class ContextMenuManager(QObject):
         self.canvas.draw_idle()
 
     def _on_reset_view(self):
-        if self._zoom_hist:
-            st = self._zoom_hist[0]
-            self._apply_state(st)
-            self._zoom_hist = [st]
+        # "Reset View" = show all data (like Origin's Rescale to Show All).
+        # Autoscaling from the axes' data limits is robust; the old code restored
+        # a stored _zoom_hist[0] snapshot which can be stale — e.g. captured
+        # while the axes was still empty at (0,1) before the data was plotted —
+        # so a reset pushed the data off-screen and the graph "disappeared".
+        # set_xlim/ylim only change the *view* limits, so dataLim still holds the
+        # full extent of every artist (lines AND scatter/collections).
+        try:
+            self.ax.autoscale(enable=True, axis="both", tight=False)
+            self.ax.autoscale_view()
+        except Exception:
+            if self._zoom_hist:
+                self._apply_state(self._zoom_hist[0])
+        # re-baseline "home" to the true full-data view
+        self._zoom_hist = [_ZoomState(self.ax.get_xlim(), self.ax.get_ylim())]
+        self.canvas.draw_idle()
 
     def _on_autoscale(self):
         self._push_state(); self.ax.relim(); self.ax.autoscale()

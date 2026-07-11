@@ -34,6 +34,8 @@ class _Axes:
         self.cla_called = 0
         self.x_limits = []
         self.y_limits = []
+        self.autoscale_calls = []
+        self.autoscale_view_calls = 0
 
     def cla(self):
         self.cla_called += 1
@@ -43,6 +45,12 @@ class _Axes:
 
     def set_ylim(self, *args, **kwargs):
         self.y_limits.append((args, kwargs))
+
+    def autoscale(self, *args, **kwargs):
+        self.autoscale_calls.append((args, kwargs))
+
+    def autoscale_view(self, *args, **kwargs):
+        self.autoscale_view_calls += 1
 
 
 class _Canvas:
@@ -186,8 +194,12 @@ def test_reset_view_autoscales_current_axes():
 
     window._reset_view()
 
-    assert window.canvas.ax.x_limits == [((), {"auto": True})]
-    assert window.canvas.ax.y_limits == [((), {"auto": True})]
+    # Reset View must actively autoscale both axes (a plain set_xlim(auto=True)
+    # does not recompute the view, so the graph stayed stuck zoomed/off-screen).
+    ax = window.canvas.ax
+    assert ax.autoscale_calls, "reset view did not autoscale"
+    assert ax.autoscale_calls[0][1].get("enable") is True
+    assert ax.autoscale_view_calls == 1
     assert window.tab.draw_calls == 1
 
 
