@@ -163,6 +163,44 @@ def test_app_tools_reject_unknown_plot_style():
     assert "unknown style" in out.lower()
 
 
+def test_app_tools_list_fit_models():
+    reg = build_app_registry(_FakeWindow(pd.DataFrame({"a": [1, 2, 3]})))
+    out = reg.execute("list_fit_models", {})
+    assert "linear" in out.lower()
+
+
+def test_app_tools_fit_curve_returns_params_and_r2():
+    # perfect line y = 2x + 1 -> linear fit, R^2 = 1
+    df = pd.DataFrame({"x": [0, 1, 2, 3, 4], "y": [1, 3, 5, 7, 9]})
+    reg = build_app_registry(_FakeWindow(df))
+    out = reg.execute("fit_curve", {"model": "linear"})
+    assert "R^2 = 1.0" in out
+    assert "linear" in out.lower()
+
+
+def test_app_tools_fit_curve_needs_two_numeric_columns():
+    reg = build_app_registry(_FakeWindow(pd.DataFrame({"only": [1, 2, 3]})))
+    out = reg.execute("fit_curve", {"model": "linear"})
+    assert "two numeric columns" in out.lower()
+
+
+def test_app_tools_open_file_loads_into_book(tmp_path):
+    csv = tmp_path / "sample.csv"
+    csv.write_text("time,voltage\n0,0.1\n1,0.5\n2,0.9\n", encoding="utf-8")
+    window = _FakeWindow(None)
+    window.staged = []
+    window._stage_insert = lambda name, df, path: window.staged.append((name, len(df)))
+    reg = build_app_registry(window)
+    out = reg.execute("open_file", {"path": str(csv)})
+    assert "3 rows" in out and "2 columns" in out
+    assert window.staged and window.staged[0][1] == 3
+
+
+def test_app_tools_open_file_missing_path():
+    reg = build_app_registry(_FakeWindow(None))
+    assert "not found" in reg.execute("open_file", {"path": "/no/such/file.csv"}).lower()
+
+
 # ------------------------------------------------------------------- dock wiring
 from main_window_ai_mixin import MainWindowAIMixin  # noqa: E402
 

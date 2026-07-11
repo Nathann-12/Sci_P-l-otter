@@ -97,14 +97,16 @@
 5. **refactor = pure move** — ห้ามแก้พฤติกรรมเงียบ ๆ ระหว่างย้ายโค้ด
 6. เทสต์ปัจจุบันส่วนใหญ่เป็น **structure test** (เช็คการต่อสาย) — ฟีเจอร์ใหม่ต้องมี **behavioral test** (เช็คผลลัพธ์จริง) ด้วย
 7. commit ทีละหน่วยงานที่มีความหมาย; **อย่า push** เองเว้นแต่ผู้ใช้สั่งชัดเจน (push เข้า `main` ถูก guard ไว้)
+8. **ทุกฟีเจอร์/คำสั่งใหม่ต้องเปิดให้ AI เรียกได้ด้วย** — ลงทะเบียนเป็น AI tool ใน [`ai/app_tools.py`](ai/app_tools.py) (ผ่าน `registry.add(...)`) พร้อม behavioral test ใน `tests/test_ai_assistant.py`. handler ต้อง **defensive + ไม่เปิด modal dialog** (รับ argument ตรง ๆ, คืน string สั้นให้โมเดลอ่าน, error กลายเป็นข้อความไม่ throw). ฟีเจอร์ที่มี logic บริสุทธิ์อยู่แล้วให้ทำ adapter แบบ non-interactive เรียก logic นั้นโดยตรง — ห้ามปล่อยฟีเจอร์ใหม่ที่ AI เข้าไม่ถึง
 
 ## สูตรเพิ่มฟีเจอร์ (ทำตามแพทเทิร์นเดิม)
-ฟีเจอร์ใหม่ปกติ = 4 ชิ้น:
+ฟีเจอร์ใหม่ปกติ = 6 ชิ้น:
 1. **logic** — ฟังก์ชันคำนวณบริสุทธิ์ใน `processors.py`/`analysis/`/`core/` (unit-test ได้)
 2. **dialog** (ถ้ามี UI input) ใน `dialogs/`
 3. **method ใน mixin** ที่เหมาะ (หรือสร้าง mixin ใหม่ถ้าเป็นโดเมนใหม่ เช่นโมดูลเฉพาะทาง) — ทำหน้าที่ต่อ UI เข้ากับ logic
 4. **wire action** ในเมนู/toolbar (`main_window_menu_mixin` / `main_window_toolbar_mixin`)
-5. **test** ใน `tests/` + ติ๊ก ROADMAP
+5. **AI tool** — ลงทะเบียนใน `ai/app_tools.py` ให้ AI เรียกความสามารถนี้ได้ (กติกาข้อ 8)
+6. **test** ใน `tests/` (รวม AI tool test) + ติ๊ก ROADMAP
 
 > โมดูลเฉพาะทางใหม่ (Gas Sensor, Electrochemistry, ฯลฯ) ควรเป็น mixin/แพ็กเกจของตัวเอง + logic แยกเป็นโมดูลบริสุทธิ์เพื่อ test ง่าย
 
