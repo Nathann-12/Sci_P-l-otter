@@ -105,6 +105,67 @@ def _tool_fit_curve(window, args: Dict[str, Any]) -> str:
         return f"Could not fit: {exc}"
 
 
+def _resolve_y_column(window, df, args: Dict[str, Any]):
+    """Pick the column to operate on: explicit arg -> selected Y -> last numeric."""
+    requested = args.get("column")
+    if requested and requested in df.columns:
+        return requested
+    getter = getattr(window, "selected_y_column", None)
+    selected = getter() if callable(getter) else None
+    if selected and selected in df.columns:
+        return selected
+    numeric = _numeric_columns(df)
+    return numeric[-1] if numeric else None
+
+
+def _tool_smooth(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data to smooth."
+    if not callable(getattr(window, "smooth_column", None)):
+        return "Smoothing is not available in this context."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column to smooth."
+    method = str(args.get("method", "savitzky-golay")).strip().lower()
+    try:
+        new_col = window.smooth_column(
+            col, method,
+            window=int(args.get("window", 11)),
+            kernel=int(args.get("kernel", 5)),
+            sigma=float(args.get("sigma", 2.0)),
+        )
+        return f"Smoothed '{col}' ({method}) into new column '{new_col}'."
+    except Exception as exc:
+        logger.debug("smooth tool failed", exc_info=True)
+        return f"Could not smooth: {exc}"
+
+
+def _tool_filter_signal(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data to filter."
+    if not callable(getattr(window, "filter_column_butterworth", None)):
+        return "Filtering is not available in this context."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column to filter."
+    try:
+        fs = float(args.get("fs", 0) or 0)
+    except (TypeError, ValueError):
+        fs = 0.0
+    if fs <= 0:
+        return "Provide the sampling rate 'fs' (Hz)."
+    kind = str(args.get("kind", "lowpass")).strip().lower()
+    cutoff = args.get("cutoff")
+    try:
+        new_col = window.filter_column_butterworth(col, fs, kind=kind, cutoff=cutoff)
+        return f"Filtered '{col}' ({kind}, fs={fs:g} Hz) into new column '{new_col}'."
+    except Exception as exc:
+        logger.debug("filter_signal tool failed", exc_info=True)
+        return f"Could not filter: {exc}"
+
+
 def _tool_open_file(window, args: Dict[str, Any]) -> str:
     import os
 
@@ -172,6 +233,30 @@ def build_app_registry(window) -> ToolRegistry:
             "y_column": {"type": "string", "description": "y column name", "required": False},
         },
         lambda args: _tool_fit_curve(window, args),
+    )
+    registry.add(
+        "smooth_data",
+        "Smooth a column and add the result as a new column. method: "
+        "savitzky-golay | median | gaussian. column optional (default: active Y / last numeric).",
+        {
+            "method": {"type": "string", "description": "savitzky-golay|median|gaussian", "required": False},
+            "column": {"type": "string", "description": "column to smooth", "required": False},
+            "window": {"type": "number", "description": "savgol window (odd)", "required": False},
+        },
+        lambda args: _tool_smooth(window, args),
+    )
+    registry.add(
+        "filter_signal",
+        "Apply a zero-phase Butterworth filter and add the result as a new column. "
+        "Requires 'fs' (Hz). kind: lowpass|highpass|bandpass|bandstop. cutoff is a "
+        "number (low/high pass) or [low, high] (band pass/stop).",
+        {
+            "fs": {"type": "number", "description": "sampling rate in Hz", "required": True},
+            "kind": {"type": "string", "description": "lowpass|highpass|bandpass|bandstop", "required": False},
+            "cutoff": {"type": "number", "description": "cutoff Hz (or [low,high])", "required": False},
+            "column": {"type": "string", "description": "column to filter", "required": False},
+        },
+        lambda args: _tool_filter_signal(window, args),
     )
     registry.add(
         "open_file",

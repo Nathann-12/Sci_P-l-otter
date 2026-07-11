@@ -298,6 +298,43 @@ def test_feature_filter_smooth_median_kills_spike():
     assert win._df["y_median"].iloc[25] == 1.0
 
 
+# --- param-taking cores (decoupled from the dialog; also drive the AI tools) ---
+def test_smooth_column_core_callable_without_dialog():
+    y = np.ones(50)
+    y[25] = 100.0
+    win = DummyFeatures(pd.DataFrame({"y": y}))  # no y_sel, no forms
+    new_col = win.smooth_column("y", "median", kernel=5)
+    assert new_col == "y_median"
+    assert new_col in win._df.columns
+    assert win.added_y == ["y_median"]
+    assert win._df["y_median"].iloc[25] == 1.0
+
+
+def test_smooth_column_rejects_unknown_method_and_missing_column():
+    win = DummyFeatures(pd.DataFrame({"y": [1, 2, 3, 4, 5]}))
+    with pytest.raises(ValueError):
+        win.smooth_column("y", "bogus")
+    with pytest.raises(ValueError):
+        win.smooth_column("missing", "median")
+
+
+def test_filter_column_butterworth_core_callable_without_dialog():
+    fs = 200.0
+    t = np.arange(0, 2, 1 / fs)
+    sig = np.sin(2 * np.pi * 2 * t) + np.sin(2 * np.pi * 40 * t)
+    win = DummyFeatures(pd.DataFrame({"y": sig}))
+    new_col = win.filter_column_butterworth("y", fs=fs, kind="lowpass", cutoff=8.0)
+    assert new_col == "y_lowpass"
+    assert new_col in win._df.columns
+    assert np.std(win._df["y_lowpass"].to_numpy() - np.sin(2 * np.pi * 2 * t)) < 0.25
+
+
+def test_filter_column_butterworth_core_validates_bandpass_cutoff():
+    win = DummyFeatures(pd.DataFrame({"y": np.arange(100.0)}))
+    with pytest.raises(ValueError):
+        win.filter_column_butterworth("y", fs=100.0, kind="bandpass", cutoff=5.0)
+
+
 def test_feature_signal_hilbert_adds_real_and_imag_columns():
     x = np.linspace(0, 2 * np.pi, 128, endpoint=False)
     y = np.cos(x)

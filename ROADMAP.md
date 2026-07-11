@@ -230,6 +230,8 @@
 - 🟡 สั่งงานด้วยอังกฤษ
 - 🟡 "ทำกราฟให้หน่อย" (tool `plot_columns`)
 - ✅ แปลผล/สรุปข้อมูล (tool `list_columns` + `describe_data`)
+- ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`; param-taking cores)
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`)
 - ☐ "Fit peak นี้"
 - ☐ "หา anomaly"
 - ☐ "อธิบายกราฟนี้"

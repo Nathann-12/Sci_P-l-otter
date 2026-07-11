@@ -132,6 +132,14 @@ class _FakeWindow:
     def plot_from_workbook(self, style="line", new_graph=True):
         self.plotted.append((style, new_graph))
 
+    def smooth_column(self, col, method="savitzky-golay", **kwargs):
+        self.smoothed = (col, method, kwargs)
+        return f"{col}_sm"
+
+    def filter_column_butterworth(self, col, fs, kind="lowpass", cutoff=None):
+        self.filtered = (col, fs, kind, cutoff)
+        return f"{col}_{kind}"
+
 
 def test_app_tools_read_and_drive_the_window():
     df = pd.DataFrame({"time": [1, 2, 3], "voltage": [0.1, 0.2, 0.3]})
@@ -199,6 +207,31 @@ def test_app_tools_open_file_loads_into_book(tmp_path):
 def test_app_tools_open_file_missing_path():
     reg = build_app_registry(_FakeWindow(None))
     assert "not found" in reg.execute("open_file", {"path": "/no/such/file.csv"}).lower()
+
+
+def test_app_tools_smooth_drives_core_and_defaults_column():
+    df = pd.DataFrame({"t": [1, 2, 3], "voltage": [0.1, 0.9, 0.2]})
+    window = _FakeWindow(df)
+    reg = build_app_registry(window)
+    out = reg.execute("smooth_data", {"method": "median"})
+    # defaulted to the last numeric column
+    assert window.smoothed[0] == "voltage" and window.smoothed[1] == "median"
+    assert "voltage_sm" in out
+
+
+def test_app_tools_filter_requires_fs():
+    df = pd.DataFrame({"y": [1.0, 2.0, 3.0]})
+    reg = build_app_registry(_FakeWindow(df))
+    assert "fs" in reg.execute("filter_signal", {"kind": "lowpass"}).lower()
+
+
+def test_app_tools_filter_drives_core_with_fs():
+    df = pd.DataFrame({"y": [1.0, 2.0, 3.0, 4.0]})
+    window = _FakeWindow(df)
+    reg = build_app_registry(window)
+    out = reg.execute("filter_signal", {"fs": 100, "kind": "lowpass", "cutoff": 10})
+    assert window.filtered == ("y", 100.0, "lowpass", 10)
+    assert "y_lowpass" in out
 
 
 # ------------------------------------------------------------------- dock wiring

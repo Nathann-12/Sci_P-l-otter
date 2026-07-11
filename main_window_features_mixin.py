@@ -810,6 +810,34 @@ class MainWindowFeaturesMixin:
             logging.getLogger(__name__).debug("fs inference failed", exc_info=True)
         return float(fallback)
 
+    def filter_column_butterworth(self, col, fs, kind="lowpass", cutoff=None):
+        """Add a zero-phase Butterworth-filtered copy of *col* to the active data.
+
+        Param-taking core shared by the dialog and the AI tool (no UI here).
+        ``cutoff`` is a float for lowpass/highpass or a (lo, hi) pair for
+        bandpass/bandstop. Returns the new column name; raises on bad input.
+        """
+        if self._df is None or col not in getattr(self._df, "columns", []):
+            raise ValueError(f"column '{col}' not found in the active data")
+        fs = float(fs)
+        if fs <= 0:
+            raise ValueError("fs must be positive")
+        if kind in ("bandpass", "bandstop"):
+            if not isinstance(cutoff, (tuple, list)) or len(cutoff) != 2:
+                raise ValueError(f"{kind} needs a (low, high) cutoff pair")
+            cutoff = (float(cutoff[0]), float(cutoff[1]))
+        else:
+            cutoff = float(cutoff)
+        filtered = butterworth_filter(self._df[col], fs, kind=kind, cutoff=cutoff)
+        new_col = f"{col}_{kind}"
+        self._df[new_col] = filtered
+        self.add_y_column_option(new_col)
+        self._log_workflow(
+            "butterworth_filter", col=col, fs=float(fs), kind=kind,
+            cutoff=list(cutoff) if isinstance(cutoff, tuple) else float(cutoff),
+            order=4, new_col=new_col)
+        return new_col
+
     def feature_filter_butterworth(self):
         if not self._has_y_data():
             return
@@ -838,17 +866,34 @@ class MainWindowFeaturesMixin:
         else:
             cutoff = float(res["cutoff"])
         try:
-            filtered = butterworth_filter(self._df[y_col], fs, kind=kind, cutoff=cutoff)
-            new_col = f"{y_col}_{kind}"
-            self._df[new_col] = filtered
-            self.add_y_column_option(new_col)
-            self._log_workflow(
-                "butterworth_filter", col=y_col, fs=float(fs), kind=kind,
-                cutoff=list(cutoff) if isinstance(cutoff, tuple) else float(cutoff),
-                order=4, new_col=new_col)
+            new_col = self.filter_column_butterworth(y_col, fs, kind=kind, cutoff=cutoff)
             self.notify(f"Signal filtered ({kind}): {new_col} (fs~{fs:.4g} Hz)")
         except Exception as e:
             self.error_box("Filter failed", f"Reason: {e}")
+
+    def smooth_column(self, col, method="savitzky-golay", *, window=11, kernel=5, sigma=2.0):
+        """Add a smoothed copy of *col* to the active data (param-taking core).
+
+        method: savitzky-golay | median | gaussian. Returns new column name.
+        Shared by the Smooth dialog and the AI tool; contains no UI.
+        """
+        if self._df is None or col not in getattr(self._df, "columns", []):
+            raise ValueError(f"column '{col}' not found in the active data")
+        if method == "savitzky-golay":
+            smoothed = savitzky_golay(self._df[col], window_length=int(window))
+            new_col, op, params = f"{col}_savgol", "savitzky_golay", {"col": col, "window": int(window)}
+        elif method == "median":
+            smoothed = median_filter(self._df[col], kernel_size=int(kernel))
+            new_col, op, params = f"{col}_median", "median_filter", {"col": col, "kernel": int(kernel)}
+        elif method == "gaussian":
+            smoothed = gaussian_smooth(self._df[col], sigma=float(sigma))
+            new_col, op, params = f"{col}_gauss", "gaussian_smooth", {"col": col, "sigma": float(sigma)}
+        else:
+            raise ValueError(f"unknown smooth method '{method}'")
+        self._df[new_col] = smoothed
+        self.add_y_column_option(new_col)
+        self._log_workflow(op, new_col=new_col, **params)
+        return new_col
 
     def feature_filter_smooth(self):
         if not self._has_y_data():
@@ -868,21 +913,12 @@ class MainWindowFeaturesMixin:
             return
         method = res["method"]
         try:
-            if method == "savitzky-golay":
-                smoothed = savitzky_golay(self._df[y_col], window_length=int(res["window"]))
-                new_col = f"{y_col}_savgol"
-                op, params = "savitzky_golay", {"col": y_col, "window": int(res["window"])}
-            elif method == "median":
-                smoothed = median_filter(self._df[y_col], kernel_size=int(res["kernel"]))
-                new_col = f"{y_col}_median"
-                op, params = "median_filter", {"col": y_col, "kernel": int(res["kernel"])}
-            else:
-                smoothed = gaussian_smooth(self._df[y_col], sigma=float(res["sigma"]))
-                new_col = f"{y_col}_gauss"
-                op, params = "gaussian_smooth", {"col": y_col, "sigma": float(res["sigma"])}
-            self._df[new_col] = smoothed
-            self.add_y_column_option(new_col)
-            self._log_workflow(op, new_col=new_col, **params)
+            new_col = self.smooth_column(
+                y_col, method,
+                window=int(res.get("window", 11)),
+                kernel=int(res.get("kernel", 5)),
+                sigma=float(res.get("sigma", 2.0)),
+            )
             self.notify(f"Smooth completed ({method}): {new_col}")
         except Exception as e:
             self.error_box("Smooth failed", f"Reason: {e}")
