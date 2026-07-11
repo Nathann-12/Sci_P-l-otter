@@ -45,16 +45,28 @@ class MatplotlibConfig:
             ]
 
 @dataclass
+class AIConfig:
+    """Local AI assistant settings (Ollama-backed)."""
+    enabled: bool = True
+    # Lightest broadly-capable tool router. Swap for a stronger local model
+    # (e.g. qwen2.5:7b) on machines with a GPU for more reliable tool use.
+    model: str = "gemma2:2b"
+    base_url: str = "http://127.0.0.1:11434"
+
+@dataclass
 class AppConfig:
     """Main application configuration"""
     appearance: AppearanceConfig = None
     matplotlib: MatplotlibConfig = None
+    ai: AIConfig = None
 
     def __post_init__(self):
         if self.appearance is None:
             self.appearance = AppearanceConfig()
         if self.matplotlib is None:
             self.matplotlib = MatplotlibConfig()
+        if self.ai is None:
+            self.ai = AIConfig()
 
 class SettingsManager:
     """Manages application settings loading, saving, and application"""
@@ -127,6 +139,13 @@ class SettingsManager:
                 self.config.matplotlib.axes_edgecolor = mpl_data.get('axes_edgecolor', self.config.matplotlib.axes_edgecolor)
                 self.config.matplotlib.text_color = mpl_data.get('text_color', self.config.matplotlib.text_color)
                 self.config.matplotlib.color_cycle = mpl_data.get('color_cycle', self.config.matplotlib.color_cycle)
+
+            # Load AI assistant settings
+            if 'ai' in data and isinstance(data['ai'], dict):
+                ai_data = data['ai']
+                self.config.ai.enabled = bool(ai_data.get('enabled', self.config.ai.enabled))
+                self.config.ai.model = str(ai_data.get('model', self.config.ai.model) or self.config.ai.model)
+                self.config.ai.base_url = str(ai_data.get('base_url', self.config.ai.base_url) or self.config.ai.base_url)
         except Exception as e:
             logger.error(f"Error parsing config data: {e}")
             self._create_default_config()
@@ -158,6 +177,10 @@ class SettingsManager:
     def get_matplotlib(self) -> MatplotlibConfig:
         """Get matplotlib configuration"""
         return self.config.matplotlib
+
+    def get_ai(self) -> AIConfig:
+        """Get AI assistant configuration"""
+        return self.config.ai
     
     def update_appearance(self, **kwargs) -> None:
         """Update appearance configuration"""

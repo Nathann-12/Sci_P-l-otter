@@ -102,6 +102,7 @@ from main_window_equation_mixin import MainWindowEquationMixin
 from main_window_settings_mixin import MainWindowSettingsMixin
 from main_window_features_mixin import MainWindowFeaturesMixin
 from main_window_actions_mixin import MainWindowActionsMixin
+from main_window_ai_mixin import MainWindowAIMixin
 from main_window_modules_mixin import MainWindowModulesMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
 from main_window_electrochemistry_mixin import MainWindowElectrochemistryMixin
@@ -410,6 +411,7 @@ class MainWindow(
     MainWindowSettingsMixin,
     MainWindowFeaturesMixin,
     MainWindowActionsMixin,
+    MainWindowAIMixin,
     MainWindowModulesMixin,
     MainWindowGasSensorMixin,
     MainWindowElectrochemistryMixin,
@@ -556,6 +558,12 @@ class MainWindow(
         except Exception:
             logging.getLogger(__name__).debug("side toolbars skipped", exc_info=True)
         self._connect_signals()  # UI-REFINE: เชื่อมสัญญาณหลังจากวิดเจ็ตถูกสร้างครบ
+
+        # Local AI assistant: wire the parked AI dock to the tool-using agent.
+        try:
+            self.init_ai_assistant()
+        except Exception:
+            logging.getLogger(__name__).debug("AI assistant wiring skipped", exc_info=True)
 
         # โมดูลเฉพาะทางตัวแรก: Gas Sensor ลงทะเบียนไว้ แต่ไม่เปิด rail/context
         # เองตอน startup เพื่อให้หน้าจอเริ่มต้นเหลือ worksheet/workspace คลีน ๆ

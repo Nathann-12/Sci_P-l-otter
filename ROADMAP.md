@@ -222,10 +222,14 @@
 - ✅ Compare versions
 - ✅ Audit trail (history + checksum + op log; session-level, not immutable)
 
-## G. AI Assistant — ☐ ยังไม่เริ่ม (ตัวสร้างความต่างหลัก)
-- ☐ สั่งงานด้วยภาษาไทย
-- ☐ สั่งงานด้วยอังกฤษ
-- ☐ "ทำกราฟให้หน่อย"
+## G. AI Assistant — 🟡 local tool-using assistant ทำงานแล้ว (Ollama; ตัวสร้างความต่างหลัก)
+- ✅ Local AI backend (`ai/` — tool registry + agent loop + Ollama client, no extra deps)
+- ✅ Tool-using agent (JSON protocol + `format:json`, ทำงานบนโมเดลเบา 2B ได้)
+- ✅ ต่อเข้า AI dock จริง (threaded, ไม่ freeze UI) + config เปลี่ยนโมเดลได้
+- 🟡 สั่งงานด้วยภาษาไทย (ผ่านโมเดล; แม่นขึ้นตามขนาดโมเดล)
+- 🟡 สั่งงานด้วยอังกฤษ
+- 🟡 "ทำกราฟให้หน่อย" (tool `plot_columns`)
+- ✅ แปลผล/สรุปข้อมูล (tool `list_columns` + `describe_data`)
 - ☐ "Fit peak นี้"
 - ☐ "หา anomaly"
 - ☐ "อธิบายกราฟนี้"
@@ -236,13 +240,12 @@
 - ☐ แนะนำ plot ที่เหมาะกับข้อมูล
 - ☐ แนะนำ fit model
 - ☐ แนะนำ preprocessing
-- ☐ แปลผลสถิติ
-- ☐ สรุปไฟล์ข้อมูล
+- ☐ สรุปไฟล์ข้อมูล (เต็มรูปแบบ)
 - ☐ สรุปรายงานอัตโนมัติ
 - ☐ Generate Python code
 - ☐ Generate MATLAB code
 - ☐ Generate Origin-like workflow
-- ☐ Chat กับ dataset
+- ☐ Chat กับ dataset (หลาย tool ต่อเนื่อง — มีโครงแล้ว เหลือขยาย tool)
 
 ## H. Gas Sensor Module — 🟡 แกนวิเคราะห์เสร็จ ⭐ (เมนู/rail "Gas Sensor"; เหลือฝั่ง real-time ESP32)
 - ☐ Real-time serial data จาก ESP32
@@ -486,8 +489,8 @@
 - 🟡 Crash recovery (session restore prompt)
 - 🟡 Portable mode
 - 🟡 Offline mode
-- ☐ Local AI mode
-- ☐ Cloud AI mode
+- ✅ Local AI mode (Ollama, lightest = gemma2:2b; model configurable in `config.json` `ai`)
+- ☐ Cloud AI mode (BYO API key)
 - ☐ License manager
 - ☐ Student license
 - ☐ Lab license
