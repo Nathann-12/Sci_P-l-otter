@@ -4,7 +4,7 @@
     "accent_color": "#F06B5D",
     "background_color": "#000000",
     "qt_qss_path": "",
-    "font_family": "Arial",
+    "font_family": "Arial Rounded MT",
     "font_size": 10
   },
   "matplotlib": {
@@ -12,13 +12,13 @@
     "font_family": "TH Sarabun New",
     "font_size": 10,
     "grid_enabled": true,
-    "grid_alpha": 0.25,
+    "grid_alpha": 0.2,
     "grid_linestyle": "-",
     "axes_edgecolor": "#3b3f46",
     "text_color": "#d7d7d7",
     "color_cycle": [
-      "#4F9CF9",
       "#FFB020",
+      "#4F9CF9",
       "#6EE7B7",
       "#F472B6",
       "#A78BFA",
@@ -26,5 +26,10 @@
       "#22D3EE",
       "#94A3B8"
     ]
+  },
+  "ai": {
+    "enabled": true,
+    "model": "gemma2:2b",
+    "base_url": "http://127.0.0.1:11434"
   }
 }

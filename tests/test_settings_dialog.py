@@ -56,6 +56,9 @@ def test_settings_dialog_opens_compact_and_defaults_to_dark(qapp, tmp_path):
     assert dialog.accent_color_button.color().name().upper() == "#4F9CF9"
     assert dialog.background_preset_combo.currentText() == "Theme Default"
     assert dialog.collect()["appearance"]["background_color"] == ""
+    assert dialog.mpl_mode_combo.currentText() == "Follow app theme"
+    assert dialog.mpl_style_path_edit.isEnabled() is False
+    assert dialog.overrides_group.isEnabled() is False
 
 
 def test_opening_settings_does_not_reset_application_font(qapp, tmp_path):
@@ -86,6 +89,128 @@ def test_settings_collect_has_real_theme_and_matplotlib_font_values(qapp, tmp_pa
     assert settings["appearance"]["background_color"] == ""
     assert settings["matplotlib"]["font_family"] == app_font
     assert settings["matplotlib"]["font_size"] == dialog.font_size_spin.value()
+
+
+def test_matplotlib_extended_controls_are_collected(qapp, tmp_path):
+    dialog = SettingsDialog(_manager(tmp_path))
+    dialog.mpl_mode_combo.setCurrentText("Custom overrides")
+    dialog.figure_color_button.setColor(QColor("#112233"))
+    dialog.axes_facecolor_button.setColor(QColor("#223344"))
+    dialog.grid_color_button.setColor(QColor("#334455"))
+    dialog.grid_linewidth_spin.setValue(1.4)
+    dialog.line_width_spin.setValue(3.25)
+    dialog.marker_size_spin.setValue(8.5)
+    dialog.title_size_spin.setValue(18)
+    dialog.label_size_spin.setValue(14)
+    dialog.tick_size_spin.setValue(12)
+    dialog.legend_size_spin.setValue(11)
+    dialog.figure_dpi_spin.setValue(160)
+    dialog.savefig_dpi_spin.setValue(450)
+    dialog.savefig_transparent_check.setChecked(True)
+
+    values = dialog.collect()["matplotlib"]
+
+    assert values["mode"] == "custom"
+    assert values["figure_facecolor"] == "#112233"
+    assert values["axes_facecolor"] == "#223344"
+    assert values["grid_color"] == "#334455"
+    assert values["grid_linewidth"] == 1.4
+    assert values["line_width"] == 3.25
+    assert values["marker_size"] == 8.5
+    assert values["title_size"] == 18
+    assert values["label_size"] == 14
+    assert values["tick_size"] == 12
+    assert values["legend_size"] == 11
+    assert values["figure_dpi"] == 160
+    assert values["savefig_dpi"] == 450
+    assert values["savefig_transparent"] is True
+
+
+def test_mplstyle_preview_does_not_mutate_global_rcparams(qapp, tmp_path):
+    import matplotlib
+
+    style_path = tmp_path / "preview.mplstyle"
+    style_path.write_text(
+        'figure.facecolor: "#ABCDEF"\naxes.facecolor: "#FEDCBA"\n',
+        encoding="utf-8",
+    )
+    dialog = SettingsDialog(_manager(tmp_path))
+
+    with matplotlib.rc_context():
+        matplotlib.rcParams["figure.facecolor"] = "#010203"
+        matplotlib.rcParams["axes.facecolor"] = "#040506"
+        before = (
+            matplotlib.rcParams["figure.facecolor"],
+            matplotlib.rcParams["axes.facecolor"],
+        )
+        dialog.mpl_style_path_edit.setText(str(style_path))
+        dialog.mpl_mode_combo.setCurrentText("Use .mplstyle file")
+        dialog._update_mpl_preview()
+
+        assert (
+            matplotlib.rcParams["figure.facecolor"],
+            matplotlib.rcParams["axes.facecolor"],
+        ) == before
+
+
+def test_apply_custom_matplotlib_updates_rcparams_and_live_figure(
+    qapp, tmp_path, monkeypatch
+):
+    import matplotlib
+    from matplotlib._pylab_helpers import Gcf
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.colors import to_hex
+    from matplotlib.figure import Figure
+
+    figure = Figure()
+    canvas = FigureCanvasAgg(figure)
+    axes = figure.subplots()
+    line, = axes.plot([0, 1], [1, 3], label="signal", marker="o")
+    axes.set_title("Title")
+    axes.set_xlabel("X")
+    axes.set_ylabel("Y")
+    axes.legend()
+    manager_stub = type("Manager", (), {"canvas": canvas})()
+    monkeypatch.setattr(Gcf, "get_all_fig_managers", lambda: [manager_stub])
+
+    dialog = SettingsDialog(_manager(tmp_path))
+    dialog.mpl_mode_combo.setCurrentText("Custom overrides")
+    dialog.figure_color_button.setColor(QColor("#101820"))
+    dialog.axes_facecolor_button.setColor(QColor("#182430"))
+    dialog.axes_color_button.setColor(QColor("#778899"))
+    dialog.text_color_button.setColor(QColor("#F2F4F8"))
+    dialog.grid_color_button.setColor(QColor("#445566"))
+    dialog.color_cycle_editor.set_colors(["#E45756", "#4C78A8"])
+    dialog.grid_alpha_spin.setValue(0.45)
+    dialog.grid_linewidth_spin.setValue(1.2)
+    dialog.line_width_spin.setValue(3.5)
+    dialog.marker_size_spin.setValue(9.0)
+    dialog.title_size_spin.setValue(18)
+    dialog.label_size_spin.setValue(14)
+    dialog.tick_size_spin.setValue(12)
+    dialog.legend_size_spin.setValue(11)
+    dialog.figure_dpi_spin.setValue(144)
+    dialog.savefig_dpi_spin.setValue(420)
+    dialog.savefig_transparent_check.setChecked(True)
+
+    with matplotlib.rc_context():
+        assert dialog.apply_settings() is True
+
+        assert matplotlib.rcParams["figure.facecolor"] == "#101820"
+        assert matplotlib.rcParams["axes.facecolor"] == "#182430"
+        assert matplotlib.rcParams["grid.linewidth"] == 1.2
+        assert matplotlib.rcParams["lines.linewidth"] == 3.5
+        assert matplotlib.rcParams["savefig.dpi"] == 420
+        assert matplotlib.rcParams["savefig.transparent"] is True
+        assert to_hex(figure.get_facecolor()).upper() == "#101820"
+        assert to_hex(axes.get_facecolor()).upper() == "#182430"
+        assert to_hex(axes.spines["left"].get_edgecolor()).upper() == "#778899"
+        assert axes.title.get_fontsize() == 18
+        assert axes.xaxis.label.get_fontsize() == 14
+        assert line.get_linewidth() == 3.5
+        assert line.get_markersize() == 9.0
+        assert to_hex(line.get_color()).upper() == "#E45756"
+        assert figure.dpi == 144
 
 
 def test_accent_presets_and_custom_color_are_collected(qapp, tmp_path):
@@ -145,8 +270,16 @@ def test_settings_apply_updates_runtime_plot_mode(qapp, tmp_path, monkeypatch):
     import styles.theme as theme_module
 
     monkeypatch.setattr(theme_module, "apply_theme_from_config", lambda *_args, **_kwargs: calls.append("appearance"))
-    monkeypatch.setattr(theme_module, "apply_mpl_style", lambda *_args, **_kwargs: calls.append("mpl_style"))
-    monkeypatch.setattr(theme_module, "apply_mpl_overrides", lambda *_args, **_kwargs: calls.append("mpl_overrides"))
+    monkeypatch.setattr(
+        theme_module,
+        "apply_mpl_from_config",
+        lambda *_args, **_kwargs: calls.append("matplotlib") or True,
+    )
+    monkeypatch.setattr(
+        theme_module,
+        "refresh_matplotlib_canvases",
+        lambda: calls.append("refresh"),
+    )
 
     dialog.plot_mode_combo.setCurrentText("Replace selected graph")
     appearance = manager.get_appearance()
@@ -158,7 +291,7 @@ def test_settings_apply_updates_runtime_plot_mode(qapp, tmp_path, monkeypatch):
     assert dialog.apply_settings() is True
     assert str(qsettings.value("plot/mode")).endswith("replace")
     assert str(host.plot_mode).lower().endswith("replace")
-    assert calls == []
+    assert calls == ["matplotlib", "refresh"]
 
 
 def test_apply_updates_existing_and_future_popups(qapp, tmp_path):
@@ -279,3 +412,73 @@ def test_legacy_light_qss_config_migrates_to_theme_mode(qapp, tmp_path):
 
     assert appearance.theme_mode == "light"
     assert appearance.accent_color == "#4F9CF9"
+
+
+def test_legacy_builtin_matplotlib_style_migrates_to_follow_theme(tmp_path):
+    config_path = tmp_path / "legacy-mpl.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "matplotlib": {
+                    "mpl_style_path": "styles/mpl_style_dark_pro.mplstyle"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = SettingsManager(str(config_path)).get_matplotlib()
+
+    assert config.mode == "theme"
+
+
+def test_custom_matplotlib_file_migrates_to_file_mode(tmp_path):
+    config_path = tmp_path / "legacy-custom-mpl.json"
+    config_path.write_text(
+        json.dumps({"matplotlib": {"mpl_style_path": "my-lab.mplstyle"}}),
+        encoding="utf-8",
+    )
+
+    config = SettingsManager(str(config_path)).get_matplotlib()
+
+    assert config.mode == "file"
+    assert config.mpl_style_path == "my-lab.mplstyle"
+
+
+def test_extended_matplotlib_settings_persist_and_are_normalized(tmp_path):
+    config_path = tmp_path / "matplotlib.json"
+    manager = SettingsManager(str(config_path))
+    manager.update_matplotlib(
+        mode="custom",
+        figure_facecolor="#112233",
+        axes_facecolor="#223344",
+        grid_color="#334455",
+        grid_linewidth=1.4,
+        line_width=3.25,
+        marker_size=8.5,
+        title_size=18,
+        label_size=14,
+        tick_size=12,
+        legend_size=11,
+        figure_dpi=160,
+        savefig_dpi=450,
+        savefig_transparent=True,
+    )
+    manager.save()
+
+    config = SettingsManager(str(config_path)).get_matplotlib()
+
+    assert config.mode == "custom"
+    assert config.figure_facecolor == "#112233"
+    assert config.axes_facecolor == "#223344"
+    assert config.grid_color == "#334455"
+    assert config.grid_linewidth == 1.4
+    assert config.line_width == 3.25
+    assert config.marker_size == 8.5
+    assert config.title_size == 18
+    assert config.label_size == 14
+    assert config.tick_size == 12
+    assert config.legend_size == 11
+    assert config.figure_dpi == 160
+    assert config.savefig_dpi == 450
+    assert config.savefig_transparent is True

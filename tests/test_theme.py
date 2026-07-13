@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 from styles.theme import (
@@ -223,18 +223,37 @@ def test_matplotlib_configured_font_is_not_overwritten_by_auto_fallback():
 
 def test_canvas_refresh_preserves_rcparams_and_updates_live_text(monkeypatch):
     import matplotlib
+    from cycler import cycler
     from matplotlib._pylab_helpers import Gcf
     from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.colors import to_hex
     from matplotlib.figure import Figure
 
     with matplotlib.rc_context():
         matplotlib.rcParams["font.family"] = ["DejaVu Sans"]
         matplotlib.rcParams["font.size"] = 17
         matplotlib.rcParams["axes.titlesize"] = 19
+        matplotlib.rcParams["axes.labelsize"] = 14
+        matplotlib.rcParams["figure.facecolor"] = "#102030"
+        matplotlib.rcParams["axes.facecolor"] = "#203040"
+        matplotlib.rcParams["axes.edgecolor"] = "#708090"
+        matplotlib.rcParams["text.color"] = "#F0F2F5"
+        matplotlib.rcParams["axes.titlecolor"] = "#F0F2F5"
+        matplotlib.rcParams["axes.labelcolor"] = "#F0F2F5"
+        matplotlib.rcParams["xtick.color"] = "#F0F2F5"
+        matplotlib.rcParams["ytick.color"] = "#F0F2F5"
+        matplotlib.rcParams["grid.color"] = "#506070"
+        matplotlib.rcParams["grid.alpha"] = 0.4
+        matplotlib.rcParams["grid.linewidth"] = 1.1
+        matplotlib.rcParams["lines.linewidth"] = 3.0
+        matplotlib.rcParams["lines.markersize"] = 8.0
+        matplotlib.rcParams["axes.prop_cycle"] = cycler(color=["#E45756"])
         figure = Figure()
         canvas = FigureCanvasAgg(figure)
         axes = figure.subplots()
         axes.set_title("Title", fontfamily="serif", fontsize=8)
+        axes.set_xlabel("X")
+        line, = axes.plot([0, 1], [1, 2], label="signal")
 
         manager = type("Manager", (), {"canvas": canvas})()
         monkeypatch.setattr(Gcf, "get_all_fig_managers", lambda: [manager])
@@ -245,3 +264,43 @@ def test_canvas_refresh_preserves_rcparams_and_updates_live_text(monkeypatch):
         assert matplotlib.rcParams["font.size"] == 17
         assert axes.title.get_fontfamily()[0] == "DejaVu Sans"
         assert axes.title.get_fontsize() == 19
+        assert axes.xaxis.label.get_fontsize() == 14
+        assert to_hex(figure.get_facecolor()).upper() == "#102030"
+        assert to_hex(axes.get_facecolor()).upper() == "#203040"
+        assert to_hex(axes.spines["left"].get_edgecolor()).upper() == "#708090"
+        assert line.get_linewidth() == 3.0
+        assert line.get_markersize() == 8.0
+        assert to_hex(line.get_color()).upper() == "#E45756"
+
+
+def test_follow_app_theme_drives_matplotlib_light_canvas(qapp):
+    import matplotlib
+
+    with matplotlib.rc_context():
+        apply_qss(
+            qapp,
+            theme_mode="light",
+            accent_color="#20B8A6",
+            font_family=qapp.font().family(),
+            font_size=10,
+        )
+        config = MatplotlibConfig(mode="theme", mpl_style_path="")
+
+        assert apply_mpl_from_config(config, app=qapp) is True
+        assert matplotlib.rcParams["figure.facecolor"].upper() == qapp.palette().color(
+            QPalette.Window
+        ).name().upper()
+        assert matplotlib.rcParams["axes.facecolor"].upper() == qapp.palette().color(
+            QPalette.Base
+        ).name().upper()
+        assert matplotlib.rcParams["text.color"].upper() == qapp.palette().color(
+            QPalette.Text
+        ).name().upper()
+
+    apply_qss(
+        qapp,
+        theme_mode="dark",
+        accent_color="#4F9CF9",
+        font_family=qapp.font().family(),
+        font_size=10,
+    )

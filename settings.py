@@ -9,8 +9,33 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _hex_color(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    return text.upper() if _HEX_COLOR_RE.fullmatch(text) else fallback.upper()
+
+
+def _bounded_float(value: Any, fallback: float, minimum: float, maximum: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = fallback
+    return max(minimum, min(maximum, number))
+
+
+def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = fallback
+    return max(minimum, min(maximum, number))
 
 @dataclass
 class AppearanceConfig:
@@ -27,14 +52,28 @@ class AppearanceConfig:
 @dataclass
 class MatplotlibConfig:
     """Matplotlib style and plot settings"""
-    mpl_style_path: str = "styles/mpl_style_dark_pro.mplstyle"
+    mode: str = "theme"  # theme, custom, or file
+    mpl_style_path: str = ""
     font_family: str = ""  # empty = Auto (Thai-capable)
     font_size: int = 10
+    title_size: int = 12
+    label_size: int = 11
+    tick_size: int = 10
+    legend_size: int = 10
     grid_enabled: bool = True
     grid_alpha: float = 0.25
     grid_linestyle: str = "-"
+    grid_linewidth: float = 0.6
+    grid_color: str = "#3A3F44"
+    figure_facecolor: str = "#1E2126"
+    axes_facecolor: str = "#1E2126"
     axes_edgecolor: str = "#3b3f46"
     text_color: str = "#d7d7d7"
+    line_width: float = 2.0
+    marker_size: float = 5.5
+    figure_dpi: int = 130
+    savefig_dpi: int = 220
+    savefig_transparent: bool = False
     color_cycle: List[str] = None
 
     def __post_init__(self):
@@ -43,6 +82,47 @@ class MatplotlibConfig:
                 "#4F9CF9", "#FFB020", "#6EE7B7", "#F472B6",
                 "#A78BFA", "#F87171", "#22D3EE", "#94A3B8"
             ]
+        self.normalize()
+
+    def normalize(self) -> None:
+        mode_aliases = {
+            "follow app theme": "theme",
+            "use .mplstyle file": "file",
+            "custom overrides": "custom",
+        }
+        mode = str(self.mode or "theme").strip().casefold()
+        self.mode = mode_aliases.get(mode, mode if mode in {"theme", "custom", "file"} else "theme")
+        self.mpl_style_path = str(self.mpl_style_path or "").strip()
+        self.font_family = str(self.font_family or "").strip()
+        self.font_size = _bounded_int(self.font_size, 10, 6, 40)
+        self.title_size = _bounded_int(self.title_size, 12, 6, 48)
+        self.label_size = _bounded_int(self.label_size, 11, 6, 40)
+        self.tick_size = _bounded_int(self.tick_size, 10, 6, 32)
+        self.legend_size = _bounded_int(self.legend_size, 10, 6, 32)
+        self.grid_enabled = bool(self.grid_enabled)
+        self.grid_alpha = _bounded_float(self.grid_alpha, 0.25, 0.0, 1.0)
+        linestyle = str(self.grid_linestyle or "-").strip()
+        self.grid_linestyle = linestyle if linestyle in {"-", "--", ":", "-."} else "-"
+        self.grid_linewidth = _bounded_float(self.grid_linewidth, 0.6, 0.1, 5.0)
+        self.grid_color = _hex_color(self.grid_color, "#3A3F44")
+        self.figure_facecolor = _hex_color(self.figure_facecolor, "#1E2126")
+        self.axes_facecolor = _hex_color(self.axes_facecolor, "#1E2126")
+        self.axes_edgecolor = _hex_color(self.axes_edgecolor, "#3B3F46")
+        self.text_color = _hex_color(self.text_color, "#D7D7D7")
+        self.line_width = _bounded_float(self.line_width, 2.0, 0.1, 10.0)
+        self.marker_size = _bounded_float(self.marker_size, 5.5, 0.0, 30.0)
+        self.figure_dpi = _bounded_int(self.figure_dpi, 130, 50, 600)
+        self.savefig_dpi = _bounded_int(self.savefig_dpi, 220, 72, 1200)
+        self.savefig_transparent = bool(self.savefig_transparent)
+        colors = [
+            _hex_color(color, "")
+            for color in (self.color_cycle or [])
+            if _HEX_COLOR_RE.fullmatch(str(color or "").strip())
+        ]
+        self.color_cycle = colors or [
+            "#4F9CF9", "#FFB020", "#6EE7B7", "#F472B6",
+            "#A78BFA", "#F87171", "#22D3EE", "#94A3B8",
+        ]
 
 @dataclass
 class AIConfig:
@@ -129,16 +209,22 @@ class SettingsManager:
             
             # Load matplotlib
             if 'matplotlib' in data:
-                mpl_data = data['matplotlib']
-                self.config.matplotlib.mpl_style_path = mpl_data.get('mpl_style_path', self.config.matplotlib.mpl_style_path)
-                self.config.matplotlib.font_family = mpl_data.get('font_family', self.config.matplotlib.font_family)
-                self.config.matplotlib.font_size = mpl_data.get('font_size', self.config.matplotlib.font_size)
-                self.config.matplotlib.grid_enabled = mpl_data.get('grid_enabled', self.config.matplotlib.grid_enabled)
-                self.config.matplotlib.grid_alpha = mpl_data.get('grid_alpha', self.config.matplotlib.grid_alpha)
-                self.config.matplotlib.grid_linestyle = mpl_data.get('grid_linestyle', self.config.matplotlib.grid_linestyle)
-                self.config.matplotlib.axes_edgecolor = mpl_data.get('axes_edgecolor', self.config.matplotlib.axes_edgecolor)
-                self.config.matplotlib.text_color = mpl_data.get('text_color', self.config.matplotlib.text_color)
-                self.config.matplotlib.color_cycle = mpl_data.get('color_cycle', self.config.matplotlib.color_cycle)
+                mpl_data = dict(data['matplotlib'])
+                style_path = str(mpl_data.get('mpl_style_path', '') or '')
+                if not str(mpl_data.get('mode', '') or '').strip():
+                    built_in_styles = {
+                        'mpl_style_dark.mplstyle',
+                        'mpl_style_dark_pro.mplstyle',
+                        'mpl_style_light.mplstyle',
+                    }
+                    if Path(style_path).name.casefold() in built_in_styles:
+                        mpl_data['mode'] = 'theme'
+                    else:
+                        mpl_data['mode'] = 'file' if style_path else 'custom'
+                for key in vars(self.config.matplotlib):
+                    if key in mpl_data:
+                        setattr(self.config.matplotlib, key, mpl_data[key])
+                self.config.matplotlib.normalize()
 
             # Load AI assistant settings
             if 'ai' in data and isinstance(data['ai'], dict):
@@ -193,6 +279,7 @@ class SettingsManager:
         for key, value in kwargs.items():
             if hasattr(self.config.matplotlib, key):
                 setattr(self.config.matplotlib, key, value)
+        self.config.matplotlib.normalize()
     
     def validate_paths(self) -> Dict[str, bool]:
         """Validate that all configured paths exist"""

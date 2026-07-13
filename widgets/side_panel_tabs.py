@@ -105,7 +105,7 @@ class SidePanelTabs(QWidget):
     """
 
     COLLAPSED_WIDTH = _VerticalSideTabBar.TAB_WIDTH
-    EXPANDED_WIDTH = 240
+    EXPANDED_WIDTH = 288
 
     panel_changed = Signal(int)
     panel_toggled = Signal(bool)

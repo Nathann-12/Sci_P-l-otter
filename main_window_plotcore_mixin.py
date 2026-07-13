@@ -232,30 +232,14 @@ class MainWindowPlotCoreMixin:
 
     def apply_current_mpl_theme_to_canvas(self):
         try:
-            import matplotlib as _mpl
             tab = self.tabs.currentWidget()
-            if not tab: return
-            fig = tab.get_figure(); ax = tab.get_axes()
-            fig_fc = _mpl.rcParams.get("figure.facecolor", "#1e2126") or "#1e2126"
-            ax_fc = _mpl.rcParams.get("axes.facecolor", "#1e2126") or "#1e2126"
-            grid_col = _mpl.rcParams.get("grid.color", "#3a3f44") or "#3a3f44"
-            grid_alpha = float(_mpl.rcParams.get("grid.alpha", 0.3))
-            grid_ls = _mpl.rcParams.get("grid.linestyle", "-") or "-"
-            text_col = _mpl.rcParams.get("text.color", "#e6e6e6") or "#e6e6e6"
+            if not tab:
+                return
+            from styles.theme import apply_matplotlib_to_figure
 
-            if fig: fig.patch.set_facecolor(fig_fc)
-            if ax:
-                ax.set_facecolor(ax_fc)
-                for sp in ax.spines.values():
-                    sp.set_color(_mpl.rcParams.get("axes.edgecolor", "#3a3f44"))
-                ax.tick_params(colors=text_col)
-                ax.yaxis.label.set_color(text_col)
-                ax.xaxis.label.set_color(text_col)
-                if bool(_mpl.rcParams.get("axes.grid", True)):
-                    ax.grid(True, alpha=grid_alpha, linestyle=grid_ls, color=grid_col)
-            fig.canvas.draw_idle()
+            apply_matplotlib_to_figure(tab.get_figure())
         except Exception:
-            pass
+            logger.debug("Could not apply Matplotlib defaults to current canvas", exc_info=True)
 
         # Add keyboard shortcuts
         self.actOpen.setShortcut("Ctrl+O")

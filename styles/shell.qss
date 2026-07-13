@@ -144,7 +144,7 @@ QLabel#ActivityRailFutureSlot:hover {
 }
 
 /* ---------------------------------------------------------------------
-   Parked side panels — Project Explorer / Messages Log / Smart Hint Log
+   Parked side panels — Project Explorer / Messages Log / AI Assistant
    --------------------------------------------------------------------- */
 #SidePanelTabs {
     background-color: #171a1f;
@@ -310,20 +310,117 @@ QSplitter#ShellMainSplitter::handle:hover {
 }
 
 /* ---------------------------------------------------------------------
-   AI assistant dock — transcript + prominent input row
+   AI assistant dock - compact command workspace
    --------------------------------------------------------------------- */
 #AiAssistantDock {
     background-color: #1b1e23;
 }
 
+QLabel#AiTitle {
+    color: #f0f2f4;
+    font-size: 12pt;
+    font-weight: 700;
+}
+
+QLabel#AiModelLabel,
+QLabel#AiContextMeta,
+QLabel#AiEmptyCopy,
+QLabel#AiStatusLabel {
+    color: #8b929c;
+    font-size: 8.5pt;
+}
+
+QLabel#AiContextColumns {
+    color: #9fb3cc;
+    font-size: 8pt;
+    padding-top: 2px;
+}
+
+QToolButton#AiClearButton,
+QToolButton#AiRetryButton {
+    background: transparent;
+    color: #aab0b6;
+    border: 1px solid #3a3f44;
+    border-radius: 6px;
+    padding: 4px 7px;
+}
+
+QToolButton#AiClearButton:hover,
+QToolButton#AiRetryButton:hover {
+    color: #e6e6e6;
+    border-color: #4F9CF9;
+    background: #262b33;
+}
+
+QFrame#AiContextCard {
+    background: #23272e;
+    border: 1px solid #30343a;
+    border-left: 3px solid #4F9CF9;
+    border-radius: 8px;
+}
+
+QLabel#AiContextTitle {
+    color: #e6e6e6;
+    font-weight: 650;
+}
+
+QLabel#AiSectionLabel {
+    color: #66717f;
+    font-size: 7pt;
+    font-weight: 700;
+}
+
+QPushButton#AiQuickAction {
+    background: #23272e;
+    color: #cfd3d6;
+    border: 1px solid #30343a;
+    border-radius: 7px;
+    padding: 6px 4px;
+    font-size: 8.5pt;
+}
+
+QPushButton#AiQuickAction:hover {
+    background: #262b33;
+    border-color: #4F9CF9;
+    color: #eef6ff;
+}
+
+QPushButton#AiQuickAction:disabled {
+    color: #66717f;
+    background: #1b1e23;
+    border-color: #2a2f36;
+}
+
+QStackedWidget#AiContentStack,
+QWidget#AiEmptyState {
+    background: #1b1e23;
+    border: 1px solid #2a2f36;
+    border-radius: 8px;
+}
+
+QLabel#AiEmptyTitle {
+    color: #d7dde4;
+    font-size: 10pt;
+    font-weight: 650;
+}
+
 QTextEdit#AiTranscript {
     background-color: #1b1e23;
-    border: 1px solid #2a2f36;
+    border: none;
     border-radius: 8px;
     padding: 8px 10px;
     color: #d7dde4;
     selection-background-color: #4F9CF9;
     selection-color: #ffffff;
+}
+
+QLabel#AiActionTrace {
+    background: #222a35;
+    color: #dce3eb;
+    border: 1px solid #354153;
+    border-radius: 6px;
+    padding: 5px 7px;
+    font-size: 8pt;
 }
 
 QLineEdit#AiInput {
@@ -342,8 +439,8 @@ QPushButton#AiSendButton {
     color: #ffffff;
     border: 1px solid #4F9CF9;
     border-radius: 8px;
-    padding: 6px 16px;
-    min-width: 64px;
+    padding: 7px 10px;
+    min-width: 46px;
     font-weight: 600;
 }
 
@@ -355,6 +452,12 @@ QPushButton#AiSendButton:hover {
 QPushButton#AiSendButton:pressed {
     background: #3f86e0;
     border-color: #3f86e0;
+}
+
+QPushButton#AiSendButton:disabled {
+    background: #2b2f36;
+    color: #66717f;
+    border-color: #3a3f44;
 }
 
 /* ---------------------------------------------------------------------

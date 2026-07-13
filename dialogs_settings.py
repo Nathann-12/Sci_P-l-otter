@@ -23,7 +23,7 @@ from PySide6.QtGui import QFontDatabase, QColor, QPalette, QFont
 from PySide6.QtWidgets import QApplication
 
 from settings import SettingsManager, AppConfig
-from widgets.color_button import ColorButton, ColorButtonWithLabel
+from widgets.color_button import ColorButton
 from widgets.mpl_preview import MatplotlibPreview
 
 
@@ -205,6 +205,7 @@ class SettingsDialog(QDialog):
         self.settings_manager = settings_manager
         self.original_config = self.settings_manager.config
         self._last_apply_ok = False
+        self._mpl_preview_suspended = True
         
         # Force English locale for number inputs
         self.setLocale(QLocale(QLocale.English, QLocale.UnitedStates))
@@ -217,6 +218,8 @@ class SettingsDialog(QDialog):
         self.setup_ui()
         self.load_current_settings()
         self.setup_connections()
+        self._mpl_preview_suspended = False
+        self._on_mpl_mode_changed(self.mpl_mode_combo.currentText())
         self._apply_baseline = self._settings_apply_snapshot()
     
     def setup_ui(self):
@@ -480,90 +483,125 @@ class SettingsDialog(QDialog):
         return self._scroll_tab(tab)
     
     def _create_matplotlib_tab(self) -> QWidget:
-        """Create matplotlib settings tab"""
+        """Create production Matplotlib settings with an isolated preview."""
         tab = QWidget()
-        layout = QHBoxLayout(tab)  # Changed from QVBoxLayout to QHBoxLayout
+        layout = QHBoxLayout(tab)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
-        
-        # Left side - Settings
+
+        def double_spin(minimum, maximum, step, value, decimals=2):
+            spin = QDoubleSpinBox()
+            spin.setRange(minimum, maximum)
+            spin.setSingleStep(step)
+            spin.setDecimals(decimals)
+            spin.setValue(value)
+            spin.setMaximumWidth(90)
+            spin.valueChanged.connect(self._update_mpl_preview)
+            return spin
+
+        def int_spin(minimum, maximum, value):
+            spin = QSpinBox()
+            spin.setRange(minimum, maximum)
+            spin.setValue(value)
+            spin.setMaximumWidth(90)
+            spin.valueChanged.connect(self._update_mpl_preview)
+            return spin
+
         left_layout = QVBoxLayout()
-        
-        # Mode Section
-        mode_group = QGroupBox("Mode")
+
+        mode_group = QGroupBox("Style Source")
         mode_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         mode_layout = QFormLayout(mode_group)
-        mode_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
+        mode_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         mode_layout.setVerticalSpacing(8)
-        
+
         self.mpl_mode_combo = QComboBox()
-        self.mpl_mode_combo.addItems(["Use .mplstyle file", "Custom overrides"])
+        self.mpl_mode_combo.addItems([
+            "Follow app theme",
+            "Custom overrides",
+            "Use .mplstyle file",
+        ])
         self.mpl_mode_combo.setMinimumWidth(180)
         self.mpl_mode_combo.currentTextChanged.connect(self._on_mpl_mode_changed)
-        
+
         self.mpl_style_path_edit = QLineEdit()
         self.mpl_style_path_edit.setPlaceholderText("Path to .mplstyle file")
+        self.mpl_style_path_edit.editingFinished.connect(self._update_mpl_preview)
         self.mpl_style_browse_btn = QPushButton("Browse...")
         self.mpl_style_browse_btn.clicked.connect(self._browse_mpl_style)
-        
+
         mpl_style_layout = QHBoxLayout()
-        mpl_style_layout.addWidget(self.mpl_style_path_edit, 1)  # Give more space to path edit
+        mpl_style_layout.setContentsMargins(0, 0, 0, 0)
+        mpl_style_layout.addWidget(self.mpl_style_path_edit, 1)
         mpl_style_layout.addWidget(self.mpl_style_browse_btn)
-        
         mode_layout.addRow("Mode:", self.mpl_mode_combo)
         mode_layout.addRow("Style File:", mpl_style_layout)
-        
+        self.mpl_source_hint = QLabel()
+        self.mpl_source_hint.setWordWrap(True)
+        self.mpl_source_hint.setObjectName("SettingsHint")
+        mode_layout.addRow("", self.mpl_source_hint)
         left_layout.addWidget(mode_group)
-        
-        # Overrides Section
-        self.overrides_group = QGroupBox("Custom Overrides")
-        overrides_layout = QFormLayout(self.overrides_group)
-        overrides_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
-        overrides_layout.setVerticalSpacing(8)
-        
-        # Grid settings
+
+        self.overrides_group = QGroupBox("Plot Colors")
+        colors_layout = QFormLayout(self.overrides_group)
+        colors_layout.setVerticalSpacing(7)
+        self.figure_color_button = ColorButton(QColor("#1E2126"))
+        self.axes_facecolor_button = ColorButton(QColor("#1E2126"))
+        self.axes_color_button = ColorButton(QColor("#3A3F44"))
+        self.text_color_button = ColorButton(QColor("#E6E6E6"))
+        self.grid_color_button = ColorButton(QColor("#3A3F44"))
+        for button in (
+            self.figure_color_button,
+            self.axes_facecolor_button,
+            self.axes_color_button,
+            self.text_color_button,
+            self.grid_color_button,
+        ):
+            button.colorChanged.connect(self._update_mpl_preview)
+        colors_layout.addRow("Figure Background:", self.figure_color_button)
+        colors_layout.addRow("Plot Background:", self.axes_facecolor_button)
+        colors_layout.addRow("Spines / Border:", self.axes_color_button)
+        colors_layout.addRow("Text / Ticks:", self.text_color_button)
+        colors_layout.addRow("Grid Color:", self.grid_color_button)
+        left_layout.addWidget(self.overrides_group)
+
+        grid_group = QGroupBox("Grid")
+        grid_layout = QFormLayout(grid_group)
+        grid_layout.setVerticalSpacing(7)
         self.grid_enabled_check = QCheckBox("Enable Grid")
         self.grid_enabled_check.toggled.connect(self._update_mpl_preview)
-        
-        self.grid_alpha_spin = QDoubleSpinBox()
-        self.grid_alpha_spin.setRange(0.0, 1.0)
-        self.grid_alpha_spin.setSingleStep(0.05)
-        self.grid_alpha_spin.setValue(0.25)
-        self.grid_alpha_spin.setMaximumWidth(90)
-        self.grid_alpha_spin.valueChanged.connect(self._update_mpl_preview)
-        
+        self.grid_alpha_spin = double_spin(0.0, 1.0, 0.05, 0.25)
         self.grid_linestyle_combo = QComboBox()
         self.grid_linestyle_combo.addItems([
-            "Solid (-)", 
-            "Dashed (--)", 
-            "Dotted (:)", 
-            "Dash-Dot (-.)"
+            "Solid (-)",
+            "Dashed (--)",
+            "Dotted (:)",
+            "Dash-Dot (-.)",
         ])
         self.grid_linestyle_combo.setMinimumWidth(140)
         self.grid_linestyle_combo.currentTextChanged.connect(self._update_mpl_preview)
-        
-        overrides_layout.addRow("Grid:", self.grid_enabled_check)
-        overrides_layout.addRow("Grid Alpha:", self.grid_alpha_spin)
-        overrides_layout.addRow("Grid Line Style:", self.grid_linestyle_combo)
-        
-        # Color settings
-        self.axes_color_button = ColorButtonWithLabel("Axes Color")
-        self.axes_color_button.setColor(QColor("#000000"))
-        self.axes_color_button.colorChanged.connect(self._update_mpl_preview)
-        
-        self.text_color_button = ColorButtonWithLabel("Text Color")
-        self.text_color_button.setColor(QColor("#000000"))
-        self.text_color_button.colorChanged.connect(self._update_mpl_preview)
-        
-        overrides_layout.addRow("Axes Color:", self.axes_color_button)
-        overrides_layout.addRow("Text Color:", self.text_color_button)
-        
-        # Color cycle
+        self.grid_linewidth_spin = double_spin(0.1, 5.0, 0.1, 0.6)
+        grid_layout.addRow("Visible:", self.grid_enabled_check)
+        grid_layout.addRow("Opacity:", self.grid_alpha_spin)
+        grid_layout.addRow("Line Style:", self.grid_linestyle_combo)
+        grid_layout.addRow("Line Width:", self.grid_linewidth_spin)
+        left_layout.addWidget(grid_group)
+
+        series_group = QGroupBox("Series Defaults")
+        series_layout = QFormLayout(series_group)
+        series_layout.setVerticalSpacing(7)
+        self.line_width_spin = double_spin(0.1, 10.0, 0.25, 2.0)
+        self.marker_size_spin = double_spin(0.0, 30.0, 0.5, 5.5, decimals=1)
         self.color_cycle_editor = ColorCycleEditor()
         self.color_cycle_editor.colorsChanged.connect(self._update_mpl_preview)
-        overrides_layout.addRow("Color Cycle:", self.color_cycle_editor)
+        series_layout.addRow("Line Width:", self.line_width_spin)
+        series_layout.addRow("Marker Size:", self.marker_size_spin)
+        series_layout.addRow("Color Cycle:", self.color_cycle_editor)
+        left_layout.addWidget(series_group)
 
-        # Matplotlib font family (Thai-friendly)
+        type_group = QGroupBox("Typography")
+        type_layout = QFormLayout(type_group)
+        type_layout.setVerticalSpacing(7)
         self.mpl_font_combo = QComboBox()
         self.mpl_font_combo.addItems([
             "Auto (Thai)",
@@ -576,33 +614,50 @@ class SettingsDialog(QDialog):
             "Arial",
             "DejaVu Sans",
         ])
-        overrides_layout.addRow("Font Family:", self.mpl_font_combo)
+        self.mpl_font_combo.currentTextChanged.connect(self._update_mpl_preview)
+        self.mpl_font_size_spin = int_spin(6, 40, 10)
+        self.title_size_spin = int_spin(6, 48, 12)
+        self.label_size_spin = int_spin(6, 40, 11)
+        self.tick_size_spin = int_spin(6, 32, 10)
+        self.legend_size_spin = int_spin(6, 32, 10)
+        type_layout.addRow("Font Family:", self.mpl_font_combo)
+        type_layout.addRow("Base Size:", self.mpl_font_size_spin)
+        type_layout.addRow("Title Size:", self.title_size_spin)
+        type_layout.addRow("Axis Label Size:", self.label_size_spin)
+        type_layout.addRow("Tick Size:", self.tick_size_spin)
+        type_layout.addRow("Legend Size:", self.legend_size_spin)
+        left_layout.addWidget(type_group)
 
-        self.mpl_font_size_spin = QSpinBox()
-        self.mpl_font_size_spin.setRange(6, 32)
-        self.mpl_font_size_spin.setValue(10)
-        self.mpl_font_size_spin.setMaximumWidth(90)
-        overrides_layout.addRow("Font Size:", self.mpl_font_size_spin)
-        
-        left_layout.addWidget(self.overrides_group)
-        
-        # Right side - Preview
+        output_group = QGroupBox("Canvas & Export")
+        output_layout = QFormLayout(output_group)
+        output_layout.setVerticalSpacing(7)
+        self.figure_dpi_spin = int_spin(50, 600, 130)
+        self.savefig_dpi_spin = int_spin(72, 1200, 220)
+        self.savefig_transparent_check = QCheckBox("Transparent background")
+        self.savefig_transparent_check.toggled.connect(self._update_mpl_preview)
+        output_layout.addRow("Canvas DPI:", self.figure_dpi_spin)
+        output_layout.addRow("Export DPI:", self.savefig_dpi_spin)
+        output_layout.addRow("Export:", self.savefig_transparent_check)
+        left_layout.addWidget(output_group)
+        left_layout.addStretch(1)
+
         right_layout = QVBoxLayout()
-        
-        # Preview Section
-        preview_group = QGroupBox("Matplotlib Preview")
+        preview_group = QGroupBox("Preview")
         preview_layout = QVBoxLayout(preview_group)
-        
         self.mpl_preview = MatplotlibPreview()
         self.mpl_preview.preview_frame.setMinimumSize(300, 210)
         preview_layout.addWidget(self.mpl_preview)
-        
+        preview_note = QLabel(
+            "Preview changes are isolated. Open graphs and global defaults update only after Apply."
+        )
+        preview_note.setWordWrap(True)
+        preview_note.setObjectName("SettingsHint")
+        preview_layout.addWidget(preview_note)
         right_layout.addWidget(preview_group)
-        
-        # Add layouts to main layout
-        layout.addLayout(left_layout, 2)   # Settings take 2 parts (more space for text)
-        layout.addLayout(right_layout, 1)  # Preview takes 1 part
-        
+        right_layout.addStretch(1)
+
+        layout.addLayout(left_layout, 3)
+        layout.addLayout(right_layout, 2)
         return self._scroll_tab(tab)
     
     def setup_connections(self):
@@ -617,6 +672,9 @@ class SettingsDialog(QDialog):
         # Font changes
         self.font_family_combo.currentTextChanged.connect(self._update_font_preview)
         self.font_size_spin.valueChanged.connect(self._update_font_preview)
+        self.font_family_combo.currentTextChanged.connect(self._update_mpl_preview)
+        self.font_size_spin.valueChanged.connect(self._update_mpl_preview)
+        self.apply_to_matplotlib_check.toggled.connect(self._update_mpl_preview)
     
     def _on_theme_changed(self, theme_text):
         """Handle theme selection change"""
@@ -690,16 +748,32 @@ class SettingsDialog(QDialog):
     
     def _on_mpl_mode_changed(self, mode_text):
         """Handle matplotlib mode change"""
-        is_custom = mode_text == "Custom overrides"
+        mode = self._matplotlib_mode()
+        is_custom = mode == "custom"
+        is_file = mode == "file"
         self.overrides_group.setEnabled(is_custom)
-        
-        if is_custom:
-            self._update_mpl_preview()
+        self.mpl_style_path_edit.setEnabled(is_file)
+        self.mpl_style_browse_btn.setEnabled(is_file)
+        if mode == "theme":
+            self.mpl_source_hint.setText(
+                "Canvas colors follow the active app theme and custom app background."
+            )
+        elif mode == "custom":
+            self.mpl_source_hint.setText(
+                "Use explicit plot colors. Grid, series, typography, and output settings always apply."
+            )
         else:
-            # Apply mplstyle file if available
-            style_path = self.mpl_style_path_edit.text()
-            if style_path and os.path.exists(style_path):
-                self.mpl_preview.apply_mplstyle(style_path)
+            self.mpl_source_hint.setText(
+                "Load colors and layout from a .mplstyle file, then apply the common settings below."
+            )
+        self._update_mpl_preview()
+
+    def _matplotlib_mode(self) -> str:
+        return {
+            "Follow app theme": "theme",
+            "Use .mplstyle file": "file",
+            "Custom overrides": "custom",
+        }.get(self.mpl_mode_combo.currentText(), "theme")
     
     def _update_font_preview(self):
         """Update font preview"""
@@ -736,6 +810,11 @@ class SettingsDialog(QDialog):
             f"background-color: {palette.surface}; color: {palette.text}; "
             f"border: 2px solid {palette.accent}; border-radius: 7px; padding: 8px;"
         )
+        if (
+            hasattr(self, "mpl_mode_combo")
+            and self._matplotlib_mode() == "theme"
+        ):
+            self._update_mpl_preview()
     
     def _get_linestyle_from_description(self, description_text: str) -> str:
         """Convert description to matplotlib linestyle value"""
@@ -751,22 +830,68 @@ class SettingsDialog(QDialog):
             return "-"
     
     def _update_mpl_preview(self):
-        """Update matplotlib preview with current settings"""
-        if self.mpl_mode_combo.currentText() == "Custom overrides":
-            # Convert description to actual linestyle value
-            linestyle = self._get_linestyle_from_description(self.grid_linestyle_combo.currentText())
-            
-            style_dict = {
-                'grid': {
-                    'enabled': self.grid_enabled_check.isChecked(),
-                    'alpha': self.grid_alpha_spin.value(),
-                    'linestyle': linestyle
-                },
-                'axes_color': self.axes_color_button.color().name(),
-                'text_color': self.text_color_button.color().name(),
-                'color_cycle': self.color_cycle_editor.get_colors()
-            }
-            self.mpl_preview.update_style(style_dict)
+        """Render proposed settings without changing global Matplotlib state."""
+        if self._mpl_preview_suspended:
+            return
+        mode = self._matplotlib_mode()
+        family_text = self.mpl_font_combo.currentText()
+        if self.apply_to_matplotlib_check.isChecked() or family_text == "Same as App":
+            preview_family = self.font_family_combo.currentText()
+        elif family_text.startswith("Auto"):
+            preview_family = ""
+        else:
+            preview_family = family_text
+
+        style_dict = {
+            "grid": {
+                "enabled": self.grid_enabled_check.isChecked(),
+                "alpha": self.grid_alpha_spin.value(),
+                "linestyle": self._get_linestyle_from_description(
+                    self.grid_linestyle_combo.currentText()
+                ),
+                "linewidth": self.grid_linewidth_spin.value(),
+            },
+            "color_cycle": self.color_cycle_editor.get_colors(),
+            "line_width": self.line_width_spin.value(),
+            "marker_size": self.marker_size_spin.value(),
+            "font": {
+                "family": preview_family,
+                "title_size": self.title_size_spin.value(),
+                "label_size": self.label_size_spin.value(),
+                "tick_size": self.tick_size_spin.value(),
+                "legend_size": self.legend_size_spin.value(),
+            },
+        }
+        style_file = None
+        if mode == "theme":
+            from styles.theme import build_theme_palette
+
+            palette = build_theme_palette(
+                "light" if self.theme_combo.currentText() == "Built-in Light" else "dark",
+                self.accent_color_button.color().name(),
+                self._background_color_value(),
+            )
+            style_dict.update({
+                "figure_facecolor": palette.background,
+                "axes_facecolor": palette.surface,
+                "axes_color": palette.border,
+                "text_color": palette.text,
+                "grid_color": palette.border,
+            })
+        elif mode == "custom":
+            style_dict.update({
+                "figure_facecolor": self.figure_color_button.color().name(),
+                "axes_facecolor": self.axes_facecolor_button.color().name(),
+                "axes_color": self.axes_color_button.color().name(),
+                "text_color": self.text_color_button.color().name(),
+                "grid_color": self.grid_color_button.color().name(),
+            })
+        else:
+            candidate = self._resolved_mpl_style_path(self.mpl_style_path_edit.text())
+            if candidate and os.path.isfile(candidate):
+                style_file = candidate
+
+        self.mpl_preview.render_style(style_dict, style_file=style_file)
     
     def _browse_qss(self):
         """Browse for QSS file"""
@@ -784,8 +909,20 @@ class SettingsDialog(QDialog):
         )
         if file_path:
             self.mpl_style_path_edit.setText(file_path)
-            if self.mpl_mode_combo.currentText() == "Use .mplstyle file":
-                self.mpl_preview.apply_mplstyle(file_path)
+            self._update_mpl_preview()
+
+    def _resolved_mpl_style_path(self, path: str) -> str:
+        raw_path = str(path or "").strip()
+        if not raw_path:
+            return ""
+        requested = Path(raw_path).expanduser()
+        candidates = [requested]
+        if not requested.is_absolute():
+            candidates.extend((Path(__file__).resolve().parent / requested, Path(self._styles_path(requested.name))))
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate.resolve())
+        return str(requested)
     
     def load_current_settings(self):
         """Load current settings into UI"""
@@ -841,14 +978,19 @@ class SettingsDialog(QDialog):
             )
             
             # Matplotlib
-            if mpl_config.mpl_style_path:
-                self.mpl_mode_combo.setCurrentText("Use .mplstyle file")
-                self.mpl_style_path_edit.setText(mpl_config.mpl_style_path)
-            else:
-                self.mpl_mode_combo.setCurrentText("Custom overrides")
-            
+            mode_text = {
+                "theme": "Follow app theme",
+                "custom": "Custom overrides",
+                "file": "Use .mplstyle file",
+            }.get(str(getattr(mpl_config, "mode", "theme")).casefold(), "Follow app theme")
+            self.mpl_mode_combo.setCurrentText(mode_text)
+            self.mpl_style_path_edit.setText(str(mpl_config.mpl_style_path or ""))
+             
             self.grid_enabled_check.setChecked(mpl_config.grid_enabled)
             self.grid_alpha_spin.setValue(mpl_config.grid_alpha)
+            self.grid_linewidth_spin.setValue(
+                float(getattr(mpl_config, "grid_linewidth", 0.6))
+            )
             # Set grid linestyle combo box based on current setting
             if mpl_config.grid_linestyle == "-":
                 self.grid_linestyle_combo.setCurrentText("Solid (-)")
@@ -862,12 +1004,23 @@ class SettingsDialog(QDialog):
                 self.grid_linestyle_combo.setCurrentText("Solid (-)")
             
             # Convert hex colors to QColor
+            self.figure_color_button.setColor(
+                QColor(getattr(mpl_config, "figure_facecolor", "#1E2126"))
+            )
+            self.axes_facecolor_button.setColor(
+                QColor(getattr(mpl_config, "axes_facecolor", "#1E2126"))
+            )
             if mpl_config.axes_edgecolor:
                 self.axes_color_button.setColor(QColor(mpl_config.axes_edgecolor))
             if mpl_config.text_color:
                 self.text_color_button.setColor(QColor(mpl_config.text_color))
-            
+            self.grid_color_button.setColor(
+                QColor(getattr(mpl_config, "grid_color", "#3A3F44"))
+            )
+             
             self.color_cycle_editor.set_colors(mpl_config.color_cycle)
+            self.line_width_spin.setValue(float(getattr(mpl_config, "line_width", 2.0)))
+            self.marker_size_spin.setValue(float(getattr(mpl_config, "marker_size", 5.5)))
 
             # Matplotlib font family
             try:
@@ -887,11 +1040,21 @@ class SettingsDialog(QDialog):
             self.mpl_font_size_spin.setValue(
                 int(getattr(mpl_config, "font_size", app_config.font_size) or app_config.font_size)
             )
+            self.title_size_spin.setValue(int(getattr(mpl_config, "title_size", 12)))
+            self.label_size_spin.setValue(int(getattr(mpl_config, "label_size", 11)))
+            self.tick_size_spin.setValue(int(getattr(mpl_config, "tick_size", 10)))
+            self.legend_size_spin.setValue(int(getattr(mpl_config, "legend_size", 10)))
+            self.figure_dpi_spin.setValue(int(getattr(mpl_config, "figure_dpi", 130)))
+            self.savefig_dpi_spin.setValue(int(getattr(mpl_config, "savefig_dpi", 220)))
+            self.savefig_transparent_check.setChecked(
+                bool(getattr(mpl_config, "savefig_transparent", False))
+            )
             
             # Update previews
             self._on_theme_changed(self.theme_combo.currentText())
             self._update_font_preview()
             self._update_theme_preview()
+            self._on_mpl_mode_changed(self.mpl_mode_combo.currentText())
             self._update_mpl_preview()
             
         except Exception as e:
@@ -922,13 +1085,17 @@ class SettingsDialog(QDialog):
                 'plot_mode': "replace" if self.plot_mode_combo.currentText().startswith("Replace") else "overlay",
             },
             'matplotlib': {
-                'mode': self.mpl_mode_combo.currentText(),
-                'mpl_style_path': self.mpl_style_path_edit.text() if self.mpl_mode_combo.currentText() == "Use .mplstyle file" else "",
+                'mode': self._matplotlib_mode(),
+                'mpl_style_path': self.mpl_style_path_edit.text().strip(),
                 'grid_enabled': self.grid_enabled_check.isChecked(),
                 'grid_alpha': self.grid_alpha_spin.value(),
                 'grid_linestyle': self._get_linestyle_from_description(self.grid_linestyle_combo.currentText()),
-                'axes_edgecolor': self.axes_color_button.color().name(),
-                'text_color': self.text_color_button.color().name(),
+                'grid_linewidth': self.grid_linewidth_spin.value(),
+                'grid_color': self.grid_color_button.color().name().upper(),
+                'figure_facecolor': self.figure_color_button.color().name().upper(),
+                'axes_facecolor': self.axes_facecolor_button.color().name().upper(),
+                'axes_edgecolor': self.axes_color_button.color().name().upper(),
+                'text_color': self.text_color_button.color().name().upper(),
                 'color_cycle': self.color_cycle_editor.get_colors(),
                 'font_family': mpl_font,
                 'font_size': (
@@ -937,11 +1104,22 @@ class SettingsDialog(QDialog):
                     or self.mpl_font_combo.currentText() == "Same as App"
                     else self.mpl_font_size_spin.value()
                 ),
+                'title_size': self.title_size_spin.value(),
+                'label_size': self.label_size_spin.value(),
+                'tick_size': self.tick_size_spin.value(),
+                'legend_size': self.legend_size_spin.value(),
+                'line_width': self.line_width_spin.value(),
+                'marker_size': self.marker_size_spin.value(),
+                'figure_dpi': self.figure_dpi_spin.value(),
+                'savefig_dpi': self.savefig_dpi_spin.value(),
+                'savefig_transparent': self.savefig_transparent_check.isChecked(),
             }
         }
     
     def restore_defaults(self):
         """Restore default settings"""
+        previous_preview_state = self._mpl_preview_suspended
+        self._mpl_preview_suspended = True
         try:
             default_config = self.settings_manager.get_default_config()
             
@@ -967,23 +1145,38 @@ class SettingsDialog(QDialog):
                     if self.font_family_combo.count() > 0:
                         self.font_family_combo.setCurrentIndex(0)
             self.font_size_spin.setValue(default_config.appearance.font_size)
-            self.apply_to_matplotlib_check.setChecked(True)
+            self.apply_to_matplotlib_check.setChecked(False)
             self.plot_mode_combo.setCurrentText("Overlay on selected graph")
-            
+             
             # Matplotlib
-            self.mpl_mode_combo.setCurrentText("Custom overrides")
-            self.mpl_style_path_edit.clear()
+            self.mpl_mode_combo.setCurrentText("Follow app theme")
+            self.mpl_style_path_edit.setText(default_config.matplotlib.mpl_style_path)
             self.grid_enabled_check.setChecked(default_config.matplotlib.grid_enabled)
             self.grid_alpha_spin.setValue(default_config.matplotlib.grid_alpha)
+            self.grid_linewidth_spin.setValue(default_config.matplotlib.grid_linewidth)
             # Set default grid linestyle
             self.grid_linestyle_combo.setCurrentText("Solid (-)")
-            
+             
             # Reset colors to the same defaults used by persisted config.
+            self.figure_color_button.setColor(QColor(default_config.matplotlib.figure_facecolor))
+            self.axes_facecolor_button.setColor(QColor(default_config.matplotlib.axes_facecolor))
             self.axes_color_button.setColor(QColor(default_config.matplotlib.axes_edgecolor))
             self.text_color_button.setColor(QColor(default_config.matplotlib.text_color))
+            self.grid_color_button.setColor(QColor(default_config.matplotlib.grid_color))
             self.color_cycle_editor.set_colors(default_config.matplotlib.color_cycle)
             self.mpl_font_combo.setCurrentText("Auto (Thai)")
             self.mpl_font_size_spin.setValue(default_config.matplotlib.font_size)
+            self.title_size_spin.setValue(default_config.matplotlib.title_size)
+            self.label_size_spin.setValue(default_config.matplotlib.label_size)
+            self.tick_size_spin.setValue(default_config.matplotlib.tick_size)
+            self.legend_size_spin.setValue(default_config.matplotlib.legend_size)
+            self.line_width_spin.setValue(default_config.matplotlib.line_width)
+            self.marker_size_spin.setValue(default_config.matplotlib.marker_size)
+            self.figure_dpi_spin.setValue(default_config.matplotlib.figure_dpi)
+            self.savefig_dpi_spin.setValue(default_config.matplotlib.savefig_dpi)
+            self.savefig_transparent_check.setChecked(
+                default_config.matplotlib.savefig_transparent
+            )
             
             # Update previews
             self._update_font_preview()
@@ -992,6 +1185,12 @@ class SettingsDialog(QDialog):
             
         except Exception as e:
             print(f"Error restoring defaults: {e}")
+        finally:
+            self._mpl_preview_suspended = previous_preview_state
+        if not previous_preview_state:
+            self._update_font_preview()
+            self._update_theme_preview()
+            self._on_mpl_mode_changed(self.mpl_mode_combo.currentText())
 
     def _validate_settings(self, settings: dict) -> bool:
         theme = settings['appearance']['theme']
@@ -1001,30 +1200,24 @@ class SettingsDialog(QDialog):
             return False
 
         mpl_path = settings['matplotlib']['mpl_style_path']
-        if settings['matplotlib']['mode'] == "Use .mplstyle file" and (not mpl_path or not os.path.isfile(mpl_path)):
-            self._set_status(f"Matplotlib style file not found: {mpl_path}", error=True)
+        if settings['matplotlib']['mode'] == "file":
+            resolved_path = self._resolved_mpl_style_path(mpl_path)
+            if not resolved_path or not os.path.isfile(resolved_path):
+                self._set_status(f"Matplotlib style file not found: {mpl_path}", error=True)
+                return False
+            try:
+                import matplotlib
+                from matplotlib import style as mpl_style
+
+                with matplotlib.rc_context():
+                    mpl_style.use(resolved_path)
+            except Exception as exc:
+                self._set_status(f"Invalid Matplotlib style file: {exc}", error=True)
+                return False
+        if not settings['matplotlib']['color_cycle']:
+            self._set_status("Color cycle needs at least one color.", error=True)
             return False
         return True
-
-    def _apply_mpl_font(self, font_family: str, font_size: int) -> None:
-        try:
-            import matplotlib
-            if font_family:
-                matplotlib.rcParams["font.family"] = [
-                    font_family,
-                    "Noto Sans Thai",
-                    "TH Sarabun New",
-                    "Sarabun",
-                    "Tahoma",
-                    "Segoe UI",
-                    "Arial",
-                    "DejaVu Sans",
-                ]
-            matplotlib.rcParams["font.size"] = int(font_size)
-            matplotlib.rcParams["axes.unicode_minus"] = False
-            matplotlib.rcParams["text.usetex"] = False
-        except Exception:
-            pass
 
     def _current_appearance_dict(self) -> dict:
         config = self.settings_manager.get_appearance()
@@ -1035,20 +1228,6 @@ class SettingsDialog(QDialog):
             "qt_qss_path": getattr(config, "qt_qss_path", ""),
             "font_family": getattr(config, "font_family", ""),
             "font_size": int(getattr(config, "font_size", 0) or 0),
-        }
-
-    def _current_matplotlib_dict(self) -> dict:
-        config = self.settings_manager.get_matplotlib()
-        return {
-            "mpl_style_path": getattr(config, "mpl_style_path", ""),
-            "grid_enabled": bool(getattr(config, "grid_enabled", True)),
-            "grid_alpha": float(getattr(config, "grid_alpha", 0.0)),
-            "grid_linestyle": getattr(config, "grid_linestyle", "-"),
-            "axes_edgecolor": str(getattr(config, "axes_edgecolor", "")),
-            "text_color": str(getattr(config, "text_color", "")),
-            "color_cycle": list(getattr(config, "color_cycle", []) or []),
-            "font_family": getattr(config, "font_family", ""),
-            "font_size": int(getattr(config, "font_size", 10) or 10),
         }
 
     def _settings_apply_snapshot(self) -> dict:
@@ -1063,15 +1242,31 @@ class SettingsDialog(QDialog):
                 "font_size": int(settings['appearance']['font_size']),
             },
             "matplotlib": {
+                "mode": settings['matplotlib']['mode'],
                 "mpl_style_path": settings['matplotlib']['mpl_style_path'],
                 "grid_enabled": bool(settings['matplotlib']['grid_enabled']),
                 "grid_alpha": float(settings['matplotlib']['grid_alpha']),
                 "grid_linestyle": settings['matplotlib']['grid_linestyle'],
+                "grid_linewidth": float(settings['matplotlib']['grid_linewidth']),
+                "grid_color": settings['matplotlib']['grid_color'],
+                "figure_facecolor": settings['matplotlib']['figure_facecolor'],
+                "axes_facecolor": settings['matplotlib']['axes_facecolor'],
                 "axes_edgecolor": settings['matplotlib']['axes_edgecolor'],
                 "text_color": settings['matplotlib']['text_color'],
                 "color_cycle": list(settings['matplotlib']['color_cycle']),
                 "font_family": settings['matplotlib']['font_family'],
                 "font_size": int(settings['matplotlib']['font_size']),
+                "title_size": int(settings['matplotlib']['title_size']),
+                "label_size": int(settings['matplotlib']['label_size']),
+                "tick_size": int(settings['matplotlib']['tick_size']),
+                "legend_size": int(settings['matplotlib']['legend_size']),
+                "line_width": float(settings['matplotlib']['line_width']),
+                "marker_size": float(settings['matplotlib']['marker_size']),
+                "figure_dpi": int(settings['matplotlib']['figure_dpi']),
+                "savefig_dpi": int(settings['matplotlib']['savefig_dpi']),
+                "savefig_transparent": bool(
+                    settings['matplotlib']['savefig_transparent']
+                ),
             },
         }
     
@@ -1092,23 +1287,37 @@ class SettingsDialog(QDialog):
                 "font_size": int(settings['appearance']['font_size']),
             }
             new_matplotlib = {
+                "mode": settings['matplotlib']['mode'],
                 "mpl_style_path": settings['matplotlib']['mpl_style_path'],
                 "grid_enabled": bool(settings['matplotlib']['grid_enabled']),
                 "grid_alpha": float(settings['matplotlib']['grid_alpha']),
                 "grid_linestyle": settings['matplotlib']['grid_linestyle'],
+                "grid_linewidth": float(settings['matplotlib']['grid_linewidth']),
+                "grid_color": settings['matplotlib']['grid_color'],
+                "figure_facecolor": settings['matplotlib']['figure_facecolor'],
+                "axes_facecolor": settings['matplotlib']['axes_facecolor'],
                 "axes_edgecolor": settings['matplotlib']['axes_edgecolor'],
                 "text_color": settings['matplotlib']['text_color'],
                 "color_cycle": list(settings['matplotlib']['color_cycle']),
                 "font_family": settings['matplotlib']['font_family'],
                 "font_size": int(settings['matplotlib']['font_size']),
+                "title_size": int(settings['matplotlib']['title_size']),
+                "label_size": int(settings['matplotlib']['label_size']),
+                "tick_size": int(settings['matplotlib']['tick_size']),
+                "legend_size": int(settings['matplotlib']['legend_size']),
+                "line_width": float(settings['matplotlib']['line_width']),
+                "marker_size": float(settings['matplotlib']['marker_size']),
+                "figure_dpi": int(settings['matplotlib']['figure_dpi']),
+                "savefig_dpi": int(settings['matplotlib']['savefig_dpi']),
+                "savefig_transparent": bool(
+                    settings['matplotlib']['savefig_transparent']
+                ),
             }
             baseline = getattr(self, "_apply_baseline", None)
             if isinstance(baseline, dict):
                 appearance_changed = new_appearance != baseline.get("appearance", {})
-                matplotlib_changed = new_matplotlib != baseline.get("matplotlib", {})
             else:
                 appearance_changed = new_appearance != self._current_appearance_dict()
-                matplotlib_changed = new_matplotlib != self._current_matplotlib_dict()
             
             # Update appearance
             self.settings_manager.update_appearance(**new_appearance)
@@ -1131,31 +1340,15 @@ class SettingsDialog(QDialog):
                 from styles.theme import apply_theme_from_config
                 apply_theme_from_config(app, self.settings_manager.get_appearance())
             
-            # Apply matplotlib settings only when they changed. Re-applying font
-            # managers and stylesheets gets very expensive when the QApplication
-            # already owns many widgets in long user-flow test runs.
-            if matplotlib_changed:
-                from styles.theme import apply_mpl_style, apply_mpl_overrides
-                if settings['matplotlib']['mode'] == "Use .mplstyle file" and settings['matplotlib']['mpl_style_path']:
-                    apply_mpl_style(settings['matplotlib']['mpl_style_path'])
-                    self._apply_mpl_font(
-                        settings['matplotlib']['font_family'],
-                        settings['matplotlib']['font_size'],
-                    )
-                else:
-                    apply_mpl_overrides(
-                        grid_enabled=settings['matplotlib']['grid_enabled'],
-                        grid_alpha=settings['matplotlib']['grid_alpha'],
-                        grid_linestyle=settings['matplotlib']['grid_linestyle'],
-                        axes_color=settings['matplotlib']['axes_edgecolor'],
-                        text_color=settings['matplotlib']['text_color'],
-                        color_cycle=settings['matplotlib']['color_cycle'],
-                        font_family=settings['matplotlib']['font_family'],
-                        font_size=settings['matplotlib']['font_size'],
-                    )
-            
-            # Update matplotlib
             self.settings_manager.update_matplotlib(**new_matplotlib)
+            from styles.theme import apply_mpl_from_config, refresh_matplotlib_canvases
+
+            if not apply_mpl_from_config(
+                self.settings_manager.get_matplotlib(),
+                app=app,
+            ):
+                raise RuntimeError("Matplotlib rejected the selected settings")
+            refresh_matplotlib_canvases()
 
             # Apply runtime application behavior
             qsettings = QSettings("SciPlotter", "SciPlotter")

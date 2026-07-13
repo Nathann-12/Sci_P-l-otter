@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 import re
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
@@ -34,6 +35,8 @@ DARK_CUSTOM_COLORS = {
 DEFAULT_ACCENT = "#4F9CF9"
 _QT_FONTS_REGISTERED = False
 _MONOCHROME_ICON_KEYS: set[int] = set()
+_MPL_FONT_CHAIN: list[str] | None = None
+_MPL_THAI_FAMILY: str | None = None
 
 
 @dataclass(frozen=True)
@@ -236,8 +239,14 @@ def _setup_thai_fonts() -> Optional[str]:
 
     Returns the selected family name if set, else None.
     """
+    global _MPL_FONT_CHAIN, _MPL_THAI_FAMILY
     try:
         import matplotlib.font_manager as fm
+        if _MPL_FONT_CHAIN:
+            matplotlib.rcParams["font.sans-serif"] = list(_MPL_FONT_CHAIN)
+            matplotlib.rcParams["font.family"] = list(_MPL_FONT_CHAIN)
+            return _MPL_THAI_FAMILY
+
         base = os.path.dirname(__file__)
         assets_fonts = os.path.join(os.path.dirname(base), "assets", "fonts")
 
@@ -265,32 +274,26 @@ def _setup_thai_fonts() -> Optional[str]:
             "Segoe UI",        # Windows modern UI font
         ]
 
-        # Rebuild the font manager to ensure newly added fonts are visible
-        try:
-            # Matplotlib >= 3.6
-            fm._load_fontmanager(try_read_cache=False)  # type: ignore[attr-defined]
-        except Exception:
-            try:
-                # Older Matplotlib
-                fm._rebuild()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-
-        # Build fallback chains (family can be a list)
-        chain = thai_pref + [
+        available = {font.name.casefold(): font.name for font in fm.fontManager.ttflist}
+        requested_chain = thai_pref + [
             "Microsoft YaHei", "Arial", "DejaVu Sans", "Liberation Sans", "Helvetica"
         ]
+        chain = []
+        for family in requested_chain:
+            resolved = available.get(family.casefold())
+            if resolved and resolved not in chain:
+                chain.append(resolved)
+        if not chain:
+            chain = ["DejaVu Sans"]
+        _MPL_FONT_CHAIN = chain
         matplotlib.rcParams["font.sans-serif"] = chain
         matplotlib.rcParams["font.family"] = chain
 
-        # Pick the first available Thai-capable family for logging
         for fam in thai_pref:
-            try:
-                fp = fm.findfont(fm.FontProperties(family=fam), fallback_to_default=False)
-                if fp and os.path.exists(fp):
-                    return fam
-            except Exception:
-                continue
+            resolved = available.get(fam.casefold())
+            if resolved:
+                _MPL_THAI_FAMILY = resolved
+                return resolved
     except Exception as e:
         logger.warning(f"Thai font setup skipped: {e}")
     return None
@@ -891,26 +894,86 @@ def apply_font(
         runtime.refresh()
     return resolved
 
-def apply_mpl_style(style_path: str = None):
-    """Apply matplotlib style file"""
-    logger.info(f"Applying matplotlib style from: {style_path}")
-    
-    try:
-        import matplotlib
-        if style_path and os.path.isfile(style_path):
-            matplotlib.style.use(style_path)
-            logger.info(f"Matplotlib style applied successfully from: {style_path}")
-        else:
-            logger.warning(f"Matplotlib style file not found: {style_path}")
-    except Exception as e:
-        logger.error(f"Error applying matplotlib style: {e}")
+def _resolve_mpl_style_path(style_path: str | None) -> str:
+    raw_path = str(style_path or "").strip()
+    if not raw_path:
+        return ""
+    requested = Path(raw_path).expanduser()
+    candidates = [requested]
+    if not requested.is_absolute():
+        project_root = Path(__file__).resolve().parent.parent
+        candidates.extend((project_root / requested, Path(__file__).resolve().parent / requested.name))
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return str(requested)
 
-def apply_mpl_overrides(grid_enabled: bool = True, grid_alpha: float = 0.3, 
-                       grid_linestyle: str = "-", axes_color: str = "#000000", 
-                       text_color: str = "#000000", color_cycle: list = None,
-                       font_family: Optional[str] = None,
-                       font_size: Optional[int] = None):
-    """Apply matplotlib style overrides"""
+
+def _matplotlib_theme_colors(app: QApplication | None = None) -> dict[str, str]:
+    app = app or QApplication.instance()
+    if app is None:
+        return {
+            "figure": "#1E2126",
+            "axes": "#23272E",
+            "edge": "#3A3F44",
+            "text": "#E6E6E6",
+            "grid": "#3A3F44",
+        }
+    palette = app.palette()
+    return {
+        "figure": palette.color(QPalette.Window).name().upper(),
+        "axes": palette.color(QPalette.Base).name().upper(),
+        "edge": palette.color(QPalette.Mid).name().upper(),
+        "text": palette.color(QPalette.Text).name().upper(),
+        "grid": palette.color(QPalette.Mid).name().upper(),
+    }
+
+
+def apply_mpl_style(style_path: str = None, *, reset: bool = False) -> bool:
+    """Apply a Matplotlib style file and report whether it succeeded."""
+    resolved = _resolve_mpl_style_path(style_path)
+    logger.info("Applying matplotlib style from: %s", resolved or style_path)
+    try:
+        from matplotlib import style as mpl_style
+
+        if not resolved or not os.path.isfile(resolved):
+            logger.warning("Matplotlib style file not found: %s", style_path)
+            return False
+        if reset:
+            matplotlib.rcdefaults()
+        mpl_style.use(resolved)
+        logger.info("Matplotlib style applied successfully from: %s", resolved)
+        return True
+    except Exception as exc:
+        logger.error("Error applying matplotlib style: %s", exc)
+        return False
+
+
+def apply_mpl_overrides(
+    grid_enabled: bool = True,
+    grid_alpha: float = 0.3,
+    grid_linestyle: str = "-",
+    axes_color: Optional[str] = "#000000",
+    text_color: Optional[str] = "#000000",
+    color_cycle: list = None,
+    font_family: Optional[str] = None,
+    font_size: Optional[int] = None,
+    *,
+    figure_facecolor: Optional[str] = "#1E2126",
+    axes_facecolor: Optional[str] = "#1E2126",
+    grid_color: Optional[str] = "#3A3F44",
+    grid_linewidth: float = 0.6,
+    line_width: float = 2.0,
+    marker_size: float = 5.5,
+    title_size: int = 12,
+    label_size: int = 11,
+    tick_size: int = 10,
+    legend_size: int = 10,
+    figure_dpi: int = 130,
+    savefig_dpi: int = 220,
+    savefig_transparent: bool = False,
+) -> bool:
+    """Apply validated global defaults without assuming a dark canvas."""
     logger.info("Applying matplotlib style overrides")
     
     try:
@@ -920,14 +983,19 @@ def apply_mpl_overrides(grid_enabled: bool = True, grid_alpha: float = 0.3,
         fam = None
         if font_family:
             # Explicit override from settings/dialog
-            try:
-                import matplotlib.font_manager as fm
-                fm._load_fontmanager(try_read_cache=False)  # refresh
-            except Exception:
-                pass
-            matplotlib.rcParams["font.family"] = [font_family,
-                "Noto Sans Thai", "TH Sarabun New", "Sarabun", "Tahoma", "Segoe UI", "Arial", "DejaVu Sans"]
-            fam = font_family
+            import matplotlib.font_manager as fm
+
+            _setup_thai_fonts()
+            available = {
+                font.name.casefold(): font.name for font in fm.fontManager.ttflist
+            }
+            resolved = available.get(str(font_family).casefold())
+            fallback_chain = list(matplotlib.rcParams["font.sans-serif"])
+            family_chain = ([resolved] if resolved else []) + [
+                family for family in fallback_chain if family != resolved
+            ]
+            matplotlib.rcParams["font.family"] = family_chain or ["DejaVu Sans"]
+            fam = resolved or family_chain[0]
         else:
             # Auto choose Thai-capable fonts
             fam = _setup_thai_fonts()
@@ -939,21 +1007,41 @@ def apply_mpl_overrides(grid_enabled: bool = True, grid_alpha: float = 0.3,
         # Avoid TeX (Thai not supported there by default)
         matplotlib.rcParams["text.usetex"] = False
 
-        # Dark canvas blending defaults
-        matplotlib.rcParams["figure.facecolor"] = "#1e2126"
-        matplotlib.rcParams["axes.facecolor"] = "#1e2126"
-        matplotlib.rcParams["grid.color"] = "#3a3f44"
-        matplotlib.rcParams["axes.edgecolor"] = axes_color
-        matplotlib.rcParams["axes.labelcolor"] = text_color
-        matplotlib.rcParams["xtick.color"] = text_color
-        matplotlib.rcParams["ytick.color"] = text_color
-        matplotlib.rcParams["text.color"] = text_color
+        if figure_facecolor:
+            matplotlib.rcParams["figure.facecolor"] = figure_facecolor
+            matplotlib.rcParams["savefig.facecolor"] = figure_facecolor
+        if axes_facecolor:
+            matplotlib.rcParams["axes.facecolor"] = axes_facecolor
+            matplotlib.rcParams["legend.facecolor"] = axes_facecolor
+        if grid_color:
+            matplotlib.rcParams["grid.color"] = grid_color
+        if axes_color:
+            matplotlib.rcParams["axes.edgecolor"] = axes_color
+            matplotlib.rcParams["legend.edgecolor"] = axes_color
+        if text_color:
+            matplotlib.rcParams["axes.labelcolor"] = text_color
+            matplotlib.rcParams["axes.titlecolor"] = text_color
+            matplotlib.rcParams["xtick.color"] = text_color
+            matplotlib.rcParams["ytick.color"] = text_color
+            matplotlib.rcParams["text.color"] = text_color
+            matplotlib.rcParams["legend.labelcolor"] = text_color
 
         # Grid settings
         matplotlib.rcParams["axes.grid"] = grid_enabled
         matplotlib.rcParams["grid.alpha"] = grid_alpha
         matplotlib.rcParams["grid.linestyle"] = grid_linestyle
-        
+        matplotlib.rcParams["grid.linewidth"] = grid_linewidth
+
+        matplotlib.rcParams["lines.linewidth"] = line_width
+        matplotlib.rcParams["lines.markersize"] = marker_size
+        matplotlib.rcParams["axes.titlesize"] = title_size
+        matplotlib.rcParams["axes.labelsize"] = label_size
+        matplotlib.rcParams["xtick.labelsize"] = tick_size
+        matplotlib.rcParams["ytick.labelsize"] = tick_size
+        matplotlib.rcParams["legend.fontsize"] = legend_size
+        matplotlib.rcParams["figure.dpi"] = figure_dpi
+        matplotlib.rcParams["savefig.dpi"] = savefig_dpi
+        matplotlib.rcParams["savefig.transparent"] = bool(savefig_transparent)
         
         # Color cycle
         if color_cycle:
@@ -961,9 +1049,11 @@ def apply_mpl_overrides(grid_enabled: bool = True, grid_alpha: float = 0.3,
             logger.info(f"Color cycle set with {len(color_cycle)} colors")
         
         logger.info("Matplotlib overrides applied successfully")
+        return True
         
     except Exception as e:
         logger.error(f"Error applying matplotlib overrides: {e}")
+        return False
 
 def _legacy_apply_theme(app: QApplication):
     logger.info("Applying theme to application...")
@@ -1140,144 +1230,163 @@ def apply_theme_from_config(app: QApplication, config):
         font_size=font_size,
     )
 
-def apply_mpl_from_config(config):
-    """Apply matplotlib settings from configuration"""
-    logger.info("Applying matplotlib settings from configuration...")
-    
+def apply_mpl_from_config(config, app: QApplication | None = None) -> bool:
+    """Apply one normalized Matplotlib configuration for startup and runtime."""
+    logger.info("Applying matplotlib settings from configuration")
+    source_ok = True
     try:
-        import matplotlib
-        # Load style file if exists
-        if hasattr(config, 'mpl_style_path') and config.mpl_style_path and os.path.isfile(config.mpl_style_path):
-            matplotlib.style.use(config.mpl_style_path)
-            logger.info(f"Matplotlib style loaded from: {config.mpl_style_path}")
-        
-        # Override with config values
-        mpl_config = config
-        
-        # Grid settings
-        try:
-            if hasattr(mpl_config, 'grid_enabled'):
-                matplotlib.rcParams["axes.grid"] = bool(mpl_config.grid_enabled)
-            if hasattr(mpl_config, 'grid_alpha'):
-                matplotlib.rcParams["grid.alpha"] = float(mpl_config.grid_alpha)
-            if hasattr(mpl_config, 'grid_linestyle'):
-                # Convert Thai description to matplotlib linestyle value
-                linestyle = _convert_linestyle_from_thai(str(mpl_config.grid_linestyle))
-                matplotlib.rcParams["grid.linestyle"] = linestyle
-                logger.info(f"Grid linestyle set to: {linestyle}")
-        except Exception as e:
-            logger.error(f"Error setting grid parameters: {e}")
-            # Set safe defaults
-            matplotlib.rcParams["axes.grid"] = True
-            matplotlib.rcParams["grid.alpha"] = 0.3
-            matplotlib.rcParams["grid.linestyle"] = "-"
-        
-        # Color settings and dark canvas blending
-        try:
-            matplotlib.rcParams["text.usetex"] = False
-            if hasattr(mpl_config, 'axes_edgecolor'):
-                matplotlib.rcParams["axes.edgecolor"] = str(mpl_config.axes_edgecolor)
-            if hasattr(mpl_config, 'text_color'):
-                matplotlib.rcParams["text.color"] = str(mpl_config.text_color)
-            # Ensure canvas matches dark palette
-            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
-            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
-            matplotlib.rcParams["grid.color"] = "#3a3f44"
-            matplotlib.rcParams["xtick.color"] = matplotlib.rcParams["text.color"]
-            matplotlib.rcParams["ytick.color"] = matplotlib.rcParams["text.color"]
-            matplotlib.rcParams["axes.labelcolor"] = matplotlib.rcParams["text.color"]
-            # Font from config if provided; otherwise auto Thai
-            try:
-                cfg_font = getattr(mpl_config, 'font_family', '') or ''
-            except Exception:
-                cfg_font = ''
-            cfg_font_size = int(getattr(mpl_config, 'font_size', 10) or 10)
-            matplotlib.rcParams["font.size"] = cfg_font_size
-            if cfg_font:
-                try:
-                    import matplotlib.font_manager as fm
-                    fm._load_fontmanager(try_read_cache=False)
-                except Exception:
-                    pass
-                matplotlib.rcParams["font.family"] = [cfg_font,
-                    "Noto Sans Thai", "TH Sarabun New", "Sarabun", "Tahoma", "Segoe UI", "Arial", "DejaVu Sans"]
-                logger.info(f"Matplotlib font.family set from config: {cfg_font}")
-            else:
-                fam = _setup_thai_fonts()
-                if fam:
-                    logger.info(f"Matplotlib font.family set to: {fam}")
-        except Exception as e:
-            logger.error(f"Error setting color parameters: {e}")
-            # Set safe defaults
-            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
-            matplotlib.rcParams["text.color"] = "#e6e6e6"
-            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
-            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
-            matplotlib.rcParams["grid.color"] = "#3a3f44"
-        
-        # Color cycle
-        if hasattr(mpl_config, 'color_cycle') and mpl_config.color_cycle:
-            try:
-                matplotlib.rcParams["axes.prop_cycle"] = cycler(color=list(mpl_config.color_cycle))
-                logger.info(f"Color cycle set with {len(mpl_config.color_cycle)} colors")
-            except Exception as e:
-                logger.error(f"Error setting color cycle: {e}")
-        
-        # Font settings - use fonts that are commonly available on Windows
-        matplotlib.rcParams["font.sans-serif"] = [
-            "Segoe UI", "Microsoft YaHei", "Tahoma", "Arial", 
-            "DejaVu Sans", "Liberation Sans", "Helvetica"
-        ]
+        mode = str(getattr(config, "mode", "") or "").strip().casefold()
+        if mode not in {"theme", "custom", "file"}:
+            mode = "file" if getattr(config, "mpl_style_path", "") else "custom"
+
+        matplotlib.rcdefaults()
+        if mode == "file":
+            source_ok = apply_mpl_style(getattr(config, "mpl_style_path", ""))
+            if not source_ok:
+                mode = "theme"
+
+        if mode == "theme":
+            colors = _matplotlib_theme_colors(app)
+        elif mode == "custom":
+            colors = {
+                "figure": getattr(config, "figure_facecolor", "#1E2126"),
+                "axes": getattr(config, "axes_facecolor", "#1E2126"),
+                "edge": getattr(config, "axes_edgecolor", "#3A3F44"),
+                "text": getattr(config, "text_color", "#E6E6E6"),
+                "grid": getattr(config, "grid_color", "#3A3F44"),
+            }
+        else:
+            colors = {key: None for key in ("figure", "axes", "edge", "text", "grid")}
+
+        overrides_ok = apply_mpl_overrides(
+            grid_enabled=bool(getattr(config, "grid_enabled", True)),
+            grid_alpha=float(getattr(config, "grid_alpha", 0.25)),
+            grid_linestyle=_convert_linestyle_from_thai(
+                str(getattr(config, "grid_linestyle", "-"))
+            ),
+            axes_color=colors["edge"],
+            text_color=colors["text"],
+            color_cycle=list(getattr(config, "color_cycle", []) or []),
+            font_family=str(getattr(config, "font_family", "") or ""),
+            font_size=int(getattr(config, "font_size", 10) or 10),
+            figure_facecolor=colors["figure"],
+            axes_facecolor=colors["axes"],
+            grid_color=colors["grid"],
+            grid_linewidth=float(getattr(config, "grid_linewidth", 0.6)),
+            line_width=float(getattr(config, "line_width", 2.0)),
+            marker_size=float(getattr(config, "marker_size", 5.5)),
+            title_size=int(getattr(config, "title_size", 12)),
+            label_size=int(getattr(config, "label_size", 11)),
+            tick_size=int(getattr(config, "tick_size", 10)),
+            legend_size=int(getattr(config, "legend_size", 10)),
+            figure_dpi=int(getattr(config, "figure_dpi", 130)),
+            savefig_dpi=int(getattr(config, "savefig_dpi", 220)),
+            savefig_transparent=bool(getattr(config, "savefig_transparent", False)),
+        )
         matplotlib.rcParams["axes.unicode_minus"] = False
-        
-        # Only auto-select when the user did not request a family. Older code
-        # always ran this block and silently overwrote the saved font.
-        if not cfg_font:
-            try:
-                import matplotlib.font_manager as fm
-                available_fonts = ["Segoe UI", "Microsoft YaHei", "Tahoma", "Arial"]
-                for font_name in available_fonts:
-                    try:
-                        font_path = fm.findfont(fm.FontProperties(family=font_name))
-                        if font_path and "DejaVuSans" not in font_path:
-                            matplotlib.rcParams["font.family"] = font_name
-                            logger.info(f"Font set to: {font_name}")
-                            break
-                    except Exception:
-                        continue
-            except Exception as e:
-                logger.warning(f"Could not set font: {e}")
-        
-        # บังคับให้ Matplotlib ไม่ใช้ locale และแสดงเลขอารบิก
-        matplotlib.rcParams["axes.formatter.use_locale"] = False  # ไม่ใช้ locale
-        matplotlib.rcParams["axes.formatter.use_mathtext"] = False  # ไม่ใช้ math text
-        
-        logger.info("Matplotlib settings applied successfully")
-        
-    except Exception as e:
-        logger.error(f"Error applying matplotlib settings: {e}")
-        # Fallback to basic dark theme
-        try:
-            import matplotlib
-            matplotlib.rcParams["figure.facecolor"] = "#1e2126"
-            matplotlib.rcParams["axes.facecolor"] = "#1e2126"
-            matplotlib.rcParams["axes.edgecolor"] = "#3a3f44"
-            matplotlib.rcParams["axes.labelcolor"] = "#e6e6e6"
-            matplotlib.rcParams["xtick.color"] = "#cfd3d6"
-            matplotlib.rcParams["ytick.color"] = "#cfd3d6"
-            matplotlib.rcParams["text.color"] = "#e6e6e6"
-            matplotlib.rcParams["grid.color"] = "#3a3f44"
-            matplotlib.rcParams["grid.alpha"] = 0.3
-            logger.info("Fallback matplotlib dark theme applied")
-        except Exception as fallback_error:
-            logger.error(f"Fallback matplotlib theme failed: {fallback_error}")
+        matplotlib.rcParams["axes.formatter.use_locale"] = False
+        matplotlib.rcParams["axes.formatter.use_mathtext"] = False
+        logger.info("Matplotlib settings applied in %s mode", mode)
+        return bool(source_ok and overrides_ok)
+    except Exception as exc:
+        logger.error("Error applying matplotlib settings: %s", exc)
+        return False
+
+
+def apply_matplotlib_to_figure(figure, *, update_series: bool = True) -> None:
+    """Push current rcParams onto an existing Figure and all of its axes."""
+    if figure is None:
+        return
+    from matplotlib.collections import PathCollection
+    from matplotlib.text import Text
+
+    rc = matplotlib.rcParams
+    figure.patch.set_facecolor(rc["figure.facecolor"])
+    figure.set_dpi(float(rc["figure.dpi"]))
+    family = rc.get("font.family", ["sans-serif"])
+    text_color = rc["text.color"]
+    cycle_colors = rc["axes.prop_cycle"].by_key().get("color", [])
+
+    for text in figure.findobj(match=Text):
+        text.set_fontfamily(family)
+        text.set_color(text_color)
+
+    for axes in figure.axes:
+        axes.set_facecolor(rc["axes.facecolor"])
+        axes.title.set_color(rc["axes.titlecolor"])
+        axes.title.set_fontsize(rc["axes.titlesize"])
+        axes.xaxis.label.set_color(rc["axes.labelcolor"])
+        axes.yaxis.label.set_color(rc["axes.labelcolor"])
+        axes.xaxis.label.set_fontsize(rc["axes.labelsize"])
+        axes.yaxis.label.set_fontsize(rc["axes.labelsize"])
+        axes.tick_params(
+            axis="both",
+            which="both",
+            colors=rc["xtick.color"],
+            labelsize=rc["xtick.labelsize"],
+        )
+        for offset in (axes.xaxis.get_offset_text(), axes.yaxis.get_offset_text()):
+            offset.set_color(text_color)
+            offset.set_fontsize(rc["xtick.labelsize"])
+        for spine in axes.spines.values():
+            spine.set_color(rc["axes.edgecolor"])
+            spine.set_linewidth(rc["axes.linewidth"])
+
+        if bool(rc["axes.grid"]):
+            axes.grid(
+                True,
+                which=rc.get("axes.grid.which", "major"),
+                axis=rc.get("axes.grid.axis", "both"),
+                color=rc["grid.color"],
+                alpha=rc["grid.alpha"],
+                linestyle=rc["grid.linestyle"],
+                linewidth=rc["grid.linewidth"],
+            )
+        else:
+            axes.grid(False)
+
+        visible_lines = []
+        for line in axes.lines:
+            line.set_linewidth(rc["lines.linewidth"])
+            line.set_markersize(rc["lines.markersize"])
+            if not str(line.get_label() or "").startswith("_"):
+                visible_lines.append(line)
+        if update_series and cycle_colors:
+            for index, line in enumerate(visible_lines):
+                line.set_color(cycle_colors[index % len(cycle_colors)])
+            visible_collections = [
+                collection
+                for collection in axes.collections
+                if isinstance(collection, PathCollection)
+                and not str(collection.get_label() or "").startswith("_")
+            ]
+            for index, collection in enumerate(visible_collections, start=len(visible_lines)):
+                color = cycle_colors[index % len(cycle_colors)]
+                collection.set_facecolor(color)
+                collection.set_edgecolor(color)
+
+        legend = axes.get_legend()
+        if legend is not None:
+            legend.get_frame().set_facecolor(rc["legend.facecolor"])
+            legend.get_frame().set_edgecolor(rc["legend.edgecolor"])
+            if rc["legend.framealpha"] is not None:
+                legend.get_frame().set_alpha(rc["legend.framealpha"])
+            for text in legend.get_texts():
+                text.set_color(text_color)
+                text.set_fontsize(rc["legend.fontsize"])
+            legend.get_title().set_color(text_color)
+
+    if getattr(figure, "_suptitle", None) is not None:
+        figure._suptitle.set_fontsize(rc["figure.titlesize"])
+    canvas = getattr(figure, "canvas", None)
+    if canvas is not None:
+        canvas.draw_idle()
+
 
 def refresh_matplotlib_canvases():
-    """Apply current font defaults to live figures and redraw without resets."""
+    """Apply all current defaults to every live Matplotlib figure."""
     try:
         from matplotlib._pylab_helpers import Gcf
-        from matplotlib.text import Text
-
         figures = {}
         for manager in Gcf.get_all_fig_managers():
             figure = getattr(getattr(manager, "canvas", None), "figure", None)
@@ -1291,29 +1400,8 @@ def refresh_matplotlib_canvases():
                 if figure is not None and hasattr(figure, "axes"):
                     figures[id(figure)] = figure
 
-        family = matplotlib.rcParams.get("font.family", ["sans-serif"])
         for figure in figures.values():
-            for text in figure.findobj(match=Text):
-                text.set_fontfamily(family)
-
-            for axes in figure.axes:
-                axes.title.set_fontsize(matplotlib.rcParams["axes.titlesize"])
-                axes.xaxis.label.set_fontsize(matplotlib.rcParams["axes.labelsize"])
-                axes.yaxis.label.set_fontsize(matplotlib.rcParams["axes.labelsize"])
-                for label in axes.get_xticklabels():
-                    label.set_fontsize(matplotlib.rcParams["xtick.labelsize"])
-                for label in axes.get_yticklabels():
-                    label.set_fontsize(matplotlib.rcParams["ytick.labelsize"])
-                legend = axes.get_legend()
-                if legend is not None:
-                    for text in legend.get_texts():
-                        text.set_fontsize(matplotlib.rcParams["legend.fontsize"])
-
-            if getattr(figure, "_suptitle", None) is not None:
-                figure._suptitle.set_fontsize(matplotlib.rcParams["figure.titlesize"])
-            canvas = getattr(figure, "canvas", None)
-            if canvas is not None:
-                canvas.draw_idle()
-        logger.info("Matplotlib canvases refreshed without resetting rcParams")
+            apply_matplotlib_to_figure(figure)
+        logger.info("Matplotlib canvases refreshed with current rcParams")
     except Exception as e:
         logger.error(f"Error refreshing matplotlib: {e}")
