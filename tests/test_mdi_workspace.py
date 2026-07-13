@@ -312,7 +312,7 @@ def test_rename_tab_updates_title(qapp):
     assert ("graph", "Renamed Graph") in renamed
 
 
-def test_closing_a_graph_syncs_registry_and_keeps_last(qapp):
+def test_closing_a_graph_syncs_registry_and_can_discard_the_last(qapp):
     host = _Host()
     ws = MdiWorkspace(host)
     id2 = ws.add_tab("Graph 2")
@@ -328,12 +328,16 @@ def test_closing_a_graph_syncs_registry_and_keeps_last(qapp):
     assert id2 not in ws.tabs
     assert id2 in removed
 
-    # closing the LAST graph is vetoed (keep at least one, like TabManager)
+    # sheet-first: the LAST graph can be discarded too (no keep-one veto) —
+    # a wrong first plot must be closable; the next plot re-creates a graph
     last_id = ws.get_current_tab_id()
     ws._graph_subs[last_id].close()
     qapp.processEvents()
-    assert ws.count() == 1
-    assert last_id in ws.tabs
+    assert ws.count() == 0
+    assert last_id not in ws.tabs
+    assert last_id in removed
+    assert ws.get_current_tab_id() is None
+    assert ws.currentWidget() is None
 
 
 def test_tabtext_matches_widget_order(qapp):

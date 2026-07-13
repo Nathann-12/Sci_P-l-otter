@@ -314,10 +314,9 @@ class MdiWorkspace(QWidget):
     def _remove_tab_by_id(self, tab_id: str, force: bool = False) -> None:
         if tab_id not in self._graph_subs:
             return
-        # TabManager refuses to close the last tab via the close button; keep
-        # the same guard for interactive closes, but allow remove_all_tabs.
-        if not force and len(self._graph_subs) <= 1:
-            return
+        # No last-graph guard: sheet-first means 0 graphs is a valid state, so
+        # any graph (including the only one) can be discarded. ``force`` is kept
+        # for API compatibility with remove_all_tabs.
         sub = self._graph_subs.pop(tab_id, None)
         graph_tab = self.tabs.pop(tab_id, None)
         title = sub.windowTitle() if sub is not None else ""
@@ -356,17 +355,12 @@ class MdiWorkspace(QWidget):
     def _detach_graph(self, tab_id: str, sub: QMdiSubWindow, event) -> bool:
         """Sync registries when a graph sub-window is closed interactively.
 
-        Keeps at least one graph (matching TabManager's last-tab guard): vetoes
-        the close and returns False when this is the last graph; otherwise pops
-        it from the registries, emits removal signals, and returns True so the
-        window may close (WA_DeleteOnClose then deletes it).
+        Pops the graph from the registries, emits removal signals and returns
+        True so the window may close (WA_DeleteOnClose then deletes it). Unlike
+        the old TabManager there is NO last-graph veto: the app is sheet-first
+        (0 graphs is the startup state), so a user who plotted the wrong thing
+        must be able to discard even the only graph — the next plot re-creates one.
         """
-        if len(self._graph_subs) <= 1 and tab_id in self._graph_subs:
-            try:
-                event.ignore()
-            except Exception:
-                logger.debug("close ignore failed", exc_info=True)
-            return False
         self._graph_subs.pop(tab_id, None)
         self.tabs.pop(tab_id, None)
         if self._current_graph_tab_id == tab_id:
