@@ -115,6 +115,65 @@ def remove_outliers(
     return out, int(mask.sum())
 
 
+def summarize_anomalies(
+    series: pd.Series,
+    method: str = "zscore",
+    threshold: Optional[float] = None,
+    max_report: int = 10,
+) -> dict:
+    """Report anomalous points in ``series`` without removing them.
+
+    Reuses :func:`detect_outliers` and adds context (each anomaly's row index,
+    value, and z-score) so an analyst — or the AI assistant — can see *where*
+    and *how far out* the anomalies are. Returns a plain dict:
+    ``method``, ``threshold``, ``n_total`` (finite points), ``n_anomalies``,
+    ``fraction``, ``mean``, ``std``, and ``points`` (up to ``max_report`` dicts
+    with ``index``/``value``/``zscore``, most extreme first).
+    """
+    if method not in OUTLIER_METHODS:
+        raise ValueError(
+            f"unknown outlier method: {method!r} (use one of {OUTLIER_METHODS})"
+        )
+    used_threshold = _default_threshold(method) if threshold is None else float(threshold)
+    x = pd.to_numeric(series, errors="coerce")
+    mask = detect_outliers(series, method=method, threshold=used_threshold)
+
+    mean = float(x.mean()) if x.notna().any() else float("nan")
+    std = float(x.std()) if x.notna().any() else float("nan")
+
+    flagged = x[mask.fillna(False)]
+    if np.isfinite(std) and std > 0:
+        scores = ((flagged - mean).abs() / std)
+    else:
+        scores = pd.Series(np.nan, index=flagged.index)
+    order = scores.sort_values(ascending=False).index
+
+    points: List[dict] = []
+    for idx in order[: max(0, int(max_report))]:
+        value = flagged.loc[idx]
+        score = scores.loc[idx]
+        points.append(
+            {
+                "index": int(idx) if np.isscalar(idx) or isinstance(idx, (int, np.integer)) else idx,
+                "value": float(value),
+                "zscore": float(score) if np.isfinite(score) else float("nan"),
+            }
+        )
+
+    n_total = int(x.notna().sum())
+    n_anomalies = int(mask.sum())
+    return {
+        "method": method,
+        "threshold": used_threshold,
+        "n_total": n_total,
+        "n_anomalies": n_anomalies,
+        "fraction": (n_anomalies / n_total) if n_total else 0.0,
+        "mean": mean,
+        "std": std,
+        "points": points,
+    }
+
+
 def normalize_column(
     df: pd.DataFrame,
     col: str,

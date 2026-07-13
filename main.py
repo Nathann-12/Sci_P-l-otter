@@ -530,7 +530,7 @@ class MainWindow(
             self.ai_dock = AiAssistantDock(self)
             self.op_log_dock = OperationLogDock(self)
             self.shell.add_side_panel("Messages Log", self.op_log_dock)
-            self.shell.add_side_panel("Smart Hint Log", self.ai_dock)
+            self.shell.add_side_panel("AI Assistant", self.ai_dock)
         except Exception:
             pass
 

@@ -44,7 +44,7 @@
 5. **เลือกคอลัมน์เดียวต้อง plot คอลัมน์นั้นจริง** — ไม่ว่าจะเป็น `X` หรือ `Y` ให้ใช้แกน X เป็น `Row` 1..N แบบ Excel; ถ้าต้องการ X/Y ให้เลือกหลายคอลัมน์หรือใช้ designation โดยไม่เลือกคอลัมน์เดี่ยว
 6. **โมดูลเฉพาะทาง (Gas Sensor ฯลฯ)** = activity ใหม่ใน activity rail แบบ module dock
    (`SP` header, `MODULES`, scrollable module cards, future slot); rail/context ต้องซ่อนตอน startup แม้มี context ลงทะเบียนแล้ว และเปิดแบบ explicit ผ่าน `AppShell.show_activity_context(...)`
-7. **Project Explorer / Messages Log / Smart Hint Log** = parked side tabs ซ้ายสุดแบบเก็บข้างได้ ไม่ใช่ bottom dock; collapsed width = 24px; tab ใหม่ที่เป็น utility/future AI panel ให้ลงผ่าน `AppShell.add_side_panel(...)`
+7. **Project Explorer / Messages Log / AI Assistant** = parked side tabs ซ้ายสุดแบบเก็บข้างได้ ไม่ใช่ bottom dock; collapsed width = 24px; tab ใหม่ที่เป็น utility/future AI panel ให้ลงผ่าน `AppShell.add_side_panel(...)`
 
 ## หมายเหตุทางเทคนิค (สำหรับคนแก้โค้ด)
 
@@ -67,7 +67,7 @@
 - App-wide Qt event filters must be installed once per `QApplication`, not once per `MainWindow`; otherwise user-flow tests that create many windows and the Plot Gallery thumbnail flow slow down progressively.
 - Activity rail (`widgets/activity_rail.py`) เป็นพื้นที่สำหรับ specialty module contexts เท่านั้น ไม่ใช่ที่ซ่อนคำสั่ง worksheet/plot หลัก; module ใหม่ต้องเพิ่มผ่าน `AppShell.register_context(...)` เพื่อได้ icon+label card/context page แต่ห้ามโชว์เองตอน startup, ให้เปิดด้วย `AppShell.show_activity_context(...)`
 - MainWindow ต้องเริ่มแบบ sheet-first: `MdiWorkspace(start_with_graph=False)` ทำให้มี Book1 เท่านั้นและไม่มี Graph1 เปล่า; กราฟถูกสร้างเมื่อผู้ใช้สั่ง plot
-- Parked side panels (`widgets/side_panel_tabs.py`) เป็นพื้นที่ utility ด้านซ้ายสุดสำหรับ Project Explorer, Messages Log และ Smart Hint Log; default ต้อง collapsed 24px, คลิก tab เพื่อเปิด/คลิกซ้ำเพื่อเก็บ, ส่วน bottom dock tabs ต้องซ่อนจนกว่าจะมี caller ใช้ `AppShell.add_dock(...)`
+- Parked side panels (`widgets/side_panel_tabs.py`) เป็นพื้นที่ utility ด้านซ้ายสุดสำหรับ Project Explorer, Messages Log และ AI Assistant; default ต้อง collapsed 24px, คลิก tab เพื่อเปิด/คลิกซ้ำเพื่อเก็บ, ส่วน bottom dock tabs ต้องซ่อนจนกว่าจะมี caller ใช้ `AppShell.add_dock(...)`
 - Settings dialog ต้องเป็น compact utility ไม่ใช่ workspace: ขนาดเปิด `900x620`, แต่ละ tab scroll ได้, และทุก option ต้องผูกกับ runtime/persistence จริง เช่น theme QSS, Matplotlib font/style และ default plot mode
 - เมนู `Data` ต้องเป็น workflow menu สำหรับ active Book/worksheet ไม่ใช่ legacy flat menu: `Active Book`, `Columns`, `Units + Metadata`, `Quick Transforms`, `Clean Data`; action ที่แตะชีตต้อง resolve ไปที่ Book ที่ active และต้องมี user-flow test ผ่าน `QAction.trigger()` เหมือน Process/Analysis
 - เมนู Export มี `Batch Export Graphs...` สำหรับเซฟ Graph windows หลายอันพร้อมกัน;

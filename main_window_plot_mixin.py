@@ -74,8 +74,17 @@ class MainWindowPlotMixin:
     ) -> list[str]:
         current_tab_id = self.tabs.get_current_tab_id()
         if not current_tab_id:
-            QMessageBox.warning(self, warning_title, warning_text)
-            return []
+            # Origin loop: a plot command always has a Graph window to draw on.
+            # The app starts sheet-first (no graph), so the first Plot used to
+            # die with a "no tab" warning — create the Graph instead.
+            try:
+                current_tab_id = self.tabs.add_tab()
+            except Exception:
+                logger.debug("Could not auto-create a graph tab", exc_info=True)
+                current_tab_id = None
+            if not current_tab_id:
+                QMessageBox.warning(self, warning_title, warning_text)
+                return []
         return [current_tab_id]
 
     def _iter_tabs(self, tab_ids: Iterable[str]):
@@ -179,6 +188,134 @@ class MainWindowPlotMixin:
             title=f"{y_column} by {x_label}",
             options=options,
         )
+
+    @staticmethod
+    def _axes_artist_count(ax) -> int:
+        return sum(
+            len(getattr(ax, attribute, []))
+            for attribute in ("lines", "collections", "containers", "patches", "images")
+        )
+
+    def plot_explicit_columns(
+        self,
+        style: str,
+        x_column: str | None,
+        y_columns,
+        *,
+        new_graph: bool = True,
+    ) -> dict:
+        """Plot explicit columns and verify that a real graph artist was created.
+
+        This is the non-interactive seam used by the AI assistant. It deliberately
+        avoids worksheet selection state so a command such as ``voltage vs time``
+        always maps to those columns.
+        """
+        style = str(style or "line").strip().casefold()
+        if style not in {"line", "linesymbol", "scatter", "bar", "histogram"}:
+            raise ValueError(f"unsupported plot style: {style}")
+
+        df_getter = getattr(self, "_resolve_active_dataframe", None)
+        df = df_getter() if callable(df_getter) else getattr(self, "_df", None)
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            raise ValueError("no active data")
+        self._df = df
+
+        y_names = [str(column) for column in (y_columns or [])]
+        if not y_names:
+            raise ValueError("at least one Y column is required")
+        missing = [name for name in y_names if name not in df.columns]
+        if x_column is not None and x_column not in df.columns:
+            missing.insert(0, str(x_column))
+        if missing:
+            raise ValueError(f"column(s) not found: {', '.join(missing)}")
+        if style in {"bar", "histogram"}:
+            y_names = y_names[:1]
+
+        options = self._resolve_plot_options()
+        if style == "linesymbol":
+            options = replace(options, show_marker=True)
+
+        if style == "histogram":
+            request = self.build_histogram_request(y_names[0], options)
+            requests = [request] if request is not None else []
+        elif style == "bar":
+            if x_column is None:
+                request = self._build_row_index_bar_request(y_names[0], options=options)
+            else:
+                request = self.build_bar_request(
+                    x_column,
+                    y_names[0],
+                    title=f"{y_names[0]} vs {x_column}",
+                    options=options,
+                )
+            requests = [request] if request is not None else []
+        elif x_column is None:
+            requests = [self._build_row_index_plot_request(name) for name in y_names]
+        else:
+            requests = [self.build_plot_request(x_column, name) for name in y_names]
+        requests = [request for request in requests if request is not None]
+        if not requests:
+            raise ValueError("the selected columns contain no plottable values")
+
+        graph_id = None
+        if new_graph:
+            graph_id = self.tabs.add_tab()
+            if not graph_id:
+                raise RuntimeError("a new Graph window could not be created")
+        else:
+            graph_id = self.tabs.get_current_tab_id()
+            if not graph_id:
+                raise ValueError("there is no active Graph to add the plot to")
+
+        graph_tab = getattr(self.tabs, "tabs", {}).get(graph_id)
+        if graph_tab is None:
+            raise RuntimeError("the target Graph is unavailable")
+        ax = graph_tab.get_axes()
+        artists_before = self._axes_artist_count(ax)
+
+        if x_column is not None:
+            try:
+                self.cbX.setCurrentText(x_column)
+            except Exception:
+                logger.debug("AI plot X selector sync skipped", exc_info=True)
+        try:
+            self.cbY.setCurrentText(y_names[0])
+        except Exception:
+            logger.debug("AI plot Y selector sync skipped", exc_info=True)
+
+        if style == "histogram":
+            self.plot_histogram(requests[0])
+        elif style == "bar":
+            self.plot_bar(requests[0])
+        else:
+            scatter = style == "scatter"
+            if new_graph:
+                (self.plot_scatter if scatter else self.plot_line)(requests[0], options)
+                remaining = requests[1:]
+            else:
+                remaining = requests
+            overlay = self.add_scatter_overlay if scatter else self.add_line_overlay
+            for request in remaining:
+                overlay(request, options)
+
+        artists_after = self._axes_artist_count(ax)
+        if artists_after <= artists_before:
+            raise RuntimeError("the renderer completed without adding a graph artist")
+        if style in {"line", "linesymbol", "scatter"} and (
+            artists_after - artists_before < len(requests)
+        ):
+            raise RuntimeError("the renderer did not add every requested series")
+        try:
+            self._show_plot_view()
+        except Exception:
+            logger.debug("show AI plot view skipped", exc_info=True)
+        return {
+            "graph_id": graph_id,
+            "style": style,
+            "x_column": x_column or "Row",
+            "y_columns": y_names,
+            "artists_added": artists_after - artists_before,
+        }
 
     def plot_from_workbook(self, style: str = "line", new_graph: bool = True):
         """Origin-style: เลือกคอลัมน์บนชีต → พล็อต

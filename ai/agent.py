@@ -11,8 +11,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ai.command_router import route_command
 from ai.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -60,11 +61,38 @@ class LocalAssistant:
             "- NEVER write placeholder values like '[insert mean]' or made-up "
             "numbers. If you don't have a value, call a tool to get it.\n"
             "- After a tool result comes back, either call another tool or answer.\n"
+            "- For a general analyze/summarize request, call summarize_data. "
+            "Do not refuse and do not ask the user to provide statistics that the tool can compute.\n"
+            "- For plot requests, call plot_columns with the exact x_column and "
+            "y_columns when the user names them. Never claim a graph exists unless "
+            "the plot_columns result confirms it.\n"
             "- Keep answers short and reply in the user's language (Thai or English)."
         )
 
     # -------------------------------------------------------------------- loop
-    def ask(self, user_text: str) -> AssistantResult:
+    def ask(
+        self,
+        user_text: str,
+        on_tool_start: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> AssistantResult:
+        direct_call = route_command(user_text)
+        if direct_call is not None and self.registry.has(direct_call[0]):
+            tool_name, arguments = direct_call
+            if on_tool_start is not None:
+                on_tool_start(tool_name, arguments)
+            observation = self.registry.execute(tool_name, arguments)
+            error = ""
+            if observation.casefold().startswith(
+                ("error", "could not", "no active", "unknown", "provide ", "ไม่มีข้อมูล")
+            ):
+                error = observation
+            return AssistantResult(
+                answer=observation,
+                trace=[(tool_name, arguments, observation)],
+                steps=1,
+                error=error,
+            )
+
         messages: List[Dict[str, str]] = [
             {"role": "system", "content": self.system_prompt()},
             {"role": "user", "content": str(user_text)},
@@ -90,6 +118,8 @@ class LocalAssistant:
                 arguments = data.get("arguments")
                 if not isinstance(arguments, dict):
                     arguments = {}
+                if on_tool_start is not None:
+                    on_tool_start(tool_name, arguments)
                 observation = self.registry.execute(tool_name, arguments)
                 trace.append((tool_name, arguments, observation))
                 messages.append({"role": "assistant", "content": content})

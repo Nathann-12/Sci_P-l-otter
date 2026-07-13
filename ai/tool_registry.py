@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,23 @@ class AITool:
 class ToolRegistry:
     """Ordered collection of :class:`AITool` with safe execution."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        executor: Optional[
+            Callable[[Callable[[Dict[str, Any]], Any], Dict[str, Any]], Any]
+        ] = None,
+    ) -> None:
         self._tools: Dict[str, AITool] = {}
+        self._executor = executor
+
+    def set_executor(
+        self,
+        executor: Optional[
+            Callable[[Callable[[Dict[str, Any]], Any], Dict[str, Any]], Any]
+        ],
+    ) -> None:
+        """Route handlers through *executor* (used to marshal Qt work safely)."""
+        self._executor = executor
 
     def register(self, tool: AITool) -> AITool:
         self._tools[tool.name] = tool
@@ -66,7 +81,11 @@ class ToolRegistry:
             available = ", ".join(self._tools) or "(none)"
             return f"Error: unknown tool '{name}'. Available tools: {available}."
         try:
-            result = tool.handler(dict(arguments or {}))
+            resolved_arguments = dict(arguments or {})
+            if self._executor is None:
+                result = tool.handler(resolved_arguments)
+            else:
+                result = self._executor(tool.handler, resolved_arguments)
         except Exception as exc:  # defensive: a tool must never crash the loop
             logger.debug("AI tool %r failed", name, exc_info=True)
             return f"Error running '{name}': {exc}"

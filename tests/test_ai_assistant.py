@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pandas as pd
 import pytest
+from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import QApplication
 
 from ai.agent import LocalAssistant, _parse_reply
 from ai.app_tools import build_app_registry
+from ai.command_router import route_command
 from ai.tool_registry import ToolRegistry
 
 
@@ -81,6 +85,22 @@ def test_agent_runs_multi_step_tool_loop():
     assert all(format_json for _msgs, format_json in client.calls)
 
 
+def test_agent_reports_each_tool_as_it_starts():
+    registry = _basic_registry()
+    client = ScriptedClient([
+        json.dumps({"tool": "list_columns", "arguments": {}}),
+        json.dumps({"answer": "done"}),
+    ])
+    started = []
+
+    LocalAssistant(registry, client).ask(
+        "inspect this data",
+        on_tool_start=lambda name, arguments: started.append((name, arguments)),
+    )
+
+    assert started == [("list_columns", {})]
+
+
 def test_agent_recovers_from_unknown_tool():
     reg = _basic_registry()
     client = ScriptedClient([
@@ -115,6 +135,51 @@ def test_parse_reply_extracts_json_from_noise():
     assert _parse_reply('```json\n{"answer": "hi"}\n```') == {"answer": "hi"}
     assert _parse_reply("") == {"answer": ""}
     assert _parse_reply("plain") == {"answer": "plain"}
+
+
+def test_plot_command_fast_path_does_not_depend_on_the_model():
+    calls = []
+    registry = ToolRegistry()
+    registry.add(
+        "plot_columns",
+        "plot",
+        {},
+        lambda arguments: calls.append(arguments) or "Created a scatter graph.",
+    )
+
+    result = LocalAssistant(registry, BoomClient()).ask(
+        "plot voltage vs time as scatter"
+    )
+
+    assert result.answer == "Created a scatter graph."
+    assert result.trace[0][0] == "plot_columns"
+    assert result.trace[0][1]["style"] == "scatter"
+    assert calls and calls[0]["instruction"] == "plot voltage vs time as scatter"
+
+
+def test_plot_command_router_supports_thai_and_avoids_advice_questions():
+    routed = route_command("พล็อต voltage เทียบ time แบบจุด")
+    assert routed is not None
+    assert routed[0] == "plot_columns"
+    assert routed[1]["style"] == "scatter"
+    assert route_command("อธิบายว่ากราฟ scatter เหมาะกับอะไร") is None
+    assert route_command("How do I plot voltage against time?") is None
+    assert route_command("Don't plot voltage; just describe it") is None
+    assert route_command("Do not create a graph yet") is None
+    assert route_command("อย่าพล็อต voltage ตอนนี้") is None
+
+
+def test_analyze_and_columns_commands_use_direct_data_tools():
+    analyze = route_command("วิเคราะห์")
+    columns = route_command("มีคอลัมน์อะไรบ้าง")
+    peaks = route_command("หาพีค")
+
+    assert analyze == (
+        "summarize_data",
+        {"language": "th", "instruction": "วิเคราะห์"},
+    )
+    assert columns == ("list_columns", {"language": "th"})
+    assert peaks == ("detect_peaks", {"language": "th", "auto": True})
 
 
 # ------------------------------------------------------------------- app tools
@@ -161,14 +226,31 @@ class _FakeWindow:
 
     def active_axes(self):
         if getattr(self, "_ax", None) is None:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            _fig, self._ax = plt.subplots()
+            # Build a standalone figure WITHOUT pyplot or ``matplotlib.use``.
+            # Calling ``matplotlib.use("Agg")`` here permanently switched the
+            # global backend from ``qtagg`` to ``Agg`` on the first format_graph
+            # test, and every later test that built a real Qt canvas then ran
+            # under a mismatched backend and segfaulted the offscreen suite.
+            from matplotlib.figure import Figure
+
+            self._fig = Figure()
+            self._ax = self._fig.add_subplot(111)
         return self._ax
 
     def plot_from_gallery(self, entry):
         self.charts.append(entry.get("key"))
+
+
+class _ExplicitPlotWindow(_FakeWindow):
+    def __init__(self, df):
+        super().__init__(df)
+        self.explicit_plots = []
+
+    def plot_explicit_columns(
+        self, style, x_column, y_columns, *, new_graph=True
+    ):
+        self.explicit_plots.append((style, x_column, list(y_columns), new_graph))
+        return {"graph_id": "graph_1", "artists_added": len(y_columns)}
 
 
 def test_app_tools_read_and_drive_the_window():
@@ -199,6 +281,141 @@ def test_app_tools_reject_unknown_plot_style():
     reg = build_app_registry(_FakeWindow(df))
     out = reg.execute("plot_columns", {"style": "bogus"})
     assert "unknown style" in out.lower()
+
+
+def test_plot_tool_maps_named_columns_from_plain_language():
+    window = _ExplicitPlotWindow(
+        pd.DataFrame(
+            {
+                "time": [0, 1, 2],
+                "voltage": [1.0, 3.0, 2.0],
+                "current": [0.2, 0.4, 0.1],
+            }
+        )
+    )
+
+    out = build_app_registry(window).execute(
+        "plot_columns",
+        {"style": "scatter", "instruction": "plot voltage vs time as scatter"},
+    )
+
+    assert window.explicit_plots == [("scatter", "time", ["voltage"], True)]
+    assert "voltage vs time" in out
+
+
+def test_plot_tool_defaults_to_time_and_all_numeric_y_columns():
+    window = _ExplicitPlotWindow(
+        pd.DataFrame(
+            {
+                "time_s": [0, 1, 2],
+                "voltage": [1.0, 3.0, 2.0],
+                "current": [0.2, 0.4, 0.1],
+            }
+        )
+    )
+
+    build_app_registry(window).execute("plot_columns", {"style": "line"})
+
+    assert window.explicit_plots == [
+        ("line", "time_s", ["voltage", "current"], True)
+    ]
+
+
+def test_plot_tool_accepts_case_insensitive_explicit_columns():
+    window = _ExplicitPlotWindow(
+        pd.DataFrame({"Elapsed Time": [0, 1], "Signal": [2.0, 5.0]})
+    )
+
+    out = build_app_registry(window).execute(
+        "plot_columns",
+        {"style": "line+symbol", "x_column": "elapsed time", "y_columns": ["SIGNAL"]},
+    )
+
+    assert window.explicit_plots == [
+        ("linesymbol", "Elapsed Time", ["Signal"], True)
+    ]
+    assert "line + symbol" in out
+
+
+def test_plot_tool_reports_missing_column_instead_of_claiming_success():
+    window = _ExplicitPlotWindow(pd.DataFrame({"time": [0, 1], "signal": [2, 3]}))
+
+    out = build_app_registry(window).execute(
+        "plot_columns", {"x_column": "missing", "y_columns": ["signal"]}
+    )
+
+    assert "was not found" in out
+    assert "time, signal" in out
+    assert window.explicit_plots == []
+
+
+def test_summary_tool_analyzes_xrd_like_data_and_reports_real_peaks():
+    import numpy as np
+
+    theta = np.linspace(10.0, 80.0, 1401)
+    intensity = (
+        120.0
+        + 900.0 * np.exp(-0.5 * ((theta - 38.2) / 0.28) ** 2)
+        + 520.0 * np.exp(-0.5 * ((theta - 44.4) / 0.35) ** 2)
+    )
+    window = _FakeWindow(pd.DataFrame({"2-Theta": theta, "Intensity": intensity}))
+
+    out = build_app_registry(window).execute(
+        "summarize_data", {"language": "th"}
+    )
+
+    assert "1,401 แถว" in out
+    assert "จุดสูงสุด" in out and "38.2" in out
+    assert "พีคเด่น" in out
+    assert "XRD" in out and "ฐานข้อมูลอ้างอิง" in out
+
+
+def test_summary_tool_ignores_infinite_values_and_compacts_wide_tables():
+    import numpy as np
+
+    data = {"time": [0.0, 1.0, 2.0]}
+    data.update(
+        {
+            f"extra_{index}": [index, index + 1, index + 2]
+            for index in range(8)
+        }
+    )
+    data["signal"] = [1.0, np.inf, 3.0]
+
+    out = build_app_registry(_FakeWindow(pd.DataFrame(data))).execute(
+        "summarize_data", {"language": "en"}
+    )
+
+    assert "+2 more" in out
+    assert "Maximum signal: 3 at time = 2" in out
+    assert "inf" not in out.casefold()
+
+
+def test_bare_thai_analyze_command_never_calls_model_or_refuses():
+    window = _FakeWindow(
+        pd.DataFrame({"time": [0, 1, 2, 3], "signal": [1.0, 4.0, 2.0, 5.0]})
+    )
+
+    result = LocalAssistant(build_app_registry(window), BoomClient()).ask("วิเคราะห์")
+
+    assert result.trace[0][0] == "summarize_data"
+    assert "4 แถว" in result.answer
+    assert "signal" in result.answer
+    assert "ขอโทษ" not in result.answer
+
+
+def test_bare_thai_find_peaks_uses_adaptive_tool_and_opens_result_book():
+    import numpy as np
+
+    x = np.linspace(0, 20, 401)
+    y = np.exp(-0.5 * ((x - 7.0) / 0.25) ** 2)
+    window = _FakeWindow(pd.DataFrame({"x": x, "intensity": y}))
+
+    result = LocalAssistant(build_app_registry(window), BoomClient()).ask("หาพีค")
+
+    assert result.trace[0][0] == "detect_peaks"
+    assert "พบ" in result.answer and "พีค" in result.answer
+    assert window.result_books and window.result_books[0][0] == "Peaks_intensity"
 
 
 def test_app_tools_list_fit_models():
@@ -300,6 +517,24 @@ def test_app_tools_remove_outliers_swaps_dataframe():
     out = build_app_registry(window).execute("remove_outliers", {"method": "zscore", "threshold": 2})
     assert len(window._df) < 13
     assert "outlier" in out.lower()
+
+
+def test_app_tools_find_anomalies_reports_without_changing_data():
+    window = _FakeWindow(pd.DataFrame({"y": [1.0] * 15 + [500.0]}))
+    out = build_app_registry(window).execute(
+        "find_anomalies", {"method": "zscore", "threshold": 3}
+    )
+    # read-only: the active DataFrame is untouched
+    assert len(window._df) == 16
+    assert "anomal" in out.lower()
+    assert "500" in out
+    assert "row 15" in out
+
+
+def test_app_tools_find_anomalies_reports_none_when_clean():
+    window = _FakeWindow(pd.DataFrame({"y": [1.0, 2.0, 3.0, 2.0, 1.0]}))
+    out = build_app_registry(window).execute("find_anomalies", {})
+    assert "no anomal" in out.lower()
 
 
 def test_app_tools_remove_duplicates_swaps_dataframe():
@@ -461,12 +696,43 @@ def test_app_tools_plot_chart_unknown_type():
 from main_window_ai_mixin import MainWindowAIMixin  # noqa: E402
 
 
-class _AiHost(MainWindowAIMixin, _FakeWindow):
+class _AiHost(QObject, MainWindowAIMixin, _FakeWindow):
     """MainWindow-like host: mixin + a real AI dock, no full app needed."""
 
     def __init__(self, df, dock):
+        QObject.__init__(self)
         _FakeWindow.__init__(self, df)
         self.ai_dock = dock
+
+
+def test_gui_tool_executor_marshals_worker_calls_to_qt_main_thread(qapp):
+    from main_window_ai_mixin import _GuiToolExecutor
+
+    executor = _GuiToolExecutor()
+    registry = ToolRegistry(executor=executor)
+    handler_threads = []
+    results = []
+    registry.add(
+        "thread_probe",
+        "probe",
+        {},
+        lambda _arguments: handler_threads.append(QThread.currentThread()) or "ok",
+    )
+
+    worker = threading.Thread(
+        target=lambda: results.append(registry.execute("thread_probe", {})),
+        daemon=True,
+    )
+    worker.start()
+    deadline = time.monotonic() + 3.0
+    while worker.is_alive() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    worker.join(timeout=0.1)
+
+    assert not worker.is_alive()
+    assert results == ["ok"]
+    assert handler_threads == [qapp.thread()]
 
 
 def test_dock_message_drives_assistant_and_shows_reply(qapp):
@@ -487,7 +753,8 @@ def test_dock_message_drives_assistant_and_shows_reply(qapp):
 
     transcript = dock.transcript_text()
     assert "You: what columns do I have?" in transcript
-    assert "AI: Your data has time and voltage." in transcript
+    assert "AI: Active data has 2 rows and 2 columns: time, voltage." in transcript
+    assert client.calls == []
     assert host._ai_busy is False
 
 

@@ -318,7 +318,7 @@ def test_origin_pure_shell_no_left_panel_but_aliases_survive(win):
     assert win.shell.context_stack.isHidden()
     assert win.shell.side_panel_widget("Project Explorer (1)") is win.project_explorer
     assert win.shell.side_panel_widget("Messages Log") is win.op_log_dock
-    assert win.shell.side_panel_widget("Smart Hint Log") is win.ai_dock
+    assert win.shell.side_panel_widget("AI Assistant") is win.ai_dock
     assert win.shell.side_tabs.is_collapsed()
     assert win.shell.dock_tabs.isHidden()
     assert win._panel_left.isHidden()

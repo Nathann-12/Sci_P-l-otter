@@ -8,13 +8,39 @@ this module imports fine (and unit-tests) without a running app.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+import re
+from typing import Any, Dict, List
+
+import pandas as pd
 
 from ai.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-_PLOT_STYLES = {"line", "scatter", "bar", "histogram"}
+_PLOT_STYLES = {"line", "linesymbol", "scatter", "bar", "histogram"}
+_PLOT_STYLE_ALIASES = {
+    "line": "line",
+    "line plot": "line",
+    "linesymbol": "linesymbol",
+    "line+symbol": "linesymbol",
+    "line + symbol": "linesymbol",
+    "line with markers": "linesymbol",
+    "scatter": "scatter",
+    "scatterplot": "scatter",
+    "scatter plot": "scatter",
+    "scatter_plot": "scatter",
+    "กราฟจุด": "scatter",
+    "กราฟกระจาย": "scatter",
+    "bar": "bar",
+    "bar chart": "bar",
+    "column": "bar",
+    "column chart": "bar",
+    "กราฟแท่ง": "bar",
+    "hist": "histogram",
+    "histogram": "histogram",
+    "ฮิสโตแกรม": "histogram",
+}
+_TIME_LIKE_COLUMN_KEYS = ("time", "timestamp", "date", "datetime", "elapsed", "seconds")
 
 
 def _active_df(window):
@@ -22,11 +48,18 @@ def _active_df(window):
     return getter() if callable(getter) else None
 
 
-def _tool_list_columns(window, _args: Dict[str, Any]) -> str:
+def _tool_list_columns(window, args: Dict[str, Any]) -> str:
     df = _active_df(window)
+    thai = str(args.get("language", "")).casefold() == "th"
     if df is None or getattr(df, "empty", True):
-        return "No active data. Ask the user to open a file or a Book first."
+        return (
+            "ไม่มีข้อมูลที่กำลังใช้งาน กรุณาเปิดไฟล์หรือเลือก Book ก่อน"
+            if thai
+            else "No active data. Ask the user to open a file or a Book first."
+        )
     cols = [str(c) for c in df.columns]
+    if thai:
+        return f"ข้อมูลปัจจุบันมี {len(df):,} แถว และ {len(cols)} คอลัมน์: {', '.join(cols)}"
     return f"Active data has {len(df)} rows and {len(cols)} columns: {', '.join(cols)}."
 
 
@@ -46,19 +79,420 @@ def _tool_describe_data(window, args: Dict[str, Any]) -> str:
         return f"Could not compute statistics: {exc}"
 
 
+def _format_summary_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if not pd.notna(number):
+        return "n/a"
+    magnitude = abs(number)
+    if magnitude >= 1_000_000 or (0 < magnitude < 0.001):
+        return f"{number:.4e}"
+    return f"{number:,.5g}"
+
+
+def _tool_summarize_data(window, args: Dict[str, Any]) -> str:
+    """Return a compact, evidence-backed dataset analysis without another LLM turn."""
+    import numpy as np
+
+    df = _active_df(window)
+    thai = str(args.get("language", "")).casefold() == "th"
+    if df is None or getattr(df, "empty", True):
+        return (
+            "ไม่มีข้อมูลที่กำลังใช้งาน กรุณาเปิดไฟล์หรือเลือก Book ก่อน"
+            if thai
+            else "No active data. Open a file or activate a Book first."
+        )
+
+    numeric = {}
+    for column in df.columns:
+        values = pd.to_numeric(df[column], errors="coerce").replace(
+            [np.inf, -np.inf], np.nan
+        )
+        if values.notna().any():
+            numeric[column] = values
+    if not numeric:
+        return (
+            f"ข้อมูลมี {len(df):,} แถว แต่ไม่พบคอลัมน์ตัวเลขสำหรับวิเคราะห์"
+            if thai
+            else f"The data has {len(df):,} rows but no numeric columns to analyze."
+        )
+
+    label_getter = getattr(window, "_active_book_label", None)
+    book = label_getter() if callable(label_getter) else ""
+    book = str(book or "Active Book")
+    column_names = [str(column) for column in df.columns]
+    columns_text = ", ".join(column_names[:8])
+    if len(column_names) > 8:
+        remaining = len(column_names) - 8
+        columns_text += (
+            f", อีก {remaining} คอลัมน์"
+            if thai
+            else f", +{remaining} more"
+        )
+    missing = int(df.isna().sum().sum())
+
+    x_getter = getattr(window, "selected_x_column", None)
+    y_getter = getattr(window, "selected_y_column", None)
+    x_column = _resolve_column_name(df, x_getter() if callable(x_getter) else None)
+    y_column = _resolve_column_name(df, y_getter() if callable(y_getter) else None)
+    numeric_columns = list(numeric)
+    if x_column not in numeric:
+        x_column = numeric_columns[0] if len(numeric_columns) >= 2 else None
+    if y_column not in numeric or y_column == x_column:
+        y_column = next(
+            (column for column in reversed(numeric_columns) if column != x_column),
+            numeric_columns[0],
+        )
+
+    if thai:
+        lines = [
+            f"วิเคราะห์ข้อมูลจริงจาก {book}",
+            f"• ขนาด: {len(df):,} แถว × {len(df.columns)} คอลัมน์",
+            f"• คอลัมน์: {columns_text}",
+            f"• ค่าว่าง: {missing:,} ค่า",
+        ]
+    else:
+        lines = [
+            f"Analysis of the actual data in {book}",
+            f"• Size: {len(df):,} rows × {len(df.columns)} columns",
+            f"• Columns: {columns_text}",
+            f"• Missing values: {missing:,}",
+        ]
+
+    for column in numeric_columns[:6]:
+        clean = numeric[column].dropna()
+        std = clean.std(ddof=1) if len(clean) > 1 else 0.0
+        if thai:
+            lines.append(
+                f"• {column}: ช่วง {_format_summary_number(clean.min())}–"
+                f"{_format_summary_number(clean.max())} | เฉลี่ย "
+                f"{_format_summary_number(clean.mean())} | SD {_format_summary_number(std)}"
+            )
+        else:
+            lines.append(
+                f"• {column}: range {_format_summary_number(clean.min())}–"
+                f"{_format_summary_number(clean.max())} | mean "
+                f"{_format_summary_number(clean.mean())} | SD {_format_summary_number(std)}"
+            )
+    if len(numeric_columns) > 6:
+        remaining = len(numeric_columns) - 6
+        lines.append(f"• {'อีก' if thai else 'Plus'} {remaining} {'คอลัมน์ตัวเลข' if thai else 'numeric columns'}")
+
+    x_values = (
+        numeric[x_column]
+        if x_column in numeric
+        else pd.Series(np.arange(1, len(df) + 1, dtype=float), index=df.index)
+    )
+    pair = pd.DataFrame({"x": x_values, "y": numeric[y_column]}).dropna()
+    x_label = str(x_column) if x_column is not None else "Row"
+    if not pair.empty:
+        max_row = pair.iloc[int(np.argmax(pair["y"].to_numpy(dtype=float)))]
+        if thai:
+            lines.append(
+                f"• จุดสูงสุดของ {y_column}: {_format_summary_number(max_row['y'])} "
+                f"ที่ {x_label} = {_format_summary_number(max_row['x'])}"
+            )
+        else:
+            lines.append(
+                f"• Maximum {y_column}: {_format_summary_number(max_row['y'])} "
+                f"at {x_label} = {_format_summary_number(max_row['x'])}"
+            )
+
+    if len(pair) >= 3 and x_column is not None:
+        x_array = pair["x"].to_numpy(dtype=float)
+        y_array = pair["y"].to_numpy(dtype=float)
+        if np.std(x_array) > 0 and np.std(y_array) > 0:
+            correlation = float(np.corrcoef(x_array, y_array)[0, 1])
+            label = "Pearson correlation" if not thai else "สหสัมพันธ์ Pearson"
+            lines.append(f"• {label}: {_format_summary_number(correlation)}")
+
+        try:
+            from scipy.signal import find_peaks
+
+            spread = float(np.nanpercentile(y_array, 95) - np.nanpercentile(y_array, 5))
+            prominence = max(spread * 0.08, float(np.nanstd(y_array)) * 0.15, 1e-12)
+            peak_indexes, properties = find_peaks(
+                y_array,
+                prominence=prominence,
+                distance=max(1, len(y_array) // 250),
+            )
+            if len(peak_indexes):
+                order = np.argsort(properties["prominences"])[::-1][:5]
+                strongest = peak_indexes[order]
+                peaks = ", ".join(
+                    f"{_format_summary_number(x_array[index])} "
+                    f"({_format_summary_number(y_array[index])})"
+                    for index in strongest
+                )
+                lines.append(
+                    f"• {'พีคเด่น' if thai else 'Prominent peaks'} [{x_label} ({y_column})]: {peaks}"
+                )
+        except Exception:
+            logger.debug("automatic summary peak scan skipped", exc_info=True)
+
+    folded_x = str(x_column or "").casefold().replace("-", "").replace("_", "")
+    folded_y = str(y_column).casefold().replace("-", "").replace("_", "")
+    xrd_like = ("theta" in folded_x or "2θ" in folded_x) and "intens" in folded_y
+    if xrd_like:
+        lines.append(
+            "• รูปแบบข้อมูลคล้าย XRD (2θ–Intensity): ระบุตำแหน่งพีคได้ แต่การระบุ phase ต้องเทียบฐานข้อมูลอ้างอิง"
+            if thai
+            else "• XRD-like data (2θ–Intensity): peak positions are measurable, but phase identification requires a reference database."
+        )
+
+    if thai:
+        lines.append(
+            f"แนะนำต่อ: พิมพ์ “plot {y_column} vs {x_label} as line” หรือ “หาพีค”"
+        )
+    else:
+        lines.append(
+            f'Next: try "plot {y_column} vs {x_label} as line" or "find peaks".'
+        )
+    return "\n".join(lines)
+
+
+def _normalise_plot_style(value: Any) -> str:
+    raw = " ".join(str(value or "line").strip().casefold().split())
+    return _PLOT_STYLE_ALIASES.get(raw, raw)
+
+
+def _resolve_column_name(df, value: Any):
+    try:
+        if value in getattr(df, "columns", []):
+            return value
+    except (TypeError, ValueError):
+        pass
+    requested = str(value or "").strip().casefold()
+    if not requested:
+        return None
+    for column in df.columns:
+        if str(column).strip().casefold() == requested:
+            return column
+    return None
+
+
+def _column_is_numeric(df, column) -> bool:
+    series = df[column]
+    if pd.api.types.is_numeric_dtype(series):
+        return True
+    try:
+        return bool(pd.to_numeric(series, errors="coerce").notna().any())
+    except Exception:
+        return False
+
+
+def _column_is_time_like(df, column) -> bool:
+    name = str(column).strip().casefold()
+    if name == "t" or any(key in name for key in _TIME_LIKE_COLUMN_KEYS):
+        return True
+    try:
+        return bool(pd.api.types.is_datetime64_any_dtype(df[column]))
+    except Exception:
+        return False
+
+
+def _columns_in_instruction(df, instruction: str) -> List[Any]:
+    folded = str(instruction or "").casefold()
+    matches = []
+    for column in df.columns:
+        needle = str(column).strip().casefold()
+        if not needle:
+            continue
+        match = re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", folded)
+        if match is None and len(needle) >= 3 and any(ord(char) > 127 for char in needle):
+            position = folded.find(needle)
+        else:
+            position = match.start() if match is not None else -1
+        if position >= 0:
+            matches.append((position, -len(needle), column))
+    matches.sort(key=lambda item: (item[0], item[1]))
+    ordered = []
+    for _position, _length, column in matches:
+        if column not in ordered:
+            ordered.append(column)
+    return ordered
+
+
+def _default_plot_x(window, df, numeric_columns: List[Any]):
+    getter = getattr(window, "selected_x_column", None)
+    selected = _resolve_column_name(df, getter() if callable(getter) else None)
+    if selected is not None and (selected in numeric_columns or _column_is_time_like(df, selected)):
+        return selected
+    for column in df.columns:
+        if _column_is_time_like(df, column):
+            return column
+    return numeric_columns[0] if numeric_columns else None
+
+
+def _explicit_y_values(args: Dict[str, Any]) -> List[Any]:
+    requested = args.get("y_columns")
+    if requested is None:
+        requested = args.get("y_column")
+    if requested is None:
+        return []
+    if isinstance(requested, (list, tuple)):
+        return list(requested)
+    if isinstance(requested, str) and ("," in requested or ";" in requested):
+        return [part.strip() for part in re.split(r"[,;]", requested) if part.strip()]
+    return [requested]
+
+
+def _boolean_argument(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        folded = value.strip().casefold()
+        if folded in {"false", "no", "off", "0"}:
+            return False
+        if folded in {"true", "yes", "on", "1"}:
+            return True
+    return bool(value)
+
+
+def _resolve_plot_mapping(window, df, args: Dict[str, Any], style: str):
+    columns_text = ", ".join(str(column) for column in df.columns)
+    numeric_columns = [column for column in df.columns if _column_is_numeric(df, column)]
+    if not numeric_columns:
+        raise ValueError("the active data has no numeric columns")
+
+    requested_x = args.get("x_column")
+    x_column = _resolve_column_name(df, requested_x)
+    if requested_x not in (None, "") and x_column is None:
+        raise ValueError(f"X column '{requested_x}' was not found. Available: {columns_text}")
+
+    requested_y = _explicit_y_values(args)
+    y_columns = []
+    missing_y = []
+    for value in requested_y:
+        resolved = _resolve_column_name(df, value)
+        if resolved is None:
+            missing_y.append(str(value))
+        elif resolved not in y_columns:
+            y_columns.append(resolved)
+    if missing_y:
+        raise ValueError(
+            f"Y column(s) {', '.join(missing_y)} were not found. Available: {columns_text}"
+        )
+    non_numeric_y = [str(column) for column in y_columns if column not in numeric_columns]
+    if non_numeric_y:
+        raise ValueError(f"Y column(s) {', '.join(non_numeric_y)} contain no numeric values")
+
+    instruction = str(args.get("instruction", "") or "")
+    mentioned = _columns_in_instruction(df, instruction)
+    default_x = x_column or _default_plot_x(window, df, numeric_columns)
+
+    if style == "histogram":
+        if not y_columns:
+            candidates = [column for column in mentioned if column in numeric_columns]
+            if not candidates:
+                getter = getattr(window, "selected_y_column", None)
+                selected_y = _resolve_column_name(df, getter() if callable(getter) else None)
+                candidates = [selected_y] if selected_y in numeric_columns else numeric_columns
+            y_columns = candidates[:1]
+        return None, y_columns[:1]
+
+    if not y_columns and len(mentioned) >= 2:
+        separator = re.search(
+            r"\b(?:vs\.?|versus|against)\b|เทียบ(?:กับ)?",
+            instruction.casefold(),
+        )
+        if separator is not None:
+            positions = {
+                column: instruction.casefold().find(str(column).casefold())
+                for column in mentioned
+            }
+            before = [column for column in mentioned if 0 <= positions[column] < separator.start()]
+            after = [column for column in mentioned if positions[column] >= separator.end()]
+            if before and after:
+                x_column = x_column or after[0]
+                y_columns = [column for column in before if column in numeric_columns]
+
+    if not y_columns and mentioned:
+        mentioned_numeric = [column for column in mentioned if column in numeric_columns]
+        if x_column is None:
+            mentioned_x = next(
+                (column for column in mentioned if _column_is_time_like(df, column)),
+                None,
+            )
+            if mentioned_x is not None:
+                x_column = mentioned_x
+            elif default_x is not None and default_x not in mentioned:
+                x_column = default_x
+            elif len(mentioned) >= 2:
+                x_column = mentioned[0]
+        y_columns = [column for column in mentioned_numeric if column != x_column]
+        if len(mentioned) == 1 and mentioned[0] in numeric_columns and mentioned[0] != x_column:
+            y_columns = [mentioned[0]]
+
+    x_column = x_column or default_x
+    if not y_columns:
+        getter = getattr(window, "selected_y_column", None)
+        selected_y = _resolve_column_name(df, getter() if callable(getter) else None)
+        if selected_y in numeric_columns and selected_y != x_column:
+            y_columns = [selected_y]
+        else:
+            y_columns = [column for column in numeric_columns if column != x_column]
+
+    if not y_columns and len(numeric_columns) == 1:
+        x_column = None
+        y_columns = numeric_columns[:1]
+    if not y_columns:
+        raise ValueError("choose at least one numeric Y column")
+    if x_column is not None and not (
+        x_column in numeric_columns or _column_is_time_like(df, x_column) or style == "bar"
+    ):
+        raise ValueError(f"X column '{x_column}' is not numeric or datetime")
+
+    if style == "bar":
+        y_columns = y_columns[:1]
+    return x_column, y_columns
+
+
 def _tool_plot(window, args: Dict[str, Any]) -> str:
-    style = str(args.get("style", "line")).strip().lower()
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data to plot. Open a file or activate a Book first."
+
+    style = _normalise_plot_style(args.get("style", "line"))
     if style not in _PLOT_STYLES:
         return f"Unknown style '{style}'. Use one of: {', '.join(sorted(_PLOT_STYLES))}."
-    plotter = getattr(window, "plot_from_workbook", None)
-    if not callable(plotter):
-        return "Plotting is not available in this context."
+
     try:
-        plotter(style, new_graph=True)
-        return f"Created a new {style} graph from the active Book's selected/designated columns."
+        x_column, y_columns = _resolve_plot_mapping(window, df, args, style)
+    except ValueError as exc:
+        return f"Could not create the plot: {exc}."
+
+    new_graph = _boolean_argument(args.get("new_graph"), True)
+    explicit_plotter = getattr(window, "plot_explicit_columns", None)
+    try:
+        if callable(explicit_plotter):
+            result = explicit_plotter(
+                style,
+                str(x_column) if x_column is not None else None,
+                [str(column) for column in y_columns],
+                new_graph=new_graph,
+            )
+            if not result:
+                return "Could not create the plot: the graph renderer did not add any artists."
+        else:
+            plotter = getattr(window, "plot_from_workbook", None)
+            if not callable(plotter):
+                return "Plotting is not available in this context."
+            plotter(style, new_graph=new_graph)
     except Exception as exc:
         logger.debug("plot tool failed", exc_info=True)
         return f"Could not create the plot: {exc}"
+
+    style_label = "line + symbol" if style == "linesymbol" else style
+    y_label = ", ".join(str(column) for column in y_columns)
+    if style == "histogram":
+        mapping = f"{y_label}"
+    else:
+        mapping = f"{y_label} vs {x_column if x_column is not None else 'Row'}"
+    destination = "new" if new_graph else "active"
+    return f"Created a {style_label} graph in the {destination} Graph: {mapping} ({len(df)} rows)."
 
 
 def _tool_active_book(window, _args: Dict[str, Any]) -> str:
@@ -303,6 +737,45 @@ def _tool_remove_outliers(window, args: Dict[str, Any]) -> str:
     except Exception as exc:
         logger.debug("remove_outliers tool failed", exc_info=True)
         return f"Could not remove outliers: {exc}"
+
+
+def _tool_find_anomalies(window, args: Dict[str, Any]) -> str:
+    df = _active_df(window)
+    if df is None or getattr(df, "empty", True):
+        return "No active data."
+    col = _resolve_y_column(window, df, args)
+    if col is None:
+        return "Need a numeric column."
+    method = str(args.get("method", "zscore")).strip().lower()
+    threshold = args.get("threshold")
+    try:
+        from analysis.cleaning import summarize_anomalies
+
+        report = summarize_anomalies(
+            df[col],
+            method=method,
+            threshold=float(threshold) if threshold is not None else None,
+        )
+        n = report["n_anomalies"]
+        if n == 0:
+            return (
+                f"No anomalies in '{col}' ({report['n_total']} points, "
+                f"method {report['method']} @ {report['threshold']:g})."
+            )
+        pct = report["fraction"] * 100.0
+        head = ", ".join(
+            f"row {p['index']}={p['value']:g} (z={p['zscore']:.1f})"
+            for p in report["points"][:5]
+        )
+        more = "" if n <= 5 else f" (+{n - 5} more)"
+        return (
+            f"Found {n} anomalies in '{col}' of {report['n_total']} points "
+            f"({pct:.1f}%, method {report['method']} @ {report['threshold']:g}). "
+            f"Most extreme: {head}{more}."
+        )
+    except Exception as exc:
+        logger.debug("find_anomalies tool failed", exc_info=True)
+        return f"Could not find anomalies: {exc}"
 
 
 def _tool_remove_duplicates(window, _args: Dict[str, Any]) -> str:
@@ -570,31 +1043,53 @@ def _tool_peak_metrics(window, args: Dict[str, Any]) -> str:
 
 def _tool_detect_peaks(window, args: Dict[str, Any]) -> str:
     df = _active_df(window)
+    thai = str(args.get("language", "")).casefold() == "th"
     if df is None or getattr(df, "empty", True):
-        return "No active data."
+        return "ไม่มีข้อมูลที่กำลังใช้งาน" if thai else "No active data."
     x, y, col = _xy_arrays(window, df, args)
     if y is None:
-        return "Need a numeric column."
+        return "ต้องมีคอลัมน์ตัวเลขสำหรับหาพีค" if thai else "Need a numeric column."
     try:
         import numpy as np
         import pandas as pd
         from scipy.signal import find_peaks
 
+        finite = np.isfinite(x) & np.isfinite(y)
+        x = np.asarray(x, dtype=float)[finite]
+        y = np.asarray(y, dtype=float)[finite]
+        if len(y) < 3:
+            return "ข้อมูลน้อยเกินไปสำหรับหาพีค" if thai else "Need at least 3 finite points to find peaks."
         kwargs = {}
         if args.get("prominence") is not None:
             kwargs["prominence"] = float(args["prominence"])
         if args.get("distance") is not None:
             kwargs["distance"] = max(1, int(args["distance"]))
+        if args.get("auto") and "prominence" not in kwargs:
+            spread = float(np.nanpercentile(y, 95) - np.nanpercentile(y, 5))
+            kwargs["prominence"] = max(
+                spread * 0.08,
+                float(np.nanstd(y)) * 0.15,
+                1e-12,
+            )
+            kwargs.setdefault("distance", max(1, len(y) // 250))
         idx, _props = find_peaks(y, **kwargs)
         if len(idx) == 0:
-            return f"No peaks found in '{col}'. Try a lower prominence."
+            return (
+                f"ไม่พบพีคใน '{col}' ลองลดค่า prominence"
+                if thai
+                else f"No peaks found in '{col}'. Try a lower prominence."
+            )
         _open_result(
             window, f"Peaks_{col}",
             pd.DataFrame({"peak_x": x[idx], "peak_height": y[idx]}),
         )
         top = idx[np.argsort(y[idx])[::-1][:3]]
         tops = ", ".join(f"x={x[i]:.4g} (h={y[i]:.4g})" for i in top)
-        return f"Found {len(idx)} peaks in '{col}'. Strongest: {tops}. Table opened as a Book."
+        return (
+            f"พบ {len(idx)} พีคใน '{col}' พีคเด่น: {tops} เปิดตารางผลลัพธ์เป็น Book แล้ว"
+            if thai
+            else f"Found {len(idx)} peaks in '{col}'. Strongest: {tops}. Table opened as a Book."
+        )
     except Exception as exc:
         logger.debug("detect_peaks tool failed", exc_info=True)
         return f"Could not detect peaks: {exc}"
@@ -738,9 +1233,51 @@ def build_app_registry(window) -> ToolRegistry:
         lambda args: _tool_describe_data(window, args),
     )
     registry.add(
+        "summarize_data",
+        "Analyze the active Book directly and return a concise evidence-backed summary: "
+        "shape, missing values, numeric ranges, mean/SD, correlation, maximum and "
+        "prominent peaks. Supports Thai or English output.",
+        {
+            "language": {
+                "type": "string",
+                "description": "th | en",
+                "required": False,
+            }
+        },
+        lambda args: _tool_summarize_data(window, args),
+    )
+    registry.add(
         "plot_columns",
-        "Plot the active Book's selected/designated columns on a NEW graph window.",
-        {"style": {"type": "string", "description": "line | scatter | bar | histogram", "required": False}},
+        "Create a real graph from the active Book. Prefer explicit x_column and y_columns "
+        "when the user names columns. If omitted, SciPlotter resolves columns from the "
+        "original instruction and then from the active Book designations.",
+        {
+            "style": {
+                "type": "string",
+                "description": "line | linesymbol | scatter | bar | histogram",
+                "required": False,
+            },
+            "x_column": {
+                "type": "string",
+                "description": "column for the X axis; omit for histogram or row index",
+                "required": False,
+            },
+            "y_columns": {
+                "type": "array",
+                "description": "one or more numeric Y columns",
+                "required": False,
+            },
+            "instruction": {
+                "type": "string",
+                "description": "the user's original plot command, used to resolve named columns",
+                "required": False,
+            },
+            "new_graph": {
+                "type": "boolean",
+                "description": "true creates a new Graph; false adds to the active Graph",
+                "required": False,
+            },
+        },
         lambda args: _tool_plot(window, args),
     )
     registry.add(
@@ -848,6 +1385,18 @@ def build_app_registry(window) -> ToolRegistry:
         lambda args: _tool_remove_outliers(window, args),
     )
     registry.add(
+        "find_anomalies",
+        "Report anomalous/outlier points in a column WITHOUT changing the data. "
+        "method: zscore | iqr; threshold optional. Returns count and the most "
+        "extreme points (row index, value, z-score).",
+        {
+            "method": {"type": "string", "description": "zscore|iqr", "required": False},
+            "threshold": {"type": "number", "description": "threshold", "required": False},
+            "column": {"type": "string", "description": "column", "required": False},
+        },
+        lambda args: _tool_find_anomalies(window, args),
+    )
+    registry.add(
         "remove_duplicates",
         "Remove duplicate rows from the active data (replaces it).",
         {},
@@ -937,6 +1486,8 @@ def build_app_registry(window) -> ToolRegistry:
             "column": {"type": "string", "description": "signal column", "required": False},
             "prominence": {"type": "number", "description": "min prominence", "required": False},
             "distance": {"type": "number", "description": "min samples between peaks", "required": False},
+            "auto": {"type": "boolean", "description": "derive robust prominence and distance", "required": False},
+            "language": {"type": "string", "description": "th | en", "required": False},
         },
         lambda args: _tool_detect_peaks(window, args),
     )

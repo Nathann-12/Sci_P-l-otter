@@ -137,6 +137,9 @@ class MainWindowDataMixin:
             # Book เปล่า (เช่นพิมพ์เองยังไม่กด 'ใช้ข้อมูลนี้') — ชี้ workbook ไว้พอ
             self.statusBar().showMessage(
                 f"Book: {title} has no data yet - type data and click 'Use This Data' or plot from the worksheet.")
+        refresh_ai = getattr(self, "_refresh_ai_context", None)
+        if callable(refresh_ai):
+            refresh_ai()
 
     def load_data(self, path: str):
         """โหลดไฟล์ (เช่นจาก drag & drop) → Book ใหม่ตามโมเดล Origin"""
@@ -197,6 +200,9 @@ class MainWindowDataMixin:
         self.load_columns_from_df()
         self.statusBar().showMessage(
             f"Worksheet data is active ({len(df)} rows x {len(df.columns)} columns). Choose X/Y, then plot.")
+        refresh_ai = getattr(self, "_refresh_ai_context", None)
+        if callable(refresh_ai):
+            refresh_ai()
         return True
 
     def _activate_book_by_name(self, name: str) -> bool:

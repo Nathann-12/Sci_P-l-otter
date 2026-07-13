@@ -24,6 +24,7 @@ from analysis.cleaning import (
     remove_outliers,
     resample_uniform,
     sort_dataframe,
+    summarize_anomalies,
 )
 
 
@@ -107,6 +108,39 @@ def test_remove_outliers_drops_rows():
     assert removed == 1
     assert len(out) == 10
     assert 999.0 not in out["y"].tolist()
+
+
+# ---------- anomaly report ----------
+
+def test_summarize_anomalies_reports_position_value_and_score():
+    values = [1.0] * 20 + [1000.0]
+    report = summarize_anomalies(pd.Series(values), method="zscore", threshold=3.0)
+    assert report["n_total"] == 21
+    assert report["n_anomalies"] == 1
+    assert report["points"][0]["index"] == 20
+    assert report["points"][0]["value"] == 1000.0
+    assert report["points"][0]["zscore"] > 3.0
+    assert 0.0 < report["fraction"] < 1.0
+
+
+def test_summarize_anomalies_orders_points_most_extreme_first():
+    values = [1.0] * 30 + [20.0, 40.0]
+    report = summarize_anomalies(pd.Series(values), method="zscore", threshold=2.0)
+    assert report["n_anomalies"] == 2
+    # 40 is more extreme than 20 -> reported first
+    assert report["points"][0]["value"] == 40.0
+    assert report["points"][0]["zscore"] >= report["points"][1]["zscore"]
+
+
+def test_summarize_anomalies_constant_series_reports_none():
+    report = summarize_anomalies(pd.Series([5.0] * 10), method="zscore")
+    assert report["n_anomalies"] == 0
+    assert report["points"] == []
+
+
+def test_summarize_anomalies_rejects_unknown_method():
+    with pytest.raises(ValueError):
+        summarize_anomalies(pd.Series([1.0, 2.0, 3.0]), method="bogus")
 
 
 # ---------- normalize ----------
