@@ -226,10 +226,10 @@
 - ✅ Local AI backend (`ai/` — tool registry + agent loop + Ollama client, no extra deps)
 - ✅ Tool-using agent (JSON protocol + `format:json`, ทำงานบนโมเดลเบา 2B ได้)
 - ✅ ต่อเข้า AI dock จริง (threaded, ไม่ freeze UI) + config เปลี่ยนโมเดลได้
-- 🟡 สั่งงานด้วยภาษาไทย (ผ่านโมเดล; แม่นขึ้นตามขนาดโมเดล)
+- 🟡 สั่งงานด้วยภาษาไทย (plot/analyze/columns/peaks ใช้ deterministic fast path; งานปลายเปิดผ่านโมเดล)
 - 🟡 สั่งงานด้วยอังกฤษ
-- 🟡 "ทำกราฟให้หน่อย" (tool `plot_columns`)
-- ✅ แปลผล/สรุปข้อมูล (tool `list_columns` + `describe_data`)
+- ✅ "ทำกราฟให้หน่อย" (tool `plot_columns` — deterministic ไทย/อังกฤษ, explicit X/Y, verified Graph creation)
+- ✅ แปลผล/สรุปข้อมูลจริง (tool `summarize_data` + `list_columns` + `describe_data` — shape/missing/statistics/max/correlation/prominent peaks และ XRD caveat โดยไม่พึ่งโมเดล)
 - ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`)
 - ✅ Transform/Clean ผ่าน AI (tools `moving_average` + `fill_missing` + `interpolate` + `normalize` + `detrend` + `remove_outliers` + `remove_duplicates` + `sort_data`)
 - ✅ Signal analysis ผ่าน AI ครบชุด (tools `run_fft` + `power_spectrum` + `autocorrelation` + `instantaneous_frequency` + `harmonic_analysis` + `envelope` + `signal_quality`)
@@ -237,10 +237,10 @@
 - ✅ Peak/Cross-correlation ผ่าน AI (tools `peak_metrics` + `detect_peaks` + `cross_correlation`)
 - ✅ Graph decoration + advanced charts ผ่าน AI (tools `format_graph` + `list_charts` + `plot_chart` — 45 chart types)
 - ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **41 AI tools**
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **43 AI tools**
 - ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
 - ☐ "Fit peak นี้"
-- ☐ "หา anomaly"
+- ✅ "หา anomaly" (tool `find_anomalies` — deterministic z-score/IQR, รายงาน count + ตำแหน่ง/ค่า/z-score แบบ read-only ไม่แก้ข้อมูล; logic `analysis/cleaning.summarize_anomalies`)
 - ☐ "อธิบายกราฟนี้"
 - ☐ "เขียน caption"
 - ☐ "เขียน result section"
@@ -490,7 +490,7 @@
 - ☐ Command palette
 - ✅ Keyboard shortcuts
 - ✅ Scalable activity rail / module dock
-- ✅ Parked side tabs for Project Explorer / Messages Log / Smart Hint Log
+- ✅ Parked side tabs for Project Explorer / Messages Log / AI Assistant
 - ✅ Clean sheet-first startup (no default Graph1, modules hidden by default)
 - ✅ Compact Settings dialog with real theme/font/plot-mode persistence
 - 🟡 Custom workspace (docks/inspector)
@@ -508,6 +508,10 @@
 ---
 
 ## Latest verification
+- 2026-07-13: Smooth "did nothing" fixed — every column-adding transform (Smooth, Moving Average, Butterworth, Fill Missing, Interpolate, Normalize, Detrend, Apply Window, and the AI column tools) committed the new column only to the hidden DataFrame/cbY combo; the visible Origin Book never updated, so on screen nothing happened. Fixed at the view-access seam: `add_y_column_option` now also runs `_sync_dataframe_after_column_edit()` (worksheet follows every new column, designations preserved) — one fix covers all current and future callers. Verified end-to-end on a real MainWindow (menu QAction → new column visible on the sheet + actually smoother); behavioral regression test added.
+- 2026-07-13: Analysis UX audit pass — built an exploratory harness that triggers all Analysis-menu actions on a real MainWindow with modals captured (72 actions initially). Found + fixed: (1) plot commands died with a Thai "ไม่มีแท็บ" warning when no Graph window existed (sheet-first startup!) — `_get_current_plot_tab_ids` now auto-creates the Graph per the Origin loop; (2) Merge by Timestamp crashed on pandas 2.x mixed datetime64 resolutions (ns vs s) — keys normalized to [ns]; (3) menu duplication removed — Descriptive/Covariance ×2, Peak Metrics ×2, Signal Quality ×3, Nonlinear Fit ×2, whole "Peak Detection" submenu duplicating "Peaks and Baseline", and fake "1/2/3 <default>" recent items; every command now has exactly one home in the categorized submenus (72 → 58 actions), `actPk*`/`actNonlinearFit` attributes preserved for toolbar/tests. Re-audit: 58 actions, 0 problems. Regression tests added (auto-create graph, mixed-resolution merge, dedup structure).
+- 2026-07-13: Origin-style Analysis fitting fixed. Two real bugs made "Fit" unusable: (1) `_do_curve_fit` computed R²/RMSE from the 400-point fit curve but compared it to the original samples → `operands could not be broadcast` on every model → a modal "Fit failed" box popped and no curve drew; (2) `_open_fit_dialog` read a stale `self.canvas` instead of resolving the selected graph, so the fit targeted the wrong graph. Now the fit metrics use the sample-length prediction and the dialog syncs to the selected/last-selected graph via `_active_canvas()` (same graph-scoped contract as FFT/PSD/Format Graph); the fitted curve draws on the graph you selected. Added graph-scoped + metrics regression tests in `test_toolbar_mdi_targets.py`. Full suite `854 passed, 3 skipped`, 0 crash frames.
+- 2026-07-13: AI anomaly detection ("หา anomaly") added as tool `find_anomalies` (43 AI tools total): pure `analysis/cleaning.summarize_anomalies` reuses `detect_outliers` (z-score/IQR) and reports count + most-extreme points (row index/value/z-score) read-only without changing data. Added pure-logic tests (`test_cleaning.py`) + behavioural AI-tool tests (`test_ai_assistant.py`). Full suite green.
 - 2026-07-09: Spectroscopy module first production workflow pass added under Modules Gallery: baseline correction + normalization, peak table/FWHM/area, Raman D/G ratio, Tauc band gap, and XRD Scherrer size. Added pure analysis tests and MainWindow QAction/menu user-flow tests through real result Books/Graphs. Full suite: `715 passed, 3 skipped` with `-W error`.
 - 2026-07-09: Materials Science module first production workflow pass added under Modules Gallery: I-V conductivity/resistivity/sheet resistance, Arrhenius activation energy, TGA/DSC thermal metrics, and sample ranking. Added pure analysis tests and MainWindow QAction/menu user-flow tests through result Books/Graphs. Full suite: `721 passed, 3 skipped` with `-W error`.
 - 2026-07-09: Physics / General Lab module first production workflow pass added under Modules Gallery: Ohm's law fit, RC time constant, pendulum gravity fit, and power-product uncertainty propagation. Added pure analysis tests and MainWindow QAction/menu user-flow tests. Full suite: `727 passed, 3 skipped` with `-W error`.
