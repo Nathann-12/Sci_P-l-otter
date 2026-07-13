@@ -87,6 +87,18 @@ def _artist_count(ax):
     )
 
 
+def test_plot_command_with_no_graph_open_creates_one(win, qapp):
+    # Origin loop: the app starts sheet-first with no Graph window; the first
+    # plot command must create the Graph, not die with a "no tab" warning.
+    _seed_book(win)
+    assert win.tabs.count() == 0
+
+    win.plot_line()
+
+    assert win.tabs.count() == 1
+    assert len(win.tabs.currentWidget().get_axes().get_lines()) == 1
+
+
 def test_main_plot_action_draws_on_last_selected_graph_after_book_focus(win, qapp):
     _seed_book(win)
     first_id = _new_selected_graph(win, qapp, "Graph 1")
@@ -241,6 +253,100 @@ def test_format_graph_toolbar_reads_last_selected_graph_after_book_focus(win, qa
     win.actFormatGraph.trigger()
 
     assert captured["labels"] == ["graph-two"]
+
+
+def test_curve_fit_reads_last_selected_graph_after_book_focus(win, qapp, monkeypatch):
+    import dialogs
+
+    _seed_book(win)
+    first_id = _new_selected_graph(win, qapp, "Graph 1")
+    second_id = _new_selected_graph(win, qapp)
+    win.tabs.tabs[first_id].get_axes().plot([0, 1], [1, 1], label="graph-one")
+    win.tabs.tabs[second_id].get_axes().plot([0, 1], [2, 3], label="graph-two")
+    captured = {}
+
+    class _FitDialog:
+        def __init__(self, _parent, labels, _series_data):
+            captured["labels"] = list(labels)
+
+        def exec(self):
+            return QDialog.Rejected
+
+    monkeypatch.setattr(dialogs, "FitDialog", _FitDialog)
+
+    _focus_book(win, qapp)
+    win._open_fit_dialog()
+
+    # Origin-style: the fit reads the series from the last-selected graph.
+    assert captured["labels"] == ["graph-two"]
+
+
+def test_curve_fit_overlay_draws_on_last_selected_graph_after_book_focus(win, qapp, monkeypatch):
+    import dialogs
+
+    _seed_book(win)
+    first_id = _new_selected_graph(win, qapp, "Graph 1")
+    second_id = _new_selected_graph(win, qapp)
+    win.tabs.tabs[first_id].get_axes().plot([0, 1, 2, 3], [0, 1, 2, 3], label="graph-one")
+    win.tabs.tabs[second_id].get_axes().plot([0, 1, 2, 3], [0, 2, 4, 6], label="graph-two")
+    first_before = len(win.tabs.tabs[first_id].get_axes().get_lines())
+    second_before = len(win.tabs.tabs[second_id].get_axes().get_lines())
+
+    class _FitDialog:
+        def __init__(self, _parent, _labels, _series_data):
+            pass
+
+        def exec(self):
+            return QDialog.Accepted
+
+        def get_params(self):
+            return {
+                "series_label": "graph-two",
+                "model": "linear",
+                "degree": None,
+                "show_eq": False,
+                "show_resid": False,
+            }
+
+    monkeypatch.setattr(dialogs, "FitDialog", _FitDialog)
+    # A modal error box would hang the offscreen suite; capture instead of block.
+    errors = []
+    monkeypatch.setattr(
+        "main_window_fit_mixin.QMessageBox.critical",
+        lambda *args, **kwargs: errors.append(args[2] if len(args) > 2 else args),
+    )
+
+    _focus_book(win, qapp)
+    win._open_fit_dialog()
+
+    assert not errors, f"fit raised: {errors}"
+
+    # The fitted curve is drawn on the last-selected graph, not the stale one.
+    assert len(win.tabs.tabs[second_id].get_axes().get_lines()) == second_before + 1
+    assert len(win.tabs.tabs[first_id].get_axes().get_lines()) == first_before
+
+
+def test_curve_fit_metrics_do_not_broadcast_mismatch(win):
+    # Regression: _do_curve_fit evaluated the fit at 400 linspace points for the
+    # R^2/RMSE metrics but compared them against the original (shorter) samples,
+    # raising "operands could not be broadcast" for every model and popping a
+    # modal "Fit failed" box — the fit never drew. Metrics must use the samples.
+    import numpy as np
+
+    x = np.linspace(1.0, 5.0, 9)
+    cases = {
+        "linear": 2.0 * x + 1.0,
+        "polynomial": x ** 2 - x,
+        "exponential": 2.0 * np.exp(0.3 * x) + 1.0,
+        "power": 2.0 * x ** 1.5,
+        "gaussian": 3.0 * np.exp(-0.5 * ((x - 3.0) / 0.8) ** 2) + 0.5,
+        "sine": np.sin(2.0 * x) + 0.05 * x,
+    }
+    for model, y in cases.items():
+        xfit, yfit, _params, metrics = win._do_curve_fit(x, y, model=model, degree=2)
+        assert len(xfit) == len(yfit), model
+        assert {"r2", "rmse"} <= set(metrics), model
+        assert np.isfinite(metrics["r2"]), model
 
 
 def test_plot_equation_toolbar_targets_last_selected_graph_after_book_focus(win, qapp, monkeypatch):

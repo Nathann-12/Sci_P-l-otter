@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Sequence
 
 from PySide6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 
 from core.english_ui import sanitize_form_fields, to_english
 from core.plot_request import PlotOptions
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindowViewAccessMixin:
@@ -93,6 +96,16 @@ class MainWindowViewAccessMixin:
             self.cbY.addItem(name)
         except Exception:
             pass
+        # Every caller invokes this right after committing a new column to the
+        # active DataFrame. The visible worksheet must follow (signal-transforms
+        # contract) — Smooth/Filter/Normalize/... used to update only this
+        # hidden combo, so on screen nothing appeared to happen at all.
+        sync = getattr(self, "_sync_dataframe_after_column_edit", None)
+        if callable(sync):
+            try:
+                sync()
+            except Exception:
+                logger.debug("worksheet sync after new column failed", exc_info=True)
 
     def current_plot_options(self) -> PlotOptions:
         """Return application plot defaults without exposing their storage."""

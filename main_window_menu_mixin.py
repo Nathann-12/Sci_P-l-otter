@@ -600,7 +600,6 @@ class MainWindowMenuMixin:
         _analysis_action(statistics_menu, "Descriptive Statistics...", self.feature_show_statistics)
         _analysis_action(statistics_menu, "Covariance Matrix...", self.feature_show_covariance)
         _analysis_action(statistics_menu, "Correlation Matrix...", self.feature_show_covariance)
-        _analysis_action(statistics_menu, "Signal Quality (SNR / Noise floor)...", self.feature_signal_quality)
 
         mathematics_menu = analysisMenu.addMenu("Mathematics")
         _analysis_action(mathematics_menu, "Create Column (Derived)...", self.open_derived_column_dialog)
@@ -629,7 +628,9 @@ class MainWindowMenuMixin:
         fitting_menu = analysisMenu.addMenu("Fitting")
         _analysis_action(fitting_menu, "Linear Fit...", self._open_fit_dialog)
         _analysis_action(fitting_menu, "Polynomial Fit...", self._open_fit_dialog)
-        _analysis_action(fitting_menu, "Nonlinear Curve Fit...", self.open_nonlinear_fit_dialog)
+        fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
+        self.actNonlinearFit = fitting_menu.addAction(fit_icon, "Nonlinear Curve Fit...")
+        self.actNonlinearFit.triggered.connect(self.open_nonlinear_fit_dialog)
 
         signal_processing_menu = analysisMenu.addMenu("Signal Processing")
         smooth_menu = signal_processing_menu.addMenu("Smooth")
@@ -656,18 +657,24 @@ class MainWindowMenuMixin:
         _analysis_action(signal_processing_menu, "Decimation...", self.feature_signal_decimation)
         _analysis_action(signal_processing_menu, "Harmonic Analysis...", self.feature_signal_harmonic_analysis)
 
+        # Peaks and Baseline hosts the REAL peak-detection actions (single home;
+        # the old separate "Peak Detection" submenu duplicated every entry).
         peaks_baseline_menu = analysisMenu.addMenu("Peaks and Baseline")
+        self.pkMenu = peaks_baseline_menu
         _analysis_action(peaks_baseline_menu, "Peak Metrics (FWHM / Area)...", self.feature_peak_metrics)
         _analysis_action(peaks_baseline_menu, "Signal Quality (SNR / Noise floor)...", self.feature_signal_quality)
-        _analysis_action(peaks_baseline_menu, "Peak Settings...", _trigger_late("actPkSettings"))
-        _analysis_action(peaks_baseline_menu, "Detect in Range", _trigger_late("actPkDetect"))
-        _analysis_action(peaks_baseline_menu, "Annotate Peaks", _trigger_late("actPkAnnotate"))
-        _analysis_action(peaks_baseline_menu, "Export Peak Table (CSV/Excel)", _trigger_late("actPkExport"))
-        _analysis_action(peaks_baseline_menu, "Clear Peaks", _trigger_late("actPkClear"))
-        analysisMenu.addSeparator()
-        _analysis_action(analysisMenu, "1 Linear Fit: <default>...", self._open_fit_dialog)
-        _analysis_action(analysisMenu, "2 Smooth: <default>...", self.feature_filter_smooth)
-        _analysis_action(analysisMenu, "3 Descriptive Statistics: <default>...", self.feature_show_statistics)
+        peaks_baseline_menu.addSeparator()
+        self.actPkEnable = peaks_baseline_menu.addAction("Enable Peak Detection")
+        self.actPkEnable.setCheckable(True)
+        self.actPkEnable.setShortcut("Ctrl+Shift+P")
+        self.actPkSettings = peaks_baseline_menu.addAction("Peak Settings...")
+        self.actPkDetect = peaks_baseline_menu.addAction("Detect in Range")
+        self.actPkDetect.setShortcut("Ctrl+D")
+        self.actPkAnnotate = peaks_baseline_menu.addAction("Annotate Peaks")
+        self.actPkAnnotate.setCheckable(True)
+        self.actPkExport = peaks_baseline_menu.addAction("Export Peak Table (CSV/Excel)")
+        self.actPkExport.setShortcut("Ctrl+E")
+        self.actPkClear = peaks_baseline_menu.addAction("Clear Peaks")
         analysisMenu.addSeparator()
 
         # Cross-Correlation submenu
@@ -744,30 +751,9 @@ class MainWindowMenuMixin:
             advChartsMenu.addAction(act)
             act.triggered.connect(lambda _, k=kind: open_overlay(k))
 
-        analysisMenu.addAction("Descriptive Statistics…").triggered.connect(
-            self.feature_show_statistics)
-        analysisMenu.addAction("Covariance Matrix…").triggered.connect(
-            self.feature_show_covariance)
-        analysisMenu.addAction("Peak Metrics (FWHM / Area)…").triggered.connect(
-            self.feature_peak_metrics)
-        analysisMenu.addAction("Signal Quality (SNR / Noise floor)…").triggered.connect(
-            self.feature_signal_quality)
-        analysisMenu.addSeparator()
-        fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
-        self.actNonlinearFit = analysisMenu.addAction(fit_icon, "Nonlinear Curve Fit…")
-        self.actNonlinearFit.triggered.connect(self.open_nonlinear_fit_dialog)
-        analysisMenu.addSeparator()
-
-# Peak Detection submenu
-        pkMenu = QMenu("Peak Detection", self)
-        analysisMenu.addMenu(pkMenu)
-        self.pkMenu = pkMenu
-        self.actPkEnable = pkMenu.addAction("Enable Peak Detection"); self.actPkEnable.setCheckable(True); self.actPkEnable.setShortcut("Ctrl+Shift+P")
-        self.actPkSettings = pkMenu.addAction("Peak Settings…")
-        self.actPkDetect = pkMenu.addAction("Detect in Range"); self.actPkDetect.setShortcut("Ctrl+D")
-        self.actPkAnnotate = pkMenu.addAction("Annotate Peaks"); self.actPkAnnotate.setCheckable(True)
-        self.actPkExport = pkMenu.addAction("Export Peak Table (CSV/Excel)"); self.actPkExport.setShortcut("Ctrl+E")
-        self.actPkClear = pkMenu.addAction("Clear Peaks")
+        # (duplicate top-level Statistics/Peak entries and the separate
+        # "Peak Detection" submenu were removed — each analysis command now has
+        # exactly one home in the categorized submenus above)
 
         # Docks + managers
         self.ccDock = CrossCorrDock(self)

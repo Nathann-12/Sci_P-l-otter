@@ -616,8 +616,11 @@ class MainWindowFeaturesMixin:
                 l2["_merge_time"] = pd.to_numeric(l2[left_time], errors="coerce")
                 r2["_merge_time"] = pd.to_numeric(r2[right_time], errors="coerce")
                 if l2["_merge_time"].isna().all() or r2["_merge_time"].isna().all():
-                    l2["_merge_time"] = pd.to_datetime(l2[left_time], errors="coerce")
-                    r2["_merge_time"] = pd.to_datetime(r2[right_time], errors="coerce")
+                    # pandas 2.x may parse the two sides at different datetime64
+                    # resolutions (ns vs s) and merge_asof then rejects the keys
+                    # ("incompatible merge keys") — normalize both to [ns].
+                    l2["_merge_time"] = pd.to_datetime(l2[left_time], errors="coerce").astype("datetime64[ns]")
+                    r2["_merge_time"] = pd.to_datetime(r2[right_time], errors="coerce").astype("datetime64[ns]")
                 l2 = l2.dropna(subset=["_merge_time"]).sort_values("_merge_time")
                 r2 = r2.dropna(subset=["_merge_time"]).sort_values("_merge_time")
                 out = pd.merge_asof(l2, r2, on="_merge_time", direction="nearest", suffixes=("_left", "_right"))

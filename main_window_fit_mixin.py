@@ -74,7 +74,15 @@ class MainWindowFitMixin:
             pass
 
     def _open_fit_dialog(self):
-        axes = self.canvas.ax
+        # Origin-style graph-scoped binding: fit the series on the graph the user
+        # has selected (or last selected while a Book is focused), not a stale
+        # ``self.canvas``. Syncing here also makes the fit overlay (drawn later
+        # via ``self.canvas.ax``) land on that same selected graph.
+        canvas = self._active_canvas() if hasattr(self, "_active_canvas") else getattr(self, "canvas", None)
+        if canvas is None:
+            QMessageBox.information(self, "No graph", "Open a graph before fitting.")
+            return
+        axes = canvas.ax
         series_data = {}
         series_is_seconds: dict[str, bool] = {}
         labels = []
@@ -264,7 +272,7 @@ class MainWindowFitMixin:
         if model == "linear":
             c = _np.polyfit(x, y, 1)
             p = _np.poly1d(c)
-            yhat = p(xs)
+            yhat = p(x)  # metrics compare against the original samples, not the 400-pt curve
             yfit = p(xs)
             return xs, yfit, {"coeff": c.tolist()}, metrics(y, yhat)
 
@@ -272,7 +280,7 @@ class MainWindowFitMixin:
             d = max(2, int(degree or 2))
             c = _np.polyfit(x, y, d)
             p = _np.poly1d(c)
-            yhat = p(xs)
+            yhat = p(x)  # metrics compare against the original samples, not the 400-pt curve
             yfit = p(xs)
             return xs, yfit, {"coeff": c.tolist(), "degree": d}, metrics(y, yhat)
 
@@ -283,7 +291,7 @@ class MainWindowFitMixin:
             if opt is not None:
                 p0 = [max(1e-6, float(_np.nanmax(y))), 0.0, float(_np.nanmin(y))]
                 popt, _ = opt.curve_fit(f, x, y, p0=p0, maxfev=10000)
-                yhat = f(xs, *popt)
+                yhat = f(x, *popt)
                 yfit = f(xs, *popt)
                 return xs, yfit, {"a": float(popt[0]), "b": float(popt[1]), "c": float(popt[2])}, metrics(y, yhat)
             c0 = float(_np.nanmin(y))
@@ -304,7 +312,7 @@ class MainWindowFitMixin:
 
                 p0 = [float(_np.nanmax(y)), 1.0]
                 popt, _ = opt.curve_fit(f, x[m], y[m], p0=p0, maxfev=10000)
-                yhat = f(xs, *popt)
+                yhat = f(x, *popt)
                 yfit = f(xs, *popt)
                 return xs, yfit, {"a": float(popt[0]), "b": float(popt[1])}, metrics(y, yhat)
             b, a0 = _np.polyfit(_np.log(x[m]), _np.log(y[m]), 1)
@@ -322,7 +330,7 @@ class MainWindowFitMixin:
                 sig0 = float(max(1e-6, (_np.percentile(x, 95) - _np.percentile(x, 5)) / 4.0))
                 p0 = [float(_np.nanmax(y)), mu0, sig0, float(_np.nanmin(y))]
                 popt, _ = opt.curve_fit(g, x, y, p0=p0, maxfev=20000)
-                yhat = g(xs, *popt)
+                yhat = g(x, *popt)
                 yfit = g(xs, *popt)
                 return xs, yfit, {
                     "A": float(popt[0]),

@@ -198,14 +198,13 @@ def test_function_menus_expose_expected_actions(win):
     for title in ("Active Book", "Columns", "Units + Metadata", "Quick Transforms", "Books + Query", "Clean Data"):
         assert _submenu(data, title) is not None
 
-    for text in (
-        "Descriptive Statistics...",
-        "Covariance Matrix...",
-        "Peak Metrics (FWHM / Area)...",
-        "Signal Quality (SNR / Noise floor)...",
-        "Nonlinear Curve Fit...",
-    ):
-        assert _menu_action(analysis, text) is not None
+    # deduplicated Analysis menu: every command has exactly ONE home in the
+    # categorized submenus (no top-level duplicates, no Peak Detection dup menu)
+    analysis_top_commands = [
+        a.text() for a in analysis.actions()
+        if not a.isSeparator() and a.menu() is None
+    ]
+    assert analysis_top_commands == []
     for title in (
         "Statistics",
         "Mathematics",
@@ -216,7 +215,13 @@ def test_function_menus_expose_expected_actions(win):
     ):
         assert _submenu(analysis, title) is not None
     assert _submenu(analysis, "Cross-Correlation") is not None
-    assert _submenu(analysis, "Peak Detection") is not None
+    assert _menu_action(_submenu(analysis, "Statistics"), "Descriptive Statistics...") is not None
+    assert _menu_action(_submenu(analysis, "Statistics"), "Covariance Matrix...") is not None
+    assert _menu_action(_submenu(analysis, "Fitting"), "Nonlinear Curve Fit...") is not None
+    peaks_menu = _submenu(analysis, "Peaks and Baseline")
+    assert _menu_action(peaks_menu, "Peak Metrics (FWHM / Area)...") is not None
+    assert _menu_action(peaks_menu, "Signal Quality (SNR / Noise floor)...") is not None
+    assert _menu_action(peaks_menu, "Enable Peak Detection") is not None
 
     for text in ("Error Bar Plot...", "Fill Between (band)...", "Add Secondary Y Axis...", "Broken Axis..."):
         assert _menu_action(plot, text) is not None
@@ -365,9 +370,10 @@ def test_analysis_menu_origin_sections_expose_working_signal_actions(win, monkey
         "Descriptive Statistics...",
         "Covariance Matrix...",
         "Correlation Matrix...",
-        "Signal Quality (SNR / Noise floor)...",
     ):
         assert _menu_action(statistics, text) is not None
+    # Signal Quality lives in exactly one place: Peaks and Baseline
+    assert _menu_action(peaks, "Signal Quality (SNR / Noise floor)...") is not None
     for title in ("Smooth", "FFT", "Wavelet", "Correlation"):
         assert _submenu(signal, title) is not None
     for text in (
@@ -414,6 +420,69 @@ def test_two_row_toolbar_decimation_action_executes(win, monkeypatch):
     assert len(win._datasets["Decimation_signal"]["df"]) == 8
 
 
+def test_smooth_menu_action_shows_new_column_on_worksheet(win, monkeypatch):
+    # Regression: Smooth (and every column-adding transform) updated only the
+    # hidden DataFrame/cbY combo — the visible worksheet never changed, so to
+    # the user the Smooth function "did nothing at all".
+    _seed_science_book(win)
+    calls = _install_nonblocking_ui(win, monkeypatch)
+    analysis = _top_menu(win, "Analysis")
+    smooth_menu = _submenu(_submenu(analysis, "Signal Processing"), "Smooth")
+
+    _menu_action(smooth_menu, "Smooth (Savitzky-Golay/Median/Gaussian)...").trigger()
+
+    assert calls["errors"] == []
+    assert "signal_savgol" in win._df.columns
+    # the Origin Book (what the user actually sees) must show the new column
+    sheet_cols = [str(c) for c in win.workbook.source_df.columns]
+    assert "signal_savgol" in sheet_cols
+    assert win.workbook.table.columnCount() == len(win._df.columns)
+
+    _seed_science_book(win)
+    _menu_action(smooth_menu, "Moving Average").trigger()
+    assert calls["errors"] == []
+    ma_cols = [c for c in win.workbook.source_df.columns if "signal" in str(c) and c != "signal"]
+    assert ma_cols, list(win.workbook.source_df.columns)
+
+
+def test_merge_by_timestamp_handles_mixed_datetime_resolutions(win, monkeypatch):
+    # Regression: pandas 2.x can parse the two Books' time columns at different
+    # datetime64 resolutions (ns vs s); merge_asof then failed with
+    # "incompatible merge keys" and the action died in an error box.
+    calls = _install_nonblocking_ui(win, monkeypatch)
+    left = pd.DataFrame(
+        {
+            "time": ["2026-01-01 00:00:00", "2026-01-01 00:00:10", "2026-01-01 00:00:20"],
+            "a": [1.0, 2.0, 3.0],
+        }
+    )
+    win._df = left.copy()
+    win.workbook.set_dataframe(win._df)
+    win.workbook.dataset_name = "Book1"
+    win.load_columns_from_df()
+    right = pd.DataFrame(
+        {
+            "time": np.array(
+                ["2026-01-01T00:00:03", "2026-01-01T00:00:12", "2026-01-01T00:00:19"],
+                dtype="datetime64[s]",
+            ),
+            "b": [10.0, 20.0, 30.0],
+        }
+    )
+    win._datasets["Right"] = {"df": right, "path": None}
+
+    analysis = _top_menu(win, "Analysis")
+    manipulation = _submenu(analysis, "Data Manipulation")
+    _menu_action(manipulation, "Merge by Timestamp...").trigger()
+
+    assert calls["errors"] == [], calls["errors"]
+    merged_books = [name for name in win._datasets if name.startswith("TimeMerge_")]
+    assert merged_books, list(win._datasets)
+    merged = win._datasets[merged_books[0]]["df"]
+    assert "b" in merged.columns
+    assert len(merged) == 3
+
+
 def test_two_row_toolbar_new_core_actions_execute(win, monkeypatch, tmp_path):
     _seed_science_book(win, rows=24)
     win._datasets["Other"] = {
@@ -449,17 +518,19 @@ def test_analysis_menu_statistics_and_quality_actions_execute_from_menu(win, mon
     calls = _install_nonblocking_ui(win, monkeypatch)
     analysis = _top_menu(win, "Analysis")
 
-    for text in (
-        "Descriptive Statistics...",
-        "Covariance Matrix...",
-        "Peak Metrics (FWHM / Area)...",
-        "Signal Quality (SNR / Noise floor)...",
+    statistics = _submenu(analysis, "Statistics")
+    peaks = _submenu(analysis, "Peaks and Baseline")
+    for menu, text in (
+        (statistics, "Descriptive Statistics..."),
+        (statistics, "Covariance Matrix..."),
+        (peaks, "Peak Metrics (FWHM / Area)..."),
+        (peaks, "Signal Quality (SNR / Noise floor)..."),
     ):
         # a result Book becomes the active Book when it opens (multi-book
         # contract), so re-activate the science data before each analysis —
         # same as a user clicking their data Book first
         _seed_science_book(win)
-        _menu_action(analysis, text).trigger()
+        _menu_action(menu, text).trigger()
 
     assert calls["errors"] == []
     # new UX: each analysis opens an Origin-style result Book (not a message box)
@@ -475,7 +546,7 @@ def test_analysis_crosscorr_and_peak_menu_actions_smoke(win):
     _seed_science_book(win)
     analysis = _top_menu(win, "Analysis")
     cc_menu = _submenu(analysis, "Cross-Correlation")
-    pk_menu = _submenu(analysis, "Peak Detection")
+    pk_menu = _submenu(analysis, "Peaks and Baseline")
 
     _menu_action(cc_menu, "Enable Multi-Cursor Mode").trigger()
     _menu_action(cc_menu, "Link Axes by X-Time").trigger()
@@ -587,7 +658,7 @@ def test_analysis_submenu_actions_execute_from_menu(win, monkeypatch, tmp_path):
 
     analysis = _top_menu(win, "Analysis")
     cc_menu = _submenu(analysis, "Cross-Correlation")
-    pk_menu = _submenu(analysis, "Peak Detection")
+    pk_menu = _submenu(analysis, "Peaks and Baseline")
 
     _menu_action(cc_menu, "Window...").trigger()
     assert not win.ccDock.isHidden()
