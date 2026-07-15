@@ -433,10 +433,192 @@ def test_app_tools_fit_curve_returns_params_and_r2():
     assert "linear" in out.lower()
 
 
+def test_app_tools_fit_curve_supports_uncertainty_weighting_and_metrics():
+    import numpy as np
+
+    x = np.arange(6.0)
+    y = 2.0 * x + 1.0
+    y[-1] = 30.0
+    df = pd.DataFrame(
+        {
+            "x": x,
+            "y": y,
+            "uncertainty": [0.1, 0.1, 0.1, 0.1, 0.1, 100.0],
+        }
+    )
+    reg = build_app_registry(_FakeWindow(df))
+
+    out = reg.execute(
+        "fit_curve",
+        {
+            "model": "linear",
+            "x_column": "x",
+            "y_column": "y",
+            "weight_column": "uncertainty",
+            "weighting": "sigma",
+        },
+    )
+
+    assert "Weighted fit 'linear'" in out
+    assert "m=2" in out
+    assert "chi^2_red" in out
+    assert "95% CI available" in out
+
+
 def test_app_tools_fit_curve_needs_two_numeric_columns():
     reg = build_app_registry(_FakeWindow(pd.DataFrame({"only": [1, 2, 3]})))
     out = reg.execute("fit_curve", {"model": "linear"})
     assert "two numeric columns" in out.lower()
+
+
+def test_app_tools_gas_live_control_is_non_modal_and_reports_actions():
+    class GasWindow(_FakeWindow):
+        def __init__(self):
+            super().__init__(pd.DataFrame({"x": [1.0]}))
+            self.live_calls = []
+
+        def gs_live_status(self):
+            return {
+                "connected": True,
+                "port": "COM7",
+                "baud": 115200,
+                "samples": 25,
+                "sample_rate_hz": 10.0,
+                "parse_errors": 1,
+                "book": "Live Gas Test",
+            }
+
+        def gs_live_connect(self, port, baud):
+            self.live_calls.append(("connect", port, baud))
+            return True, f"Connected to {port} @ {baud}"
+
+        def gs_live_disconnect(self):
+            self.live_calls.append(("disconnect",))
+            return True, "Disconnected by user"
+
+        def gs_live_mark(self, state, label=""):
+            self.live_calls.append(("mark", state, label))
+            return True, f"Marked gas {state.upper()}"
+
+    window = GasWindow()
+    reg = build_app_registry(window)
+
+    assert "25" in reg.execute("gas_live_control", {"action": "status"})
+    assert "Connected" in reg.execute(
+        "gas_live_control", {"action": "connect", "port": "COM7", "baud": 115200}
+    )
+    assert "Marked gas ON" in reg.execute(
+        "gas_live_control", {"action": "mark_on", "label": "ethanol"}
+    )
+    assert "Disconnected" in reg.execute("gas_live_control", {"action": "disconnect"})
+    assert window.live_calls == [
+        ("connect", "COM7", 115200),
+        ("mark", "on", "ethanol"),
+        ("disconnect",),
+    ]
+
+
+def test_app_tools_gas_live_control_supports_ni_daq_without_modal():
+    class DaqWindow(_FakeWindow):
+        def __init__(self):
+            super().__init__(pd.DataFrame({"x": [1.0]}))
+            self.daq_calls = []
+
+        def gs_live_status(self):
+            return {
+                "transport": "ni_daq",
+                "connected": True,
+                "device": "Dev1",
+                "channels": ["Dev1/ai0"],
+                "configured_rate_hz": 20.0,
+                "sample_rate_hz": 19.8,
+                "samples": 100,
+                "acquisition_errors": 0,
+                "book": "Live Gas DAQ",
+            }
+
+        def gs_live_connect_daq(self, *args):
+            self.daq_calls.append(args)
+            return True, "Connected to Dev1"
+
+    window = DaqWindow()
+    reg = build_app_registry(window)
+    status = reg.execute("gas_live_control", {"action": "status"})
+    assert "transport=ni_daq" in status and "Dev1/ai0" in status and "100" in status
+    result = reg.execute("gas_live_control", {
+        "action": "connect",
+        "transport": "ni_daq",
+        "device": "Dev1",
+        "channel": "Dev1/ai0",
+        "sample_rate_hz": 20,
+        "min_voltage": -10,
+        "max_voltage": 10,
+        "terminal_config": "DIFFERENTIAL",
+    })
+    assert result == "Connected to Dev1"
+    assert window.daq_calls == [
+        ("Dev1", "Dev1/ai0", 20.0, -10.0, 10.0, "DIFFERENTIAL")
+    ]
+
+
+def test_app_tools_gas_live_control_configures_visual_flow_non_modally():
+    class FlowWindow(_FakeWindow):
+        def __init__(self):
+            super().__init__(pd.DataFrame({"x": [1.0]}))
+            self.flow_updates = []
+
+        def gs_live_flow_status(self):
+            return {
+                "running": False,
+                "summary": "input → voltage_to_resistance → live_book → rolling_graph",
+                "wiring": [["source", "divider"], ["divider", "book"], ["book", "graph"]],
+            }
+
+        def gs_live_configure_flow(self, config=None, **updates):
+            self.flow_updates.append((config, updates))
+            return True, "input → voltage_to_resistance → moving_average → live_book"
+
+        def gs_live_configure_wiring(self, edges):
+            self.flow_updates.append(("wiring", edges))
+            return True, "Flow wiring updated"
+
+    window = FlowWindow()
+    reg = build_app_registry(window)
+    assert "voltage_to_resistance" in reg.execute(
+        "gas_live_control", {"action": "flow_status"}
+    )
+    result = reg.execute("gas_live_control", {
+        "action": "configure_flow",
+        "preset": "smoothed",
+        "supply_voltage_v": 5.0,
+        "reference_resistance_ohm": 10_000,
+        "smoothing_window": 7,
+    })
+    assert "moving_average" in result
+    assert window.flow_updates == [(None, {
+        "voltage_to_resistance": True,
+        "smoothing": True,
+        "smoothing_field": "resistance_ohm",
+        "supply_voltage_v": 5.0,
+        "reference_resistance_ohm": 10_000,
+        "smoothing_window": 7,
+    })]
+    sensors = [
+        {"source_field": "ai0_voltage_v", "alias": "MQ-2 A"},
+        {"source_field": "ai1_voltage_v", "alias": "MQ-135 B", "smoothing": True},
+    ]
+    reg.execute("gas_live_control", {
+        "action": "configure_flow", "sensor_channels": sensors,
+    })
+    assert window.flow_updates[-1] == (None, {"sensor_channels": sensors})
+    wiring_result = reg.execute("gas_live_control", {
+        "action": "configure_wiring",
+        "edges": "source>book,book>graph",
+    })
+    assert wiring_result == "Flow wiring updated"
+    assert window.flow_updates[-1] == (
+        "wiring", [["source", "book"], ["book", "graph"]]
+    )
 
 
 def test_app_tools_open_file_loads_into_book(tmp_path):

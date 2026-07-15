@@ -501,6 +501,137 @@ def _tool_active_book(window, _args: Dict[str, Any]) -> str:
     return f"Active Book: {name}" if name else "No active Book."
 
 
+def _tool_gas_live_control(window, args: Dict[str, Any]) -> str:
+    action = str(args.get("action", "status") or "status").strip().lower()
+    try:
+        if action == "flow_status":
+            getter = getattr(window, "gs_live_flow_status", None)
+            if not callable(getter):
+                return "Gas visual acquisition flow is unavailable."
+            status = getter()
+            state = "running" if status.get("running") else "ready"
+            wiring = status.get("wiring", [])
+            return (
+                f"Gas visual flow is {state}: {status.get('summary', '-')}; "
+                f"wires={wiring}"
+            )
+        if action == "configure_wiring":
+            configure = getattr(window, "gs_live_configure_wiring", None)
+            if not callable(configure):
+                return "Gas visual acquisition wiring is unavailable."
+            edges = args.get("edges")
+            if isinstance(edges, str):
+                parsed = []
+                for item in edges.split(","):
+                    parts = item.replace("->", ">").split(">")
+                    if len(parts) == 2:
+                        parsed.append([parts[0].strip(), parts[1].strip()])
+                edges = parsed
+            if not isinstance(edges, (list, tuple)):
+                return "Provide flow 'edges' as pairs or source>target comma-separated text."
+            ok, message = configure(edges)
+            return message if ok else f"Could not configure gas flow wiring: {message}"
+        if action == "configure_flow":
+            configure = getattr(window, "gs_live_configure_flow", None)
+            if not callable(configure):
+                return "Gas visual acquisition flow is unavailable."
+            preset = str(args.get("preset", "") or "").strip().lower()
+            updates: Dict[str, Any] = {}
+            if preset in {"raw", "voltage"}:
+                updates.update(voltage_to_resistance=False, smoothing=False)
+            elif preset in {"resistance", "voltage_to_resistance"}:
+                updates.update(voltage_to_resistance=True, smoothing=False)
+            elif preset in {"smoothed", "resistance_smoothed"}:
+                updates.update(
+                    voltage_to_resistance=True,
+                    smoothing=True,
+                    smoothing_field="resistance_ohm",
+                )
+            elif preset:
+                return "Unknown flow preset. Use raw, resistance, or smoothed."
+            for key in (
+                "voltage_to_resistance", "voltage_field", "supply_voltage_v",
+                "reference_resistance_ohm", "divider_topology", "smoothing",
+                "smoothing_field", "smoothing_window", "sensor_channels",
+            ):
+                if key in args:
+                    updates[key] = args[key]
+            ok, message = configure(None, **updates)
+            return message if ok else f"Could not configure gas visual flow: {message}"
+        if action == "status":
+            getter = getattr(window, "gs_live_status", None)
+            if not callable(getter):
+                return "Gas live acquisition is unavailable."
+            status = getter()
+            state = "connected" if status.get("connected") else "disconnected"
+            transport = str(status.get("transport", "serial"))
+            if transport == "ni_daq":
+                channels = ",".join(str(value) for value in status.get("channels", [])) or "-"
+                return (
+                    f"Gas live is {state}: transport=ni_daq, "
+                    f"device={status.get('device') or '-'}, channels={channels}, "
+                    f"configured_rate={float(status.get('configured_rate_hz', 0.0)):.2f} Hz, "
+                    f"samples={status.get('samples', 0)}, "
+                    f"measured_rate={float(status.get('sample_rate_hz', 0.0)):.2f} Hz, "
+                    f"errors={status.get('acquisition_errors', 0)}, "
+                    f"book={status.get('book') or '-'}"
+                )
+            return (
+                f"Gas live is {state}: transport=serial, port={status.get('port') or '-'}, "
+                f"baud={status.get('baud', '-')}, samples={status.get('samples', 0)}, "
+                f"rate={float(status.get('sample_rate_hz', 0.0)):.2f} Hz, "
+                f"parse_errors={status.get('parse_errors', 0)}, "
+                f"book={status.get('book') or '-'}"
+            )
+        if action == "connect":
+            transport = str(args.get("transport", "serial") or "serial").strip().lower()
+            if transport in {"ni_daq", "nidaq", "daq", "ni-daq"}:
+                connector = getattr(window, "gs_live_connect_daq", None)
+                if not callable(connector):
+                    return "NI-DAQ gas live acquisition is unavailable."
+                device = str(args.get("device", "") or "").strip()
+                channel = str(args.get("channel", "") or "").strip()
+                if not device or not channel:
+                    return "Provide NI-DAQ 'device' and analog-input 'channel' to connect."
+                ok, message = connector(
+                    device,
+                    channel,
+                    float(args.get("sample_rate_hz", 10.0) or 10.0),
+                    float(args.get("min_voltage", 0.0)),
+                    float(args.get("max_voltage", 5.0)),
+                    str(args.get("terminal_config", "RSE") or "RSE"),
+                )
+                return message if ok else f"Could not connect NI-DAQ gas live: {message}"
+            connector = getattr(window, "gs_live_connect", None)
+            if not callable(connector):
+                return "Gas live acquisition is unavailable."
+            port = str(args.get("port", "") or "").strip()
+            if not port:
+                return "Provide a serial 'port' to connect gas live acquisition."
+            ok, message = connector(port, int(args.get("baud", 115200) or 115200))
+            return message if ok else f"Could not connect gas live: {message}"
+        if action == "disconnect":
+            disconnect = getattr(window, "gs_live_disconnect", None)
+            if not callable(disconnect):
+                return "Gas live acquisition is unavailable."
+            _ok, message = disconnect()
+            return message
+        if action in {"mark_on", "mark_off"}:
+            marker = getattr(window, "gs_live_mark", None)
+            if not callable(marker):
+                return "Gas live acquisition is unavailable."
+            state = "on" if action == "mark_on" else "off"
+            ok, message = marker(state, str(args.get("label", "") or ""))
+            return message if ok else f"Could not mark gas state: {message}"
+        return (
+            "Unknown gas live action. Use status, connect, disconnect, mark_on, "
+            "mark_off, flow_status, configure_flow, or configure_wiring."
+        )
+    except Exception as exc:
+        logger.debug("gas_live_control tool failed", exc_info=True)
+        return f"Gas live control failed: {exc}"
+
+
 def _tool_list_fit_models(_window, _args: Dict[str, Any]) -> str:
     try:
         from analysis.fitting import list_available_models
@@ -526,6 +657,62 @@ def _tool_fit_curve(window, args: Dict[str, Any]) -> str:
     if x_col is None or y_col is None or x_col not in df.columns or y_col not in df.columns:
         return "Need at least two numeric columns (or pass x_column and y_column) to fit."
     try:
+        weight_column_arg = args.get("weight_column")
+        weighting = str(args.get("weighting", "none") or "none").strip().lower()
+        if weight_column_arg not in (None, "") or weighting != "none":
+            weight_col = _resolve_column_name(df, weight_column_arg)
+            if weight_col is None:
+                return "Weighted fitting needs a valid weight_column from the active Book."
+            if weighting not in {"sigma", "1/sigma^2"}:
+                return "Unknown weighting. Use 'sigma' or '1/sigma^2'."
+
+            from processors import nonlinear_fit
+
+            model_key = model.strip().lower().replace(" ", "_").replace("-", "_")
+            custom_expr = None
+            custom_params = None
+            if model_key == "linear":
+                nonlinear_model = "custom"
+                custom_expr = "m*x+b"
+                custom_params = ["m", "b"]
+            elif model_key == "exponential":
+                nonlinear_model = "custom"
+                custom_expr = "A*exp(B*x)+C"
+                custom_params = ["A", "B", "C"]
+            else:
+                nonlinear_model = {
+                    "power_law": "power",
+                }.get(model_key, model_key)
+            weighted_models = {
+                "gaussian", "lorentzian", "voigt", "logistic", "exp1",
+                "exp2", "power", "sine", "custom",
+            }
+            if nonlinear_model not in weighted_models:
+                return (
+                    "Weighted fitting supports linear, gaussian, lorentzian, voigt, "
+                    "logistic, exponential/exp1, exp2, power-law, and sine models."
+                )
+            result = nonlinear_fit(
+                df[x_col].to_numpy(),
+                df[y_col].to_numpy(),
+                nonlinear_model,
+                {},
+                sigma=df[weight_col].to_numpy(),
+                weighting=weighting,
+                custom_expr=custom_expr,
+                custom_params=custom_params,
+                calc_ci=True,
+            )
+            if not result.success:
+                return f"Could not fit: {result.message}"
+            params = ", ".join(f"{k}={v:.4g}" for k, v in result.params.items())
+            ci_text = "95% CI available" if result.ci95_lower is not None else "95% CI unavailable"
+            return (
+                f"Weighted fit '{model}' of {y_col} vs {x_col} using {weight_col} "
+                f"({weighting}): {params} (R^2 = {result.r2:.4f}, "
+                f"RMSE = {result.rmse:.4g}, chi^2_red = {result.chi2_red:.4g}; {ci_text})."
+            )
+
         from analysis.fitting import fit_curve
 
         result = fit_curve(df[x_col].to_numpy(), df[y_col].to_numpy(), model)
@@ -1287,6 +1474,41 @@ def build_app_registry(window) -> ToolRegistry:
         lambda args: _tool_active_book(window, args),
     )
     registry.add(
+        "gas_live_control",
+        "Control receive-only Serial or NI-DAQmx gas-sensor acquisition without dialogs. "
+        "action: status|connect|disconnect|mark_on|mark_off|flow_status|configure_flow|configure_wiring. Serial connect requires port; "
+        "NI-DAQ connect requires transport=ni_daq, device, and channel. Markers only annotate SciPlotter.",
+        {
+            "action": {"type": "string", "description": "status|connect|disconnect|mark_on|mark_off|flow_status|configure_flow|configure_wiring", "required": True},
+            "transport": {"type": "string", "description": "serial|ni_daq; default serial", "required": False},
+            "port": {"type": "string", "description": "serial port for connect", "required": False},
+            "baud": {"type": "number", "description": "baud rate; default 115200", "required": False},
+            "device": {"type": "string", "description": "NI-DAQ device, for example Dev1", "required": False},
+            "channel": {"type": "string", "description": "one or more comma-separated NI analog-input channels, for example Dev1/ai0,Dev1/ai1", "required": False},
+            "sample_rate_hz": {"type": "number", "description": "NI-DAQ rate from 1 to 20 Hz", "required": False},
+            "min_voltage": {"type": "number", "description": "NI-DAQ input minimum voltage", "required": False},
+            "max_voltage": {"type": "number", "description": "NI-DAQ input maximum voltage", "required": False},
+            "terminal_config": {"type": "string", "description": "RSE|DIFFERENTIAL|NRSE", "required": False},
+            "label": {"type": "string", "description": "optional exposure marker label", "required": False},
+            "preset": {"type": "string", "description": "visual flow preset: raw|resistance|smoothed", "required": False},
+            "voltage_to_resistance": {"type": "boolean", "description": "enable voltage-divider conversion", "required": False},
+            "voltage_field": {"type": "string", "description": "flow input voltage field; blank auto-detects", "required": False},
+            "supply_voltage_v": {"type": "number", "description": "voltage-divider supply voltage", "required": False},
+            "reference_resistance_ohm": {"type": "number", "description": "known divider resistor in ohms", "required": False},
+            "divider_topology": {"type": "string", "description": "sensor_high|sensor_low", "required": False},
+            "smoothing": {"type": "boolean", "description": "enable moving-average node", "required": False},
+            "smoothing_field": {"type": "string", "description": "moving-average input field", "required": False},
+            "smoothing_window": {"type": "number", "description": "moving-average window in samples", "required": False},
+            "sensor_channels": {
+                "type": "array",
+                "description": "independent sensor mappings with source_field, alias, voltage_to_resistance, supply_voltage_v, reference_resistance_ohm, divider_topology, smoothing, and smoothing_window",
+                "required": False,
+            },
+            "edges": {"type": "array", "description": "flow wire pairs, e.g. [[source,divider],[divider,book],[book,graph]]", "required": False},
+        },
+        lambda args: _tool_gas_live_control(window, args),
+    )
+    registry.add(
         "list_fit_models",
         "List the curve-fit models available (linear, exponential, gaussian, ...).",
         {},
@@ -1296,11 +1518,22 @@ def build_app_registry(window) -> ToolRegistry:
         "fit_curve",
         "Fit a curve to the active data and return the parameters and R-squared. "
         "'model' is a fit model name; x_column/y_column are optional (default: first "
-        "two numeric columns).",
+        "two numeric columns). For weighted fitting, pass weight_column and weighting "
+        "as 'sigma' (absolute uncertainty) or '1/sigma^2' (inverse-variance weights).",
         {
             "model": {"type": "string", "description": "fit model name", "required": True},
             "x_column": {"type": "string", "description": "x column name", "required": False},
             "y_column": {"type": "string", "description": "y column name", "required": False},
+            "weight_column": {
+                "type": "string",
+                "description": "column containing absolute uncertainty or inverse-variance weights",
+                "required": False,
+            },
+            "weighting": {
+                "type": "string",
+                "description": "none|sigma|1/sigma^2",
+                "required": False,
+            },
         },
         lambda args: _tool_fit_curve(window, args),
     )

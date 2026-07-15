@@ -20,6 +20,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
+For NI USB DAQ live acquisition, install the NI-DAQmx driver, verify the device
+in NI MAX, and install the Python adapter (`pip install nidaqmx`). SciPlotter
+still starts normally when NI-DAQmx is unavailable; only the NI-DAQ source is disabled.
+
+Gas Sensor Live also includes a non-modal Visual Acquisition Flow designer:
+drag the Serial/NI-DAQ input, Voltage Divider, Moving Average, Live Book, and
+Rolling Graph nodes; drag output ports onto input ports to rewire the validated
+acyclic pipeline. Enabled processors on the Book/Graph path add derived columns
+to every acquired sample. NI-DAQ Live can select multiple analog-input channels.
+In the Flow inspector, add a Sensor Channel for each input to give it a readable
+name and independent divider/smoothing settings. The Live monitor can Ctrl-click
+up to eight signals and draws them together while the Book retains every raw and
+derived column.
+
 
 ## ✨ ฟีเจอร์หลัก
 

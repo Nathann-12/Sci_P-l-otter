@@ -1,4 +1,5 @@
 PySide6==6.8.3
+nidaqmx>=0.9  # optional at runtime; required for NI USB DAQ live acquisition
 matplotlib>=3.8.0
 pandas>=2.2.0
 numpy>=1.26.0

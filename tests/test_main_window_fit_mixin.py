@@ -129,6 +129,67 @@ def test_do_curve_fit_sine_model_returns_overlay_points(qapp):
     assert "rmse" in metrics
 
 
+def test_nonlinear_dialog_weight_mode_controls_row_filtering(qapp, monkeypatch):
+    window = DummyFitWindow()
+    dataframe = pd.DataFrame(
+        {
+            "x": [0.0, 1.0, 2.0, 3.0],
+            "y": [1.0, 3.0, 5.0, 7.0],
+            "weight": [4.0, np.nan, 4.0, 4.0],
+        }
+    )
+    dialog = dialogs_fit.NonlinearFitDialog(window, dataframe)
+    dialog.cb_x.setCurrentText("x")
+    dialog.cb_y.setCurrentText("y")
+    dialog.cb_sigma.setCurrentIndex(dialog.cb_sigma.findData("weight"))
+
+    x_none, y_none, aux_none = dialog._prepare_arrays("none")
+    x_weighted, y_weighted, weights = dialog._prepare_arrays("1/sigma^2")
+
+    np.testing.assert_allclose(x_none, [0.0, 1.0, 2.0, 3.0])
+    np.testing.assert_allclose(y_none, [1.0, 3.0, 5.0, 7.0])
+    assert aux_none is None
+    np.testing.assert_allclose(x_weighted, [0.0, 2.0, 3.0])
+    np.testing.assert_allclose(y_weighted, [1.0, 5.0, 7.0])
+    np.testing.assert_allclose(weights, [4.0, 4.0, 4.0])
+
+    captured = {}
+
+    def fake_nonlinear_fit(x, y, model_name, init_params, **kwargs):
+        captured.update(
+            x=np.asarray(x),
+            y=np.asarray(y),
+            sigma=np.asarray(kwargs["sigma"]),
+            weighting=kwargs["weighting"],
+        )
+        return FitResult(
+            params={"A": 1.0},
+            stderr={"A": 0.1},
+            cov=np.array([[0.01]]),
+            success=True,
+            message="OK",
+            r2=0.99,
+            rmse=0.01,
+            chi2_red=1.05,
+            aic=1.0,
+            bic=2.0,
+            yfit=np.asarray(y),
+            ci95_lower=np.asarray(y) - 0.1,
+            ci95_upper=np.asarray(y) + 0.1,
+        )
+
+    monkeypatch.setattr(dialogs_fit, "nonlinear_fit", fake_nonlinear_fit)
+    dialog.weight_combo.setCurrentIndex(dialog.weight_combo.findData("1/sigma^2"))
+    dialog._perform_fit()
+
+    assert captured["weighting"] == "1/sigma^2"
+    np.testing.assert_allclose(captured["sigma"], [4.0, 4.0, 4.0])
+    assert dialog._weighting_used == "1/sigma^2"
+    assert dialog._weight_column_used == "weight"
+    assert "Inverse-variance weight" in dialog.stats_label.text()
+    assert dialog.btn_overlay.isEnabled()
+
+
 def test_plot_fit_overlay_adds_annotation_and_status(qapp):
     window = DummyFitWindow()
 

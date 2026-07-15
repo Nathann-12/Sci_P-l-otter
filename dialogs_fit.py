@@ -61,8 +61,8 @@ POSITIVE_DEFAULT_MIN = {"sigma", "gamma", "tau", "tau1", "tau2"}
 
 WEIGHTING_ITEMS: List[Tuple[str, str]] = [
     ("None", "none"),
-    ("Sigma (std dev)", "sigma"),
-    ("1 / sigma^2", "1/sigma^2"),
+    ("Uncertainty σ (absolute)", "sigma"),
+    ("Inverse-variance weight (1/σ²)", "1/sigma^2"),
 ]
 
 MODEL_DEFAULT_FIELDS: Dict[str, Dict[str, Dict[str, float]]] = {
@@ -141,6 +141,8 @@ class NonlinearFitDialog(QDialog):
         self._x_used: Optional[np.ndarray] = None
         self._y_used: Optional[np.ndarray] = None
         self._sigma_used: Optional[np.ndarray] = None
+        self._weighting_used = "none"
+        self._weight_column_used: Optional[str] = None
         self.setWindowTitle("Nonlinear Curve Fit")
         self.resize(840, 680)
         self._build_ui()
@@ -196,7 +198,11 @@ class NonlinearFitDialog(QDialog):
 
         columns_form.addRow(_label("X column:"), self.cb_x)
         columns_form.addRow(_label("Y column:"), self.cb_y)
-        columns_form.addRow(_label("Y error column:"), self.cb_sigma)
+        self.cb_sigma.setToolTip(
+            "Choose a column containing either absolute uncertainty σ or "
+            "inverse-variance weights; select its meaning under Weighting."
+        )
+        columns_form.addRow(_label("Uncertainty / weight:"), self.cb_sigma)
         content_layout.addWidget(columns_box)
 
         # --- Model configuration ---
@@ -393,17 +399,18 @@ class NonlinearFitDialog(QDialog):
         data = data.dropna(subset=['x', 'y'])
         return data['x'].to_numpy(dtype=float), data['y'].to_numpy(dtype=float)
 
-    def _prepare_arrays(self) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
-        data = self._assemble_dataframe(include_sigma=True)
+    def _prepare_arrays(self, weighting: str = 'none') -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        use_weighting = weighting in {'sigma', '1/sigma^2'}
+        data = self._assemble_dataframe(include_sigma=use_weighting)
         if data is None:
             return np.array([]), np.array([]), None
         mask = data[['x', 'y']].notna().all(axis=1)
-        if 'sigma' in data:
+        if use_weighting and 'sigma' in data:
             mask &= data['sigma'].notna() & (data['sigma'] > 0)
         data = data.loc[mask]
         x_vals = data['x'].to_numpy(dtype=float)
         y_vals = data['y'].to_numpy(dtype=float)
-        sigma_vals = data['sigma'].to_numpy(dtype=float) if 'sigma' in data else None
+        sigma_vals = data['sigma'].to_numpy(dtype=float) if use_weighting and 'sigma' in data else None
         return x_vals, y_vals, sigma_vals
 
     def _update_auto_guesses(self) -> None:
@@ -451,13 +458,13 @@ class NonlinearFitDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, "เตือน", str(exc))
             return
-        x_vals, y_vals, sigma_vals = self._prepare_arrays()
+        weighting_key = self.weight_combo.currentData()
+        if self.cb_sigma.currentData() is None:
+            weighting_key = 'none'
+        x_vals, y_vals, sigma_vals = self._prepare_arrays(weighting_key)
         if not len(x_vals):
             QMessageBox.warning(self, "เตือน", "ไม่มีข้อมูลสำหรับการฟิต")
             return
-        weighting_key = self.weight_combo.currentData()
-        if sigma_vals is None:
-            weighting_key = 'none'
         try:
             result = nonlinear_fit(
                 x_vals,
@@ -478,6 +485,8 @@ class NonlinearFitDialog(QDialog):
         self._x_used = x_vals
         self._y_used = y_vals
         self._sigma_used = sigma_vals
+        self._weighting_used = str(weighting_key)
+        self._weight_column_used = self.cb_sigma.currentData() if sigma_vals is not None else None
         self._fill_table(result)
         self._update_stats(result)
         self.btn_overlay.setEnabled(result.success)
@@ -497,6 +506,12 @@ class NonlinearFitDialog(QDialog):
 
     def _update_stats(self, res: FitResult) -> None:
         lines = [f"<b>สถานะ:</b> {'สำเร็จ' if res.success else 'ล้มเหลว'}"]
+        weighting_label = {
+            "none": "None",
+            "sigma": "Uncertainty σ (absolute)",
+            "1/sigma^2": "Inverse-variance weight (1/σ²)",
+        }.get(self._weighting_used, self._weighting_used)
+        lines.append(f"<b>Weighting:</b> {weighting_label}")
         lines.append(f"<b>R²:</b> {_format_float(res.r2)}")
         lines.append(f"<b>RMSE:</b> {_format_float(res.rmse)}")
         lines.append(f"<b>χ²_red:</b> {_format_float(res.chi2_red)}")
@@ -528,6 +543,8 @@ class NonlinearFitDialog(QDialog):
             "model": self.model_combo.currentText(),
             "model_key": self._current_model_key,
             "custom_expr": self.custom_expr_edit.text().strip() if self._current_model_key == 'custom' else None,
+            "weighting": self._weighting_used,
+            "weight_column": self._weight_column_used,
             "params": self._last_result.params,
             "stderr": self._last_result.stderr,
             "metrics": {
@@ -552,6 +569,8 @@ class NonlinearFitDialog(QDialog):
             f"โมเดล: {payload['model']} ({payload['model_key']})",
             f"สถานะ: {'สำเร็จ' if self._last_result.success else 'ล้มเหลว'}",
             f"ข้อความ: {self._last_result.message}",
+            f"Weighting: {self._weighting_used}",
+            f"Weight column: {self._weight_column_used or '-'}",
             "",
             "ค่าพารามิเตอร์:",
         ]

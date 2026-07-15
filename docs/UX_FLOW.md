@@ -32,6 +32,8 @@
 | จัดการหน้าต่าง Book/Graph | Project Explorer (parked side tab ซ้าย) + เมนู Window (Cascade/Tile) |
 | การแปลง/ทำความสะอาดข้อมูล | เมนู Process (Data Cleaning / Filters / FFT / PSD) |
 | สถิติ/วิเคราะห์/fit | เมนู **Analysis** → Statistics / Mathematics / Data Manipulation / Fitting / Signal Processing / Peaks and Baseline |
+| รับข้อมูล Gas Sensor จาก ESP32/NI USB DAQ | **Modules → Gas Sensor → Live** → เลือก Serial (COM/baud) หรือ NI-DAQmx (device/AI channels หลายช่อง/rate/range/terminal) แล้ว Connect; ได้ Live Book + Graph ใหม่อัตโนมัติ |
+| สร้าง pipeline รับข้อมูลแบบ LabVIEW | **Modules → Gas Sensor → Visual Acquisition Flow…** → เลือก preset/ตั้ง Voltage Divider และ Moving Average; ถ้ามีหลายตัวให้เพิ่ม Sensor Channel พร้อมชื่อและสูตรของแต่ละช่อง → กลับไป Live แล้ว Connect; raw + derived columns ลง Book จริง |
 | จัดการ Layers ของกราฟ | Inspector ขวา (ของเสริม — toggle จาก toolbar/View) |
 
 ## กติกาสำหรับฟีเจอร์ใหม่ (บังคับ)
@@ -45,6 +47,8 @@
 6. **โมดูลเฉพาะทาง (Gas Sensor ฯลฯ)** = activity ใหม่ใน activity rail แบบ module dock
    (`SP` header, `MODULES`, scrollable module cards, future slot); rail/context ต้องซ่อนตอน startup แม้มี context ลงทะเบียนแล้ว และเปิดแบบ explicit ผ่าน `AppShell.show_activity_context(...)`
 7. **Project Explorer / Messages Log / AI Assistant** = parked side tabs ซ้ายสุดแบบเก็บข้างได้ ไม่ใช่ bottom dock; collapsed width = 24px; tab ใหม่ที่เป็น utility/future AI panel ให้ลงผ่าน `AppShell.add_side_panel(...)`
+8. **Gas Sensor Live** = เลือก source เป็น Serial JSON Lines/CSV header หรือ NI-DAQmx analog input; ทุก sample ลง Live Book, เลือกหลายสัญญาณด้วย Ctrl-click เพื่อดู rolling Graph ร่วมกันได้สูงสุด 8 เส้น และ Gas ON/OFF marker เป็น annotation ในแอป ไม่ใช่คำสั่งควบคุมอุปกรณ์
+9. **Visual Acquisition Flow** = config/wiring ต้อง valid ก่อน Connect; ลากจาก port ขวาไป port ซ้ายเพื่อ rewire, double-click สายเพื่อลบ, Auto Wire คืนเส้นทางมาตรฐาน; Sensor Channels ตั้ง alias, divider และ smoothing แยกต่อ input โดยไม่ลบคอลัมน์ดิบ; ระหว่าง acquisition ลาก/ดู node ได้แต่แก้ processor/wiring ไม่ได้ เพื่อรักษา schema ของ Live Book
 
 ## หมายเหตุทางเทคนิค (สำหรับคนแก้โค้ด)
 

@@ -253,6 +253,7 @@ class MainWindowAIMixin:
             "summarize_data": "Analyzing active data",
             "describe_data": "Describing data",
             "fit_curve": "Fitting curve",
+            "gas_live_control": "Controlling gas live acquisition",
             "detect_peaks": "Finding peaks",
             "run_fft": "Running FFT",
             "open_file": "Opening file",

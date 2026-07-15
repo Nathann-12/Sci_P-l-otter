@@ -791,6 +791,12 @@ def nonlinear_fit(
     calc_ci: bool = True
 ) -> FitResult:
     model_key = (model_name or '').strip().lower()
+    weighting_key = (weighting or 'none').strip().lower()
+    valid_weighting = {'none', 'sigma', '1/sigma^2'}
+    if weighting_key not in valid_weighting:
+        raise ValueError(f'ไม่รองรับวิธี weighting: {weighting}')
+    if weighting_key != 'none' and sigma is None:
+        raise ValueError('ต้องระบุคอลัมน์ uncertainty/weight เมื่อเปิดใช้ weighting')
     registry = dict(_MODEL_REGISTRY)
     if model_key == 'custom':
         if not custom_expr or not custom_params:
@@ -815,7 +821,11 @@ def nonlinear_fit(
         y_arr = np.asarray(y_arr).reshape(-1)
     mask = mask_x & mask_y
     sigma_arr = None
-    if sigma is not None:
+    # A selected auxiliary column must have no effect in unweighted mode.  In
+    # particular, its missing values must not silently discard otherwise valid
+    # X/Y rows.  The UI can keep the column selected while the user chooses
+    # "None", so only parse and mask it when weighting is actually enabled.
+    if sigma is not None and weighting_key != 'none':
         sigma_raw = np.asarray(sigma).ravel()
         if sigma_raw.size != x_raw.size:
             raise ValueError('จำนวนค่าความคลาดเคลื่อนไม่ตรงกับข้อมูล')
@@ -823,7 +833,7 @@ def nonlinear_fit(
         mask &= mask_sigma
     mask &= np.isfinite(x_arr) & np.isfinite(y_arr)
     if sigma_arr is not None:
-        if weighting in ('sigma', '1/sigma^2'):
+        if weighting_key in ('sigma', '1/sigma^2'):
             mask &= sigma_arr > 0
         mask &= np.isfinite(sigma_arr)
 
@@ -873,14 +883,19 @@ def nonlinear_fit(
     sigma_for_metrics = None
     absolute_sigma = False
     if sigma_valid is not None and sigma_valid.size:
-        sigma_for_metrics = sigma_valid
-        if weighting == 'sigma':
-            sigma_curve = sigma_valid
-            absolute_sigma = True
-        elif weighting == '1/sigma^2':
-            sigma_curve = np.sqrt(1.0 / np.clip(sigma_valid, 1e-12, None))
-        else:
-            sigma_curve = None
+        if weighting_key == 'sigma':
+            # The column stores absolute standard uncertainty σ.  scipy uses
+            # residual / sigma internally, i.e. an inverse-variance objective.
+            effective_sigma = sigma_valid
+        elif weighting_key == '1/sigma^2':
+            # The column stores inverse-variance weights w = 1/σ².  Convert it
+            # to the sigma representation expected by scipy.curve_fit.
+            effective_sigma = 1.0 / np.sqrt(np.clip(sigma_valid, 1e-300, None))
+        else:  # guarded above, kept explicit for readability
+            effective_sigma = None
+        sigma_curve = effective_sigma
+        sigma_for_metrics = effective_sigma
+        absolute_sigma = effective_sigma is not None
     bounds_tuple = (np.array(lower_bounds, dtype=float), np.array(upper_bounds, dtype=float))
     y_init = func(x_valid, *p0)
     try:
