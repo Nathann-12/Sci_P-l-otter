@@ -19,7 +19,9 @@ pytest.importorskip("PySide6")
 import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QApplication, QTableWidgetSelectionRange, QToolBar
+from PySide6.QtWidgets import (
+    QAbstractItemView, QApplication, QTableWidgetSelectionRange, QToolBar,
+)
 
 from widgets.workbook import (
     META_ROW_COUNT,
@@ -422,3 +424,64 @@ def test_existing_workbook_item_brushes_follow_application_theme(qapp):
         apply_font(qapp, family, 10)
         apply_qss(qapp, theme_mode="dark", font_family=family, font_size=10)
         wb.close()
+
+
+def test_append_dataframe_rows_preserves_existing_cells_and_streaming_lock(qapp):
+    wb = WorkbookWidget()
+    wb.set_dataframe(pd.DataFrame({"time": [0.0, 1.0], "value": [10.0, 11.0]}))
+    first_item = wb.table.item(META_ROW_COUNT, 0)
+
+    wb.set_streaming_mode(True)
+    appended = wb.append_dataframe_rows(
+        pd.DataFrame({"time": [2.0, 3.0], "value": [12.0, 13.0]})
+    )
+
+    assert appended == 2
+    assert wb.table.item(META_ROW_COUNT, 0) is first_item
+    assert wb.data_row_count == 4
+    assert wb.table.verticalHeaderItem(META_ROW_COUNT + 3).text() == "4"
+    assert wb.source_df["value"].tolist() == [10.0, 11.0, 12.0, 13.0]
+    assert wb.table.editTriggers() == QAbstractItemView.NoEditTriggers
+
+    wb.set_streaming_mode(False)
+    assert wb.table.editTriggers() != QAbstractItemView.NoEditTriggers
+
+
+def test_append_dataframe_rows_rejects_schema_change(qapp):
+    wb = WorkbookWidget()
+    wb.set_dataframe(pd.DataFrame({"x": [1.0], "y": [2.0]}))
+    with pytest.raises(ValueError, match="match the worksheet columns"):
+        wb.append_dataframe_rows(pd.DataFrame({"x": [2.0], "z": [3.0]}))
+
+
+def test_status_message_on_designation_and_delete_without_selection(qapp):
+    # Origin-style feedback: acting with nothing selected must not be a silent
+    # no-op — the worksheet emits a status hint instead.
+    wb = WorkbookWidget()
+    wb.set_dataframe(pd.DataFrame({"x": [1.0, 2.0], "y": [3.0, 4.0]}))
+    wb.table.clearSelection()
+    wb.table.setCurrentCell(-1, -1)
+
+    messages = []
+    wb.status_message.connect(messages.append)
+
+    wb.set_selected_columns_designation("X")
+    wb.delete_selected_columns()
+    wb.delete_selected_data_rows()
+
+    assert len(messages) == 3
+    assert any("Set X" in m for m in messages)
+    assert any("column" in m.lower() for m in messages)
+    assert any("row" in m.lower() for m in messages)
+
+
+def test_columns_autosize_to_avoid_truncation(qapp):
+    # A long Long-Name must not be clipped to '...': the column widens to fit
+    # (bounded), instead of keeping the narrow 96px default.
+    wb = WorkbookWidget()
+    wb.set_dataframe(
+        pd.DataFrame({"A very descriptive long column name": [1.0, 2.0], "y": [3.0, 4.0]})
+    )
+    assert wb.table.columnWidth(0) > 96
+    # bounded so a pathological name can't blow the layout out
+    assert wb.table.columnWidth(0) <= 260

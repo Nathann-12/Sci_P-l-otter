@@ -600,19 +600,16 @@ class MainWindow(
 
         # Command palette (Ctrl+K) - searchable list of all menu/toolbar actions
         try:
-            from PySide6.QtGui import QAction, QShortcut, QKeySequence
+            from PySide6.QtGui import QShortcut, QKeySequence
             self._command_palette = CommandPalette(self)
-            _cmds = []
-            for _act in self.findChildren(QAction):
-                _txt = _act.text().replace("&", "").strip()
-                if _txt:
-                    _cmds.append((_txt, _act.trigger))
-            self._command_palette.set_commands(_cmds)
+            from PySide6.QtGui import QAction as _QA
+            self._palette_action_refs = list(self.findChildren(_QA))  # keep alive
+            self._command_palette.set_commands(self._collect_palette_commands())
             self.shell.set_command_palette(self._command_palette)
             _sc = QShortcut(QKeySequence("Ctrl+K"), self)
             _sc.activated.connect(self.shell.open_command_palette)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("command palette setup skipped", exc_info=True)
         
         # Persistent StatusBar state.
         self._sb_rows = QLabel("rows: -")
@@ -683,10 +680,53 @@ class MainWindow(
                 lambda s: self.plot_from_workbook(s, new_graph=True))
             self.workbook.overlay_requested.connect(
                 lambda s: self.plot_from_workbook(s, new_graph=False))
+            self.workbook.status_message.connect(self._show_workbook_status)
         except Exception:
             logger.debug("workbook wiring skipped", exc_info=True)
         # เผื่อ session ถูก restore แล้วมีข้อมูลอยู่ก่อน — เติมตารางครั้งแรก
         self._refresh_workbook()
+
+    def _collect_palette_commands(self):
+        """Build the Ctrl+K command list: one entry per command, tagged with the
+        menu it lives under so identically-named commands (Moving Average, FFT,
+        ...) are disambiguated instead of appearing as 5 blank duplicates."""
+        from PySide6.QtGui import QAction
+
+        def clean(text: str) -> str:
+            return (text or "").replace("&", "").replace("…", "...").strip()
+
+        by_text: dict[str, tuple[str, object]] = {}
+
+        def consider(action, context: str) -> None:
+            if action is None or action.isSeparator():
+                return
+            text = clean(action.text())
+            if not text or text in by_text:
+                return
+            label = f"{text}   ·   {context}" if context else text
+            by_text[text] = (label, action.trigger)
+
+        def walk(menu, path: str) -> None:
+            for act in menu.actions():
+                sub = act.menu()
+                if sub is not None:
+                    title = clean(sub.title())
+                    walk(sub, f"{path} › {title}" if path else title)
+                else:
+                    consider(act, path)
+
+        # 1) menus first — they carry the human-readable home/context
+        try:
+            for top in self.menuBar().actions():
+                menu = top.menu()
+                if menu is not None:
+                    walk(menu, clean(menu.title()))
+        except Exception:
+            logging.getLogger(__name__).debug("menu palette walk failed", exc_info=True)
+        # 2) any remaining toolbar/dock-only commands not already surfaced
+        for act in self.findChildren(QAction):
+            consider(act, "Toolbar")
+        return list(by_text.values())
 
     # UI-REFINE: มิเรอร์ DataFrame ปัจจุบันลง worksheet แบบ Origin
     def _refresh_workbook(self) -> None:

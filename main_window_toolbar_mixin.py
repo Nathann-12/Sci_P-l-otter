@@ -19,6 +19,40 @@ class MainWindowToolbarMixin:
 
     TOOLBAR_ICON_SIZE = 16
 
+    # --- Origin-style action enablement -----------------------------------
+    # Commands that only make sense once the active Book holds data are dimmed
+    # (disabled) until data is present; graph-only tools are dimmed until a
+    # Graph window exists. Everything else stays always-on (Open, New Graph,
+    # workflow history, settings, ...). Keyed by ``toolbar_actions`` key so the
+    # single QAction object is dimmed on every surface that hosts it.
+    _ACTIONS_NEED_DATA = frozenset({
+        "use_active_book", "reload_columns", "derived_column", "column_types",
+        "units_calibration",
+        "plot", "spectrogram",
+        "plot_line", "plot_scatter", "plot_linesymbol", "plot_bar",
+        "plot_histogram", "plot_gallery",
+        "error_bars", "fill_band", "secondary_y", "broken_axis",
+        "processors", "moving_average", "magnitude", "bangkok_time", "aggregate",
+        "fill_missing", "interpolate_missing", "remove_missing_rows",
+        "remove_duplicates", "remove_outliers", "crop_range", "normalize",
+        "detrend", "sort", "resample", "time_merge",
+        "butterworth", "smooth", "window_func", "fft", "psd", "hilbert",
+        "envelope", "instant_freq", "autocorr", "convolution", "deconvolution",
+        "decimation", "harmonic", "ifft", "stft", "zero_pad",
+        "stats", "covariance", "peak_metrics", "signal_quality", "nonlinear_fit",
+        "cc_window", "cc_compute", "cc_clear", "peak_settings", "peak_detect",
+        "peak_export", "peak_clear",
+        "dataset_duplicate", "dataset_rename", "dataset_group", "dataset_merge",
+        "dataset_split", "dataset_filter", "dataset_search",
+    })
+    _ACTIONS_NEED_GRAPH = frozenset({
+        "format_graph", "crosshair", "boxzoom", "reset_view",
+        "left_zoom_in", "left_zoom_out",
+        "export_figure", "export_data", "batch_export", "copy_graph",
+        "ann_enable", "ann_text", "ann_arrow", "ann_line", "ann_rect",
+        "ann_ellipse", "ann_callout", "ann_manage",
+    })
+
     _PLOT_BAR_SPECS = (
         ("Line", ("mdi.chart-line",), "Line plot -> new graph", "line"),
         ("Scatter", ("mdi.scatter-plot-outline", "mdi.chart-scatter-plot"),
@@ -760,6 +794,9 @@ class MainWindowToolbarMixin:
         self._create_dock_tool_groups(left, right, bottom)
 
         self._update_compact_ui()
+        # Now that every action exists on some surface, dim the ones that can't
+        # run yet and keep them in sync with Book/Graph state.
+        self._wire_action_state_updates()
         return self.side_toolbars
 
     def _mdi_slot(self, method_name: str) -> Callable:
@@ -778,3 +815,127 @@ class MainWindowToolbarMixin:
                 toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
         except Exception:
             pass
+
+    # ================= Origin-style action enablement (dim when unusable) ===
+    def _has_plot_data(self) -> bool:
+        """True when there is data to work on — either an adopted DataFrame or
+        values already typed into the active worksheet (the Origin loop lets you
+        plot straight from the sheet before clicking 'Use Active Data')."""
+        resolver = getattr(self, "_resolve_active_dataframe", None)
+        try:
+            df = resolver() if callable(resolver) else getattr(self, "_df", None)
+        except Exception:
+            df = getattr(self, "_df", None)
+        try:
+            if df is not None and not df.empty:
+                return True
+        except Exception:
+            if df is not None:
+                return True
+        wb = getattr(self, "workbook", None)
+        checker = getattr(wb, "has_data_cells", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return False
+        return False
+
+    def _has_graph_window(self) -> bool:
+        """True when at least one Graph window exists."""
+        tabs = getattr(self, "tabs", None)
+        if tabs is None:
+            return False
+        try:
+            return len(getattr(tabs, "tabs", {}) or {}) > 0
+        except Exception:
+            return False
+
+    def _set_action_enabled(self, action, enabled: bool, reason: str) -> None:
+        """Enable/disable an action, keeping a helpful tooltip when dimmed."""
+        if action is None:
+            return
+        enabled = bool(enabled)
+        try:
+            base = action.property("_baseToolTip")
+            if base is None:
+                base = action.toolTip() or action.text() or ""
+                action.setProperty("_baseToolTip", base)
+            action.setEnabled(enabled)
+            action.setToolTip(base if enabled else f"{base}  —  {reason}".strip(" —"))
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "action enablement failed", exc_info=True
+            )
+
+    def update_action_states(self) -> None:
+        """Dim toolbar commands that cannot run yet (Origin behaviour).
+
+        Data commands need an active Book with rows; graph tools need a Graph
+        window. The single QAction object is shared across the top bar and the
+        left/right/bottom docks, so dimming here dims every surface at once.
+        """
+        actions = getattr(self, "toolbar_actions", None)
+        if not actions:
+            return
+        has_data = self._has_plot_data()
+        has_graph = self._has_graph_window()
+        for key, action in actions.items():
+            if key in self._ACTIONS_NEED_DATA:
+                self._set_action_enabled(
+                    action, has_data, "Open or type data into a Book first"
+                )
+            elif key in self._ACTIONS_NEED_GRAPH:
+                self._set_action_enabled(
+                    action, has_graph, "Plot a graph first"
+                )
+
+    def _refresh_action_states(self) -> None:
+        """Guarded convenience hook callers use after state changes."""
+        fn = getattr(self, "update_action_states", None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "action state refresh failed", exc_info=True
+                )
+
+    def _wire_action_state_updates(self) -> None:
+        """Connect Graph/Book signals so dimming tracks state live."""
+        self._refresh_action_states()
+        tabs = getattr(self, "tabs", None)
+        for sig_name in ("tabCreated", "tabRemoved", "currentChanged"):
+            sig = getattr(tabs, sig_name, None)
+            if sig is not None:
+                try:
+                    sig.connect(lambda *_: self._refresh_action_states())
+                except Exception:
+                    logging.getLogger(__name__).debug(
+                        "tab signal wiring for action states failed", exc_info=True
+                    )
+        mdi = getattr(self, "mdi", None)
+        book_activated = getattr(mdi, "bookActivated", None)
+        if book_activated is not None:
+            try:
+                book_activated.connect(lambda *_: self._refresh_action_states())
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "book signal wiring for action states failed", exc_info=True
+                )
+        # Typing into the active worksheet should light up the plot bar even
+        # before 'Use Active Data' is clicked (Origin loop).
+        self._connect_workbook_state_signal(getattr(self, "workbook", None))
+
+    def _connect_workbook_state_signal(self, workbook) -> None:
+        """Re-evaluate action state whenever the worksheet's cells change."""
+        table = getattr(workbook, "table", None)
+        signal = getattr(table, "itemChanged", None)
+        if signal is not None:
+            try:
+                signal.connect(lambda *_: self._refresh_action_states())
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "workbook itemChanged wiring for action states failed",
+                    exc_info=True,
+                )

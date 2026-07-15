@@ -152,7 +152,7 @@
 - 🟡 Power law fit
 - ✅ Gaussian fit
 - 🟡 Lorentzian fit
-- ☐ Voigt fit
+- ✅ Voigt fit
 - ✅ Sine fit
 - 🟡 Damped sine fit
 - 🟡 Logistic fit
@@ -160,13 +160,13 @@
 - 🟡 Multi-peak fitting
 - ☐ Global fitting
 - 🟡 Fit constraints
-- 🟡 Fit bounds
-- ☐ Weighted fitting
+- ✅ Fit bounds
+- ✅ Weighted fitting (absolute uncertainty σ or inverse-variance weight 1/σ²)
 - 🟡 Residual plot
 - ✅ R²
 - ✅ RMSE
-- 🟡 Chi-square
-- 🟡 Confidence interval
+- ✅ Chi-square (reduced χ²)
+- ✅ Confidence interval (95% fitted-curve band + parameter standard errors)
 
 ## E. Signal Processing — 🟢 FFT/PSD/filters + signal transforms ครบชุดหลัก (เมนู Process)
 - ✅ FFT
@@ -230,14 +230,14 @@
 - 🟡 สั่งงานด้วยอังกฤษ
 - ✅ "ทำกราฟให้หน่อย" (tool `plot_columns` — deterministic ไทย/อังกฤษ, explicit X/Y, verified Graph creation)
 - ✅ แปลผล/สรุปข้อมูลจริง (tool `summarize_data` + `list_columns` + `describe_data` — shape/missing/statistics/max/correlation/prominent peaks และ XRD caveat โดยไม่พึ่งโมเดล)
-- ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve` + `list_fit_models` + `smooth_data` + `filter_signal`)
+- ✅ Fit/Smooth/Filter ผ่าน AI (tools `fit_curve`—รวม weighted fit + χ²/CI metrics—`list_fit_models` + `smooth_data` + `filter_signal`)
 - ✅ Transform/Clean ผ่าน AI (tools `moving_average` + `fill_missing` + `interpolate` + `normalize` + `detrend` + `remove_outliers` + `remove_duplicates` + `sort_data`)
 - ✅ Signal analysis ผ่าน AI ครบชุด (tools `run_fft` + `power_spectrum` + `autocorrelation` + `instantaneous_frequency` + `harmonic_analysis` + `envelope` + `signal_quality`)
 - ✅ โมดูลเฉพาะทางผ่าน AI (tools `gas_response` + `cv_peaks` + `tafel_analysis` + `raman_dg` + `normalize_spectrum` + `iv_conductivity` + `arrhenius` + `ohms_law` + `rc_time_constant` + `pendulum_gravity` — logic ใน `ai/module_tools.py`)
 - ✅ Peak/Cross-correlation ผ่าน AI (tools `peak_metrics` + `detect_peaks` + `cross_correlation`)
 - ✅ Graph decoration + advanced charts ผ่าน AI (tools `format_graph` + `list_charts` + `plot_chart` — 45 chart types)
 - ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) — รวม **43 AI tools**
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) + ควบคุม Gas Live (tool `gas_live_control`) — รวม **44 AI tools**
 - ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
 - ☐ "Fit peak นี้"
 - ✅ "หา anomaly" (tool `find_anomalies` — deterministic z-score/IQR, รายงาน count + ตำแหน่ง/ค่า/z-score แบบ read-only ไม่แก้ข้อมูล; logic `analysis/cleaning.summarize_anomalies`)
@@ -256,14 +256,18 @@
 - ☐ Generate Origin-like workflow
 - ✅ Chat กับ dataset (21 tools ต่อเนื่องบน active Book; เหลือขยาย tool signal/dataset ต่อ)
 
-## H. Gas Sensor Module — 🟡 แกนวิเคราะห์เสร็จ ⭐ (เมนู/rail "Gas Sensor"; เหลือฝั่ง real-time ESP32)
-- ☐ Real-time serial data จาก ESP32
-- ☐ Serial port monitor
-- ☐ Live resistance plot
-- ☐ Live voltage plot
-- ☐ Live temperature plot
-- ☐ Live humidity plot
-- ☐ Gas exposure marker
+## H. Gas Sensor Module — 🟡 live acquisition + แกนวิเคราะห์พร้อมใช้ ⭐ (Modules → Gas Sensor)
+- ✅ Real-time serial data จาก ESP32 (receive-only JSON Lines / CSV header)
+- ✅ NI USB DAQ live analog input ผ่าน NI-DAQmx (device/channel discovery, RSE/Differential/NRSE, 1–20 Hz, selectable voltage range)
+- ✅ Visual Acquisition Flow แบบ LabVIEW-inspired (ลากสาย output→input ได้จริง, replace/delete wire, DAG/loop/schema validation, node palette + bypass, presets/inspector; Voltage Divider และ Moving Average ประมวลผลทุก sample จริงก่อนเข้า Live Book/Graph)
+- ✅ NI-DAQ multi-channel selection (เลือก `ai0..aiN` หลายช่องพร้อมกันและสร้าง voltage column แยกต่อ channel)
+- ✅ Full multi-sensor live workflow (alias ต่อช่อง, Voltage Divider/Moving Average แยกรายเซ็นเซอร์, multi-select rolling Graph สูงสุด 8 เส้น และเก็บ raw + derived columns ครบ)
+- ✅ Serial port monitor (QtSerialPort + raw 200-line view)
+- ✅ Live resistance plot
+- ✅ Live voltage plot
+- ✅ Live temperature plot
+- ✅ Live humidity plot
+- ✅ Gas exposure marker (บันทึกใน Book/Graph ไม่ส่งคำสั่งกลับ ESP32)
 - ✅ Baseline selection
 - ☐ Baseline correction
 - ✅ Response calculation
@@ -487,12 +491,13 @@
 - ☐ Plugin system
 - ☐ Python scripting
 - ☐ Macro recorder
-- ☐ Command palette
+- 🟡 Command palette (Ctrl+K — deduplicated + menu-context tagged)
 - ✅ Keyboard shortcuts
 - ✅ Scalable activity rail / module dock
 - ✅ Parked side tabs for Project Explorer / Messages Log / AI Assistant
 - ✅ Clean sheet-first startup (no default Graph1, modules hidden by default)
 - ✅ Compact Settings dialog with real theme/font/plot-mode persistence
+- ✅ Origin-style action enablement (toolbar commands dim until data/graph is ready)
 - 🟡 Custom workspace (docks/inspector)
 - 🟡 Auto-save
 - 🟡 Crash recovery (session restore prompt)
@@ -508,6 +513,13 @@
 ---
 
 ## Latest verification
+- 2026-07-15: UX pass — Origin-style action enablement + supporting fixes. Toolbar commands now **dim (disabled) instead of popping a reject dialog** when they can't run: data commands (plot/process/analysis/dataset) enable once the active Book has data — including data typed straight into the worksheet before "Use Active Data" (via `workbook.has_data_cells()` + `table.itemChanged` refresh) — and graph tools (format/crosshair/box-zoom/reset/export/annotate) enable once a Graph window exists; the shared QAction dims on every surface (top bar + docks) and keeps a "why" tooltip. State tracks live through `_wire_action_state_updates` (tab/book/itemChanged signals) and `_refresh_action_states` hooks. FFT/PSD now **auto-create a Graph on demand** (`_ensure_graph_canvas`) instead of rejecting when data is ready but no graph is open. Command Palette (Ctrl+K) is **deduplicated and menu-context tagged** (`FFT · Process › Frequency & Spectrum`, 407→349 entries), keeping a strong ref to every action so lifetime is unchanged. Worksheet columns **auto-size to their content** (bounded) so long names/values aren't clipped to `...`; the module context panel widened 200→320px so the Gas Sensor panel isn't truncated; and Set X/Y/Ignore/Delete with no selection now emit a **status-bar hint** instead of silently doing nothing. The Equation Plotter dialog was also reworked for usability: concise placeholder + **quick-insert example chips** + a function/variable reference line, grouped **Domain** (X min/max/Points on one row) and **Options** boxes, **Plot** as the primary/default button with **Ctrl+Enter** to plot, and Plot disabled until an expression is entered (`get_values()` contract unchanged). New `tests/test_action_enablement.py`, `tests/test_equation_dialog.py` + workbook tests. Full 92-file suite: `925 passed, 3 skipped` (only existing broken-axis `tight_layout` warnings).
+- 2026-07-15: Full multi-sensor Gas Live workflow completed without hardware access. Each Serial/NI-DAQ field can now be mapped to a unique sensor display name with independent voltage-divider topology/reference/supply and moving-average window; raw inputs remain intact and all named/derived values are appended to the Live Book. The Live monitor uses an 8-signal checklist and the dedicated rolling Graph keeps one stable line per selected sensor. NI channel discovery exposes the future Book field names to the Flow Designer before Connect, settings round-trip through QSettings, and AI `configure_flow` accepts `sensor_channels`. Focused multi-sensor/controller/UI/MainWindow/AI coverage: `103 passed`; full 90-file suite: `911 passed, 3 skipped` (only existing broken-axis `tight_layout` warnings).
+- 2026-07-14: Visual Acquisition Flow v2 free wiring + NI-DAQ multi-channel completed without hardware access. The canvas now creates wires by dragging an output port onto an input port, atomically replaces a target's existing wire, deletes wires on double-click, supports processor palette add/remove plus Auto Wire/Clear, and surfaces invalid wiring. Pure validation rejects unknown/self/multi-input/loop graphs and requires the source to reach both Book and Graph; acquisition is blocked while the visible canvas is invalid. Execution is topology-aware and runs only enabled processors on the productive source→Graph path, so bypassed/dead-end nodes do not alter records. Valid wiring persists and is controllable through AI `configure_wiring`. NI-DAQ UI now multi-selects discovered AI channels, persists comma-separated channel sets, and produces one voltage column per channel; controller multi-channel batching remains lossless. Windows visual QA and full 90-file suite: `906 passed, 3 skipped`.
+- 2026-07-14: LabVIEW-inspired Visual Acquisition Flow completed for Gas Sensor Live. Added a non-modal dark node canvas with draggable input/Voltage Divider/Moving Average/Live Book/Rolling Graph nodes, live Bézier wires, grid/zoom/fit/reset, presets, field-aware inspector, and running-state lock. The canvas is executable: pure `GasFlowProcessor` converts voltage-divider samples for sensor high/low-side circuits, keeps invalid rail/missing samples as `None` without dropping rows, maintains moving-average state across controller batches, appends derived columns to every Live Book row, and selects the smoothed output for the rolling graph. Config persists without auto-running; both Serial and NI-DAQ use the same pipeline; AI `gas_live_control` supports `flow_status` and `configure_flow`. Windows visual QA plus behavioral coverage for math, canvas interactions, menu, MainWindow, settings/schema lock, Book/Graph, and AI. Full 90-file suite: `899 passed, 3 skipped`.
+- 2026-07-14: NI USB DAQ live acquisition added to Gas Sensor Live. The shared Live panel now switches between ESP32 Serial and NI-DAQmx analog input, discovers devices/AI channels, configures 1–20 Hz hardware-timed continuous sampling, voltage range, and RSE/Differential/NRSE terminal mode, drains every available sample into the existing all-sample Live Book/rolling Graph pipeline, preserves app-only Gas markers, and handles missing Python package/driver, unplug, disconnect, and window-close cleanup without affecting Serial mode. `gas_live_control` now connects/statuses either transport non-modally. Validated against the installed nidaqmx 1.5 API (`DIFFERENTIAL` UI maps to the API's `DIFF` enum) plus fake USB-6008 behavioral coverage. Full 88-file suite: `888 passed, 3 skipped`.
+- 2026-07-14: Gas Sensor Live Acquisition v1 completed. Added receive-only ESP32 serial acquisition through `QSerialPort`, fragmented-stream JSON Lines/CSV-with-header auto-detection with a session-locked schema, 200 ms controller batching, all-sample Live Books, dedicated rolling 2,000-point Graphs at no more than 5 FPS, Gas ON/OFF app-only markers, latest sensor readouts, a 200-line raw monitor, persisted port/baud without auto-connect, safe disconnect/error/window-close flushing, and non-modal AI `gas_live_control` actions. Parser, controller, panel, MainWindow session lifecycle, worksheet streaming append/lock, markers, reconnect, and AI behavior are covered. Full 87-file suite: `880 passed, 3 skipped`.
+- 2026-07-14: Weighted nonlinear fitting + scientific metrics completed. `Nonlinear Curve Fit` now has an explicit uncertainty/weight contract: either absolute uncertainty `σ` or inverse-variance weights `1/σ²`; unweighted mode truly ignores the auxiliary column instead of silently dropping its NaN rows. Fixed the inverted `1/σ²` conversion, aligned reduced χ² with the effective uncertainty, kept absolute covariance/parameter standard errors, persisted the exact weighting mode/column in fit reports, and exposed weighted fitting non-interactively through the existing AI `fit_curve` tool. Verified Voigt + bounds + 95% confidence bands and dialog wiring with behavioral tests. Full 85-file suite: `863 passed, 3 skipped`.
 - 2026-07-13: Can now discard the first/only graph. `MdiWorkspace` inherited a TabManager "keep at least one tab" veto — `_detach_graph`/`_remove_tab_by_id` refused to close the last graph, so a wrong first plot was stuck on screen. Since the app is sheet-first (0 graphs is the startup state), the veto is removed: any graph, including the only one, can be closed via the title-bar X; `count()` goes to 0 and the next plot re-creates a graph. Verified end-to-end (plot → close only graph → count 0, no crash → re-plot works); updated the MDI workspace test to assert the discard.
 - 2026-07-13: Smooth "did nothing" fixed — every column-adding transform (Smooth, Moving Average, Butterworth, Fill Missing, Interpolate, Normalize, Detrend, Apply Window, and the AI column tools) committed the new column only to the hidden DataFrame/cbY combo; the visible Origin Book never updated, so on screen nothing happened. Fixed at the view-access seam: `add_y_column_option` now also runs `_sync_dataframe_after_column_edit()` (worksheet follows every new column, designations preserved) — one fix covers all current and future callers. Verified end-to-end on a real MainWindow (menu QAction → new column visible on the sheet + actually smoother); behavioral regression test added.
 - 2026-07-13: Analysis UX audit pass — built an exploratory harness that triggers all Analysis-menu actions on a real MainWindow with modals captured (72 actions initially). Found + fixed: (1) plot commands died with a Thai "ไม่มีแท็บ" warning when no Graph window existed (sheet-first startup!) — `_get_current_plot_tab_ids` now auto-creates the Graph per the Origin loop; (2) Merge by Timestamp crashed on pandas 2.x mixed datetime64 resolutions (ns vs s) — keys normalized to [ns]; (3) menu duplication removed — Descriptive/Covariance ×2, Peak Metrics ×2, Signal Quality ×3, Nonlinear Fit ×2, whole "Peak Detection" submenu duplicating "Peaks and Baseline", and fake "1/2/3 <default>" recent items; every command now has exactly one home in the categorized submenus (72 → 58 actions), `actPk*`/`actNonlinearFit` attributes preserved for toolbar/tests. Re-audit: 58 actions, 0 problems. Regression tests added (auto-create graph, mixed-resolution merge, dedup structure).
@@ -523,7 +535,7 @@
 
 ## ลำดับความสำคัญที่แนะนำ (ปรับได้)
 1. **ปูฐานก่อนรื้อใหญ่:** เพิ่ม behavioral tests คลุม flow หลัก + decouple logic↔Qt widget (ดู CLAUDE.md)
-2. **Gas Sensor Module (H)** ⭐ — โมดูลขายจริง, มี ESP32 serial เป็นจุดต่าง
+2. **Gas Sensor Module (H)** ⭐ — โมดูลขายจริง, รองรับทั้ง ESP32 serial และ NI-DAQmx
 3. **Reproducibility (F)** + **AI Assistant (G)** — ตัวสร้างความต่างจากคู่แข่ง
 4. เติมแกนกลางที่ขาด (filters ใน E, dataset management ใน A, สถิติใน D)
 5. โมดูลเฉพาะทางอื่นตามสายงานวิจัย (J Spectroscopy, I Electrochemistry, K Microscopy, M Materials)

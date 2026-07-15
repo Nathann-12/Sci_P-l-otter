@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Default sizes for the shell layout (px). Kept here so MainWindow stays thin.
 RAIL_WIDTH = 76
-CONTEXT_WIDTH = 200
+# Wide enough that module context panels (Gas Sensor Connect/Disconnect, NI-DAQ
+# device/channel fields, ...) render without truncating labels or wrapping hard.
+CONTEXT_WIDTH = 320
 INSPECTOR_WIDTH = 280
 DOCK_HEIGHT = 110
 
@@ -63,7 +65,7 @@ class AppShell(QWidget):
         # --- context stack (เปลี่ยนตามกิจกรรมที่เลือกใน rail) ---
         self.context_stack = QStackedWidget(self)
         self.context_stack.setObjectName("ContextStack")
-        self.context_stack.setMinimumWidth(180)
+        self.context_stack.setMinimumWidth(280)
         self.context_stack.hide()
 
         self.side_tabs = SidePanelTabs(self)

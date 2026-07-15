@@ -1532,7 +1532,7 @@ class MainWindowFeaturesMixin:
         y_col, fs = res["y_col"], float(res["fs"])
         try:
             freqs, pxx = welch_psd(self._df[y_col], fs=fs)
-            canvas = self._active_canvas() if hasattr(self, "_active_canvas") else getattr(self, "canvas", None)
+            canvas = self._ensure_graph_canvas() if hasattr(self, "_ensure_graph_canvas") else getattr(self, "canvas", None)
             if canvas is None:
                 self.inform("No graph", "Open or select a graph window first")
                 return
@@ -1578,7 +1578,7 @@ class MainWindowFeaturesMixin:
             df_fft, fs = compute_fft(self._df, x_col=x_col, y_col=y_col, detrend=detrend, window=window)
             self._fft_df = df_fft
             self._fft_meta = {"fs": fs, "x_col": x_col, "y_col": y_col, "window": window, "detrend": detrend}
-            canvas = self._active_canvas() if hasattr(self, "_active_canvas") else getattr(self, "canvas", None)
+            canvas = self._ensure_graph_canvas() if hasattr(self, "_ensure_graph_canvas") else getattr(self, "canvas", None)
             if canvas is None:
                 self.inform("No graph", "Open or select a graph window first")
                 return

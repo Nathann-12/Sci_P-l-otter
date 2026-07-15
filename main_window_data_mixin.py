@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import warnings
 
@@ -95,6 +96,10 @@ class MainWindowDataMixin:
             wb.use_data_requested.connect(self.adopt_workbook_data)
             wb.plot_requested.connect(lambda s: self.plot_from_workbook(s, new_graph=True))
             wb.overlay_requested.connect(lambda s: self.plot_from_workbook(s, new_graph=False))
+            wb.status_message.connect(self._show_workbook_status)
+            connect_state = getattr(self, "_connect_workbook_state_signal", None)
+            if callable(connect_state):
+                connect_state(wb)
         except Exception:
             import logging
             logging.getLogger(__name__).debug("book signal wiring failed", exc_info=True)
@@ -106,6 +111,13 @@ class MainWindowDataMixin:
         # activation signal may be suppressed while constructing — sync now
         self._on_book_activated(sub.windowTitle())
         return wb
+
+    def _show_workbook_status(self, message: str) -> None:
+        """Surface transient worksheet feedback (e.g. 'select a column first')."""
+        try:
+            self.statusBar().showMessage(str(message), 4000)
+        except Exception:
+            logging.getLogger(__name__).debug("workbook status show failed", exc_info=True)
 
     def _on_book_activated(self, title: str):
         """สลับข้อมูลทำงานตาม Book ที่ active (หัวใจของ Origin multi-book)"""
@@ -137,6 +149,9 @@ class MainWindowDataMixin:
             # Book เปล่า (เช่นพิมพ์เองยังไม่กด 'ใช้ข้อมูลนี้') — ชี้ workbook ไว้พอ
             self.statusBar().showMessage(
                 f"Book: {title} has no data yet - type data and click 'Use This Data' or plot from the worksheet.")
+        _refresh_states = getattr(self, "_refresh_action_states", None)
+        if callable(_refresh_states):
+            _refresh_states()
         refresh_ai = getattr(self, "_refresh_ai_context", None)
         if callable(refresh_ai):
             refresh_ai()
@@ -269,6 +284,10 @@ class MainWindowDataMixin:
             self._sb_rows.setText(f"rows: {rows_count:,}")
         except Exception:
             pass
+
+        _refresh_states = getattr(self, "_refresh_action_states", None)
+        if callable(_refresh_states):
+            _refresh_states()
 
     def _convert_to_datetime_if_possible(self, col_name):
         if col_name not in self._df.columns:

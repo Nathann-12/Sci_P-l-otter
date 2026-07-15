@@ -13,6 +13,7 @@ and testable.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 import pandas as pd
@@ -32,6 +33,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+
+logger = logging.getLogger(__name__)
 
 # Meta rows shown above the numbered data rows (matches OriginPro layout).
 META_ROWS: List[str] = ["Long Name", "Units", "Comments", "F(x)="]
@@ -217,6 +220,8 @@ class WorkbookWidget(QWidget):
     use_data_requested = Signal()
     plot_requested = Signal(str)
     overlay_requested = Signal(str)
+    #: transient user feedback (e.g. "select a column first") for the status bar
+    status_message = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -286,6 +291,8 @@ class WorkbookWidget(QWidget):
             | QAbstractItemView.EditKeyPressed
             | QAbstractItemView.AnyKeyPressed
         )
+        self._default_edit_triggers = self.table.editTriggers()
+        self._streaming_mode = False
         self.table.verticalHeader().setDefaultSectionSize(22)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setDefaultSectionSize(96)
@@ -603,6 +610,28 @@ class WorkbookWidget(QWidget):
         self._ensure_designations(self.table.columnCount())
         return [i for i, d in enumerate(self._designations) if d == "Y"]
 
+    def has_data_cells(self, *, scan_rows: int = 400) -> bool:
+        """True if any data cell holds a value (bounded, early-exit).
+
+        Lets the Origin loop light up plot/analysis commands as soon as data is
+        typed into the sheet — before the user clicks 'Use Active Data'."""
+        try:
+            if getattr(self, "source_df", None) is not None and not self.source_df.empty:
+                return True
+        except Exception:
+            pass
+        try:
+            rows = min(self.table.rowCount(), META_ROW_COUNT + max(0, scan_rows))
+            cols = self.table.columnCount()
+            for r in range(META_ROW_COUNT, rows):
+                for c in range(cols):
+                    item = self.table.item(r, c)
+                    if item is not None and item.text().strip():
+                        return True
+        except Exception:
+            logger.debug("has_data_cells scan failed", exc_info=True)
+        return False
+
     def _auto_designations(self, df: pd.DataFrame) -> None:
         """Default X = first time-like column (else column 0), rest Y."""
         n = max(1, int(df.shape[1]))
@@ -702,6 +731,10 @@ class WorkbookWidget(QWidget):
         """Apply an Origin-style X/Y/ignore designation to selected columns."""
         cols = self._selected_or_current_column_indexes()
         if not cols:
+            self.status_message.emit(
+                "Select a column first, then Set "
+                + ("X" if kind == "X" else ("Y" if kind == "Y" else "Ignore"))
+            )
             return
         if kind == "X":
             self.set_designation(cols[0], "X")
@@ -751,6 +784,7 @@ class WorkbookWidget(QWidget):
     def delete_selected_data_rows(self) -> None:
         rows = self._selected_or_current_data_rows()
         if not rows:
+            self.status_message.emit("Select one or more rows to delete first")
             return
         with self._loading_guard():
             for row in sorted(rows, reverse=True):
@@ -762,6 +796,7 @@ class WorkbookWidget(QWidget):
     def delete_selected_columns(self) -> None:
         cols = self._selected_or_current_column_indexes()
         if not cols:
+            self.status_message.emit("Select one or more columns to delete first")
             return
         self._delete_columns(set(cols))
 
@@ -975,7 +1010,84 @@ class WorkbookWidget(QWidget):
             self._loading = prev_loading
             self.table.setUpdatesEnabled(True)
             self.table.blockSignals(False)
+        self._autosize_columns(n_cols)
         self._dirty = False
+
+    def _autosize_columns(
+        self, n_cols: int, *, min_w: int = 96, max_w: int = 260, sample_rows: int = 60
+    ) -> None:
+        """Widen columns to fit their long names / values so they aren't clipped
+        to '...'. Bounded scan (meta rows + a sample of data rows) keeps this fast
+        on large sheets, and widths stay user-adjustable afterwards."""
+        try:
+            fm = self.table.fontMetrics()
+            total_rows = self.table.rowCount()
+            scan = min(total_rows, META_ROW_COUNT + max(0, sample_rows))
+            columns = min(int(n_cols), self.table.columnCount())
+            for c in range(columns):
+                widest = 0
+                for r in range(scan):
+                    item = self.table.item(r, c)
+                    if item is None:
+                        continue
+                    w = fm.horizontalAdvance(item.text())
+                    if w > widest:
+                        widest = w
+                self.table.setColumnWidth(c, max(min_w, min(max_w, widest + 24)))
+        except Exception:
+            logger.debug("column autosize skipped", exc_info=True)
+
+    def append_dataframe_rows(self, frame: pd.DataFrame) -> int:
+        """Append a same-schema DataFrame without rebuilding existing cells.
+
+        This is the worksheet seam used by low-rate live acquisition.  It keeps
+        selection/copy available, suppresses dirty signals, and returns the
+        number of appended rows.
+        """
+        if frame is None or getattr(frame, "empty", True):
+            return 0
+        incoming = frame.reset_index(drop=True).copy()
+        if self.source_df is None or self.table.columnCount() == 0:
+            self.set_dataframe(incoming)
+            return len(incoming)
+        expected = list(self.source_df.columns)
+        if list(incoming.columns) != expected:
+            raise ValueError("streaming rows must match the worksheet columns")
+
+        start = self.data_row_count
+        count = len(incoming)
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        prev_loading = self._loading
+        self._loading = True
+        try:
+            self.table.setRowCount(META_ROW_COUNT + start + count)
+            make = self._make_item
+            set_item = self.table.setItem
+            for c in range(len(expected)):
+                texts = _format_column(incoming.iloc[:, c])
+                for offset, text in enumerate(texts):
+                    set_item(META_ROW_COUNT + start + offset, c, make(text, False))
+            for offset in range(count):
+                row = META_ROW_COUNT + start + offset
+                self.table.setVerticalHeaderItem(row, QTableWidgetItem(str(start + offset + 1)))
+            self.source_df = pd.concat([self.source_df, incoming], ignore_index=True)
+        finally:
+            self._loading = prev_loading
+            self.table.setUpdatesEnabled(True)
+            self.table.blockSignals(False)
+        self._dirty = False
+        return count
+
+    def set_streaming_mode(self, active: bool) -> None:
+        """Lock cell editing while a live source appends rows; selection remains."""
+        self._streaming_mode = bool(active)
+        triggers = (
+            QAbstractItemView.NoEditTriggers
+            if self._streaming_mode
+            else self._default_edit_triggers
+        )
+        self.table.setEditTriggers(triggers)
 
     def dataframe(self) -> pd.DataFrame:
         """Read the data rows back into a DataFrame.

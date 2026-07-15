@@ -22,6 +22,30 @@ class MainWindowViewMixin:
             return tab.canvas
         return getattr(self, "canvas", None)
 
+    def _ensure_graph_canvas(self):
+        """Return a graph canvas, creating a Graph window on demand.
+
+        Origin loop: a spectrum/analysis command that draws should just make the
+        Graph if none is open (like Plot does), instead of rejecting the user
+        with "create a graph first" even though data + X/Y are ready.
+        """
+        canvas = self._active_canvas()
+        if canvas is not None:
+            return canvas
+        tabs = getattr(self, "tabs", None)
+        try:
+            tab_id = tabs.add_tab() if tabs is not None else None
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "auto graph creation failed", exc_info=True
+            )
+            tab_id = None
+        if tab_id and tab_id in getattr(tabs, "tabs", {}):
+            canvas = getattr(tabs.tabs[tab_id], "canvas", None)
+            if canvas is not None:
+                self.canvas = canvas
+        return canvas
+
     def clear_plot(self):
         tab = self._get_current_tab()
         if tab is None:
