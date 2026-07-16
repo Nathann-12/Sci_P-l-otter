@@ -86,6 +86,17 @@ class MainWindowGalleryMixin:
         if plot_df is None:
             return
 
+        prepare = entry.get("prepare")
+        draw_prepared = entry.get("draw_prepared")
+        if (
+            entry.get("heavy")
+            and callable(prepare)
+            and callable(draw_prepared)
+            and self._should_background_gallery_plot(entry, plot_df)
+        ):
+            self._start_heavy_gallery_plot(entry, plot_df, title)
+            return
+
         # Origin loop: a plot command always opens a fresh Graph.
         try:
             self.tabs.add_tab()
@@ -111,6 +122,109 @@ class MainWindowGalleryMixin:
             self._show_status(f"Plotted: {title}")
         except Exception:
             pass
+
+    def _should_background_gallery_plot(self, entry, dataframe: pd.DataFrame) -> bool:
+        """Use a worker only when computation is large enough to help."""
+        if bool(getattr(self, "_force_background_plots", False)):
+            return True
+        rows = len(dataframe)
+        if entry.get("key") == "scatter_matrix":
+            numeric = int(dataframe.select_dtypes(include="number").shape[1])
+            return rows * max(1, min(numeric, 6) ** 2) >= 200_000
+        return rows >= 20_000
+
+    def _start_heavy_gallery_plot(
+        self,
+        entry: Dict[str, Any],
+        dataframe: pd.DataFrame,
+        title: str,
+    ) -> None:
+        """Prepare NumPy/SciPy data off-thread with a visible Cancel action."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QProgressDialog
+
+        from widgets.heavy_plot_worker import HeavyPlotWorker
+
+        previous = getattr(self, "_heavy_plot_worker", None)
+        if previous is not None:
+            previous.cancel()
+
+        worker = HeavyPlotWorker(entry["prepare"], dataframe.copy(deep=False))
+        progress = QProgressDialog(
+            f"Preparing {title}…",
+            "Cancel",
+            0,
+            0,
+            self,
+        )
+        progress.setWindowTitle("Large plot")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        self._heavy_plot_worker = worker
+        self._heavy_plot_progress = progress
+
+        progress.canceled.connect(worker.cancel)
+        worker.signals.finished.connect(
+            lambda prepared, w=worker: self._finish_heavy_gallery_plot(
+                w, entry, prepared, title
+            )
+        )
+        worker.signals.cancelled.connect(
+            lambda w=worker: self._close_heavy_gallery_plot(
+                w, f"Cancelled: {title}"
+            )
+        )
+        worker.signals.failed.connect(
+            lambda details, w=worker: self._fail_heavy_gallery_plot(
+                w, title, details
+            )
+        )
+        progress.show()
+        self._show_status(f"Preparing {title} in background…")
+        worker.start()
+
+    def _finish_heavy_gallery_plot(self, worker, entry, prepared, title: str) -> None:
+        if worker is not getattr(self, "_heavy_plot_worker", None):
+            return
+        self._close_heavy_gallery_plot(worker)
+        try:
+            self.tabs.add_tab()
+        except Exception:
+            logger.debug("add_tab failed after heavy preparation", exc_info=True)
+            self.notify("Could not create a new Graph window.", level="error")
+            return
+        draw_prepared = entry["draw_prepared"]
+        try:
+            if entry.get("multi"):
+                self._draw_multi_panel(draw_prepared, prepared, title)
+            else:
+                self.apply_plot(lambda ax: draw_prepared(ax, prepared))
+        except Exception:
+            logger.debug("heavy gallery draw failed for %s", entry.get("key"), exc_info=True)
+            self.notify(f"Could not draw {title}.", level="error")
+            return
+        self._show_status(f"Plotted: {title}")
+
+    def _close_heavy_gallery_plot(self, worker, message: str | None = None) -> None:
+        if worker is not getattr(self, "_heavy_plot_worker", None):
+            return
+        progress = getattr(self, "_heavy_plot_progress", None)
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+        self._heavy_plot_worker = None
+        self._heavy_plot_progress = None
+        if message:
+            self._show_status(message)
+
+    def _fail_heavy_gallery_plot(self, worker, title: str, details: str) -> None:
+        if worker is not getattr(self, "_heavy_plot_worker", None):
+            return
+        logger.error("Background plot preparation failed for %s\n%s", title, details)
+        self._close_heavy_gallery_plot(worker)
+        self.notify(f"Could not prepare {title}.", level="error")
 
     # ----- helpers -----
     def _gallery_dataframe(self) -> Optional[pd.DataFrame]:

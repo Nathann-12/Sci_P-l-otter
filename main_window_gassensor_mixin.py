@@ -695,8 +695,17 @@ class MainWindowGasSensorMixin:
                 pd.Series([row.get(signal) for row in recent]), errors="coerce"
             ).to_numpy(dtype=float)
             finite = np.isfinite(x) & np.isfinite(y)
-            lines[signal].set_data(x[finite], y[finite])
-            lines[signal].set_label(signal)
+            source_x = x[finite]
+            source_y = y[finite]
+            line = lines[signal]
+            line._sciplotter_x_values = source_x.tolist()
+            line._sciplotter_y_values = source_y.tolist()
+            try:
+                del line._sciplotter_x_numeric
+            except AttributeError:
+                pass
+            line.set_data(source_x, source_y)
+            line.set_label(signal)
         self._gs_live_signal = signals[0]
         self._gs_live_line = lines[signals[0]]
         ax.set_ylabel(signals[0] if len(signals) == 1 else "Sensor signals")

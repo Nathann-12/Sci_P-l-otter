@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from core.render_optimization import apply_line_lod, canvas_pixel_width
 from core.plot_extras import (
     add_secondary_y,
     draw_broken_axis,
@@ -124,8 +125,31 @@ class MainWindowPlotExtraMixin:
         if res is None:
             return
         try:
-            add_secondary_y(ax, self._px_series(res["x"]), self._px_series(res["y2"]),
-                            label=res["y2"], ylabel=res["y2"])
+            x_values = self._px_series(res["x"])
+            y_values = self._px_series(res["y2"])
+            ax2, line = add_secondary_y(
+                ax, x_values, y_values, label=res["y2"], ylabel=res["y2"]
+            )
+            line._sciplotter_x_values = x_values.tolist()
+            line._sciplotter_y_values = y_values.tolist()
+            render_info = apply_line_lod(
+                ax2, line, pixel_width=canvas_pixel_width(ax2)
+            )
+            try:
+                tab = self.tabs.currentWidget()
+                tab.register_layer(
+                    [line],
+                    str(res["y2"]),
+                    "line",
+                    meta={
+                        "source": "secondary_y",
+                        "style": "line",
+                        "render": render_info,
+                    },
+                    kwargs={},
+                )
+            except Exception:
+                logger.debug("secondary-axis layer registration skipped", exc_info=True)
             self.tabs.currentWidget().draw()
             self.notify(f"Added right-axis: {res['y2']}")
         except Exception as e:
@@ -172,6 +196,36 @@ class MainWindowPlotExtraMixin:
                 tab.clear_layers()
             except Exception:
                 logger.debug("broken-axis layer clear skipped", exc_info=True)
+            new_lines = [
+                line
+                for target in axes
+                for line in target.get_lines()
+                if hasattr(line, "_sciplotter_x_values")
+            ]
+            render_infos = []
+            for line in new_lines:
+                try:
+                    render_infos.append(
+                        apply_line_lod(
+                            line.axes,
+                            line,
+                            pixel_width=canvas_pixel_width(line.axes),
+                        )
+                    )
+                except Exception:
+                    logger.debug("broken-axis LOD skipped", exc_info=True)
+            if new_lines:
+                tab.register_layer(
+                    new_lines,
+                    "Broken axis lines",
+                    "line",
+                    meta={
+                        "source": "broken_axis",
+                        "style": "line",
+                        "render": render_infos[0] if render_infos else {},
+                    },
+                    kwargs={},
+                )
             tab.draw()
             self.notify(f"Broken {axis.upper()} axis applied")
         except Exception as e:

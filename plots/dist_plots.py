@@ -253,6 +253,43 @@ def ridgeline(ax, df, **opts):
     ax.set_title("Ridgeline")
 
 
+def prepare_ridgeline(df, cancel_token=None):
+    """Compute all KDE curves in a cancelable background worker."""
+    prepared = []
+    for name, v in numeric_series(df):
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        lo, hi = np.min(v), np.max(v)
+        if lo == hi:
+            continue
+        grid = np.linspace(lo, hi, 200)
+        dens = _kde(v, grid)
+        if dens is None:
+            dens, edges = np.histogram(v, bins=20, density=True)
+            grid = 0.5 * (edges[:-1] + edges[1:])
+        prepared.append((name, grid, np.asarray(dens, dtype=float)))
+    return prepared
+
+
+def draw_ridgeline_prepared(ax, prepared):
+    ax.clear()
+    if not prepared:
+        placeholder(ax, "Not enough spread to build a ridgeline.")
+        return
+    colors = color_cycle(len(prepared))
+    offset_step = 0.8
+    for i, ((name, grid, dens), color) in enumerate(zip(prepared, colors)):
+        base = i * offset_step
+        dmax = float(np.max(dens)) or 1.0
+        scaled = dens / dmax * offset_step * 1.6
+        ax.fill_between(grid, base, base + scaled, color=color, alpha=0.6)
+        ax.plot(grid, base + scaled, color="black", lw=0.8)
+    ax.set_yticks([i * offset_step for i in range(len(prepared))])
+    ax.set_yticklabels([str(item[0]) for item in prepared])
+    ax.set_xlabel("Value")
+    ax.set_title("Ridgeline")
+
+
 def histogram(ax, df, **opts):
     ax.clear()
     series = numeric_series(df, max_n=1)
@@ -298,6 +335,40 @@ def distribution(ax, df, **opts):
         if dens is not None:
             ax.plot(grid, dens, color="crimson", lw=1.8, label="KDE")
             ax.legend(loc="best")
+    ax.set_xlabel(str(name))
+    ax.set_ylabel("Density")
+    ax.set_title("Distribution")
+
+
+def prepare_distribution(df, cancel_token=None):
+    """Compute the full-data histogram and KDE outside the GUI thread."""
+    series = numeric_series(df, max_n=1)
+    if not series:
+        return None
+    name, values = series[0]
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
+    counts, edges = np.histogram(values, bins=20, density=True)
+    grid = density = None
+    lo, hi = np.min(values), np.max(values)
+    if lo != hi:
+        grid = np.linspace(lo, hi, 200)
+        density = _kde(values, grid)
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
+    return str(name), counts, edges, grid, density
+
+
+def draw_distribution_prepared(ax, prepared):
+    ax.clear()
+    if prepared is None:
+        placeholder(ax, "Distribution needs at least one numeric column.")
+        return
+    name, counts, edges, grid, density = prepared
+    ax.stairs(counts, edges, fill=True, color=color_cycle(1)[0], alpha=0.6)
+    if grid is not None and density is not None:
+        ax.plot(grid, density, color="crimson", lw=1.8, label="KDE")
+        ax.legend(loc="best")
     ax.set_xlabel(str(name))
     ax.set_ylabel("Density")
     ax.set_title("Distribution")
@@ -364,12 +435,14 @@ PLOTS = [
     {"key": "beeswarm", "title": "Beeswarm", "category": "Distribution", "func": beeswarm,
      "desc": "Jittered strip/beeswarm points per column", "min_cols": 1, "multi": False},
     {"key": "ridgeline", "title": "Ridgeline", "category": "Distribution", "func": ridgeline,
+     "prepare": prepare_ridgeline, "draw_prepared": draw_ridgeline_prepared, "heavy": True,
      "desc": "Stacked, overlapping KDE curves (joyplot)", "min_cols": 1, "multi": False},
     {"key": "histogram", "title": "Histogram", "category": "Distribution", "func": histogram,
      "desc": "Histogram of the first numeric column", "min_cols": 1, "multi": False},
     {"key": "histogram_rug", "title": "Histogram + Rug", "category": "Distribution", "func": histogram_rug,
      "desc": "Histogram with a rug of tick marks", "min_cols": 1, "multi": False},
     {"key": "distribution", "title": "Distribution", "category": "Distribution", "func": distribution,
+     "prepare": prepare_distribution, "draw_prepared": draw_distribution_prepared, "heavy": True,
      "desc": "Density histogram with overlaid KDE", "min_cols": 1, "multi": False},
     {"key": "stacked_histogram", "title": "Stacked Histogram", "category": "Distribution", "func": stacked_histogram,
      "desc": "Stacked histograms of all numeric columns", "min_cols": 1, "multi": False},

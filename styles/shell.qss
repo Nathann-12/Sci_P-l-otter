@@ -504,6 +504,120 @@ QPushButton#RerunButton:hover {
 }
 
 /* ---------------------------------------------------------------------
+   Processing inspector - compact, contextual data-preparation workspace
+   --------------------------------------------------------------------- */
+#ProcessingInspector,
+QScrollArea#ProcessingScroll,
+QWidget#ProcessingContent {
+    background: #1b1e23;
+    border: none;
+}
+
+QScrollArea#ProcessingScroll > QWidget > QWidget {
+    background: #1b1e23;
+}
+
+QFrame#ProcessingContextCard,
+QGroupBox#ProcessingGroup {
+    background: #22262d;
+    border: 1px solid #343b45;
+    border-radius: 9px;
+}
+
+QGroupBox#ProcessingGroup {
+    margin-top: 9px;
+    padding-top: 7px;
+    color: #e6e6e6;
+    font-family: "Segoe UI";
+    font-size: 10pt;
+    font-weight: 600;
+}
+
+QGroupBox#ProcessingGroup::title {
+    subcontrol-origin: margin;
+    left: 9px;
+    padding: 0 4px;
+    color: #cfd6de;
+}
+
+QLabel#ProcessingEyebrow {
+    color: #778391;
+    font-family: "Segoe UI";
+    font-size: 8pt;
+    font-weight: 700;
+}
+
+QLabel#ProcessingBookLabel {
+    color: #f0f4f8;
+    font-family: "Segoe UI";
+    font-size: 12pt;
+    font-weight: 650;
+}
+
+QLabel#ProcessingDataSummary,
+QLabel#ProcessingQualityLabel,
+QLabel#ProcessingStatusLabel,
+QLabel#ProcessingTargetLabel,
+QLabel#ProcessingXLabel {
+    color: #98a3af;
+    font-family: "Segoe UI";
+    font-size: 9.5pt;
+}
+
+QLabel#ProcessingQualityLabel {
+    color: #b6c1cd;
+}
+
+QLabel#ProcessingStatusLabel {
+    padding: 2px 4px;
+}
+
+QComboBox#ProcessingColumnCombo {
+    min-height: 27px;
+    background: #191c21;
+    color: #e6e6e6;
+    border: 1px solid #3a424d;
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-family: "Segoe UI";
+    font-size: 10pt;
+}
+
+#ProcessingInspector QPushButton[class="btn-primary"],
+#ProcessingInspector QPushButton[class="btn-secondary"] {
+    min-width: 0px;
+    min-height: 30px;
+    border-radius: 6px;
+    padding: 4px 5px;
+    font-family: "Segoe UI";
+    font-size: 9.5pt;
+    font-weight: 500;
+}
+
+#ProcessingInspector QPushButton[class="btn-secondary"] {
+    background: #262b33;
+    color: #dbe2ea;
+    border: 1px solid #3a424d;
+}
+
+#ProcessingInspector QPushButton[class="btn-secondary"]:hover {
+    background: #303742;
+    border-color: #596675;
+}
+
+#ProcessingInspector QPushButton[class="btn-secondary"]:disabled {
+    background: #20242a;
+    color: #626b76;
+    border-color: #2b3139;
+}
+
+QPushButton#ProcessingUndoButton {
+    background: transparent;
+    color: #b8c2cd;
+    border: 1px dashed #46515e;
+}
+
+/* ---------------------------------------------------------------------
    Welcome empty-state — friendly, centered
    --------------------------------------------------------------------- */
 #WelcomeWidget {
@@ -532,7 +646,9 @@ QLabel#WelcomeRecentLabel {
     margin-top: 8px;
 }
 
-QPushButton#WelcomeOpenButton {
+QPushButton#WelcomeOpenButton,
+QPushButton#WelcomeSampleButton,
+QPushButton#WelcomeBlankButton {
     background: #4F9CF9;
     color: #ffffff;
     border: 1px solid #4F9CF9;
@@ -543,14 +659,36 @@ QPushButton#WelcomeOpenButton {
     font-weight: 600;
 }
 
-QPushButton#WelcomeOpenButton:hover {
+QPushButton#WelcomeOpenButton:hover,
+QPushButton#WelcomeSampleButton:hover,
+QPushButton#WelcomeBlankButton:hover {
     background: #5fa8fb;
     border-color: #5fa8fb;
 }
 
-QPushButton#WelcomeOpenButton:pressed {
+QPushButton#WelcomeOpenButton:pressed,
+QPushButton#WelcomeSampleButton:pressed,
+QPushButton#WelcomeBlankButton:pressed {
     background: #3f86e0;
     border-color: #3f86e0;
+}
+
+QPushButton#WelcomeSampleButton,
+QPushButton#WelcomeBlankButton {
+    background: #262b33;
+    color: #d7dde4;
+    border-color: #3a3f44;
+}
+
+QPushButton#WelcomeSampleButton:hover,
+QPushButton#WelcomeBlankButton:hover {
+    background: #323844;
+    border-color: #4F9CF9;
+}
+
+QPushButton#WelcomeSampleButton:pressed,
+QPushButton#WelcomeBlankButton:pressed {
+    background: #20242a;
 }
 
 QListWidget#WelcomeRecentList {

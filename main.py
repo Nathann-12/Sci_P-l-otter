@@ -133,7 +133,7 @@ from widgets.plot_tabs import (
 from core import session as session_store
 # [Equation Plotter]
 
-APP_TITLE = "SciPlotter (Modular + Features)"
+APP_TITLE = "SciPlotter"
 
 APP_ICON_FILENAME = "icon_app.png"
 APP_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icons", APP_ICON_FILENAME)
@@ -443,6 +443,7 @@ class MainWindow(
         self._fft_meta = {}       # meta: fs, x_col, y_col, window, detrend
         self.current_aggregated_df = None  # UI-REFINE: เก็บผล aggregate ล่าสุดสำหรับ export
         self._plot_options = PlotOptions()
+        self._dataframe_undo_stack = []
 
         # Plotting settings/state (Overlay vs Replace)
         try:
@@ -460,6 +461,7 @@ class MainWindow(
         # MdiWorkspace เลียนแบบ API ของ TabManager → โค้ดพล็อตเดิม reuse ได้ทั้งหมด
         self.workbook = WorkbookWidget(self)
         self.workbook.dataset_name = "Book1"
+        self._initial_workbook = self.workbook
         self.mdi = MdiWorkspace(self, start_with_graph=False)
         self.mdi.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.tabs = self.mdi
@@ -471,7 +473,19 @@ class MainWindow(
             self.mdi.mdi.setActiveSubWindow(self._book_sub)          # โชว์ Book1 หน้าสุดตอนเปิด
         except Exception:
             logger.debug("activate Book1 skipped", exc_info=True)
-        self.shell.set_workspace(self.mdi)
+        # First-run empty state.  Keep Book1 alive behind it so users who choose
+        # a blank worksheet still get the familiar sheet-first workflow.
+        self.welcome = WelcomeWidget(self)
+        self._workspace_stack = QStackedWidget(self)
+        self._workspace_stack.setObjectName("WorkspaceStack")
+        self._workspace_stack.addWidget(self.welcome)
+        self._workspace_stack.addWidget(self.mdi)
+        self._workspace_stack.setCurrentWidget(self.welcome)
+        self.welcome.open_requested.connect(self.open_file)
+        self.welcome.sample_requested.connect(self._load_welcome_sample)
+        self.welcome.blank_requested.connect(self._show_workspace)
+        self.welcome.recent_file_activated.connect(self.load_data)
+        self.shell.set_workspace(self._workspace_stack)
 
         # Parked side panels: Project Explorer + logs/assistant live beside the
         # workspace as vertical tabs, keeping the bottom graph area clear.
@@ -619,7 +633,7 @@ class MainWindow(
         self.statusBar().addPermanentWidget(self._sb_fs)
         self.statusBar().addPermanentWidget(self._sb_cursor)
         self.statusBar().showMessage(
-            "Start: open data or type into Book1, use the worksheet data, choose X/Y, then plot.")
+            "Start with Open File, Try Sample Data, or Blank Worksheet in the center of the window.")
         self.setAcceptDrops(True)
 
         # UI-REFINE: ซ่อน Inspector ตอนเริ่ม และ sync ปุ่ม (ผ่าน toggle_inspector
@@ -644,6 +658,12 @@ class MainWindow(
                 self.tabs.currentChanged.connect(lambda _: hasattr(self, '_update_canvas_reference') and self._update_canvas_reference())
             except Exception:
                 pass
+        try:
+            self.tabs.renderStatusChanged.connect(
+                lambda message: self.statusBar().showMessage(message)
+            )
+        except Exception:
+            logger.debug("render status wiring skipped", exc_info=True)
         try:
             self.tabs.currentChanged.connect(lambda _: self._mount_layer_manager())
             if hasattr(self.tabs, 'tabCreated'):
@@ -748,6 +768,7 @@ class MainWindow(
     def _show_data_view(self) -> None:
         """Raise the ACTIVE Book's sub-window in the MDI area (multi-book)."""
         try:
+            self._show_workspace()
             target = None
             for kind, _title, sub in self.mdi.sub_windows():
                 if kind == "book" and sub.widget() is self.workbook:
@@ -759,6 +780,52 @@ class MainWindow(
                 self.mdi.mdi.setActiveSubWindow(target)
         except Exception:
             logger.debug("show data view skipped", exc_info=True)
+
+    def _show_workspace(self) -> None:
+        """Leave the first-run page and reveal the Book/Graph workspace."""
+        stack = getattr(self, "_workspace_stack", None)
+        mdi = getattr(self, "mdi", None)
+        if stack is not None and mdi is not None:
+            stack.setCurrentWidget(mdi)
+
+    def _load_welcome_sample(self) -> None:
+        """Load the bundled sample through the same path as a real data file."""
+        sample_path = os.path.join(os.path.dirname(__file__), "samples", "sample_data.csv")
+        if not os.path.isfile(sample_path):
+            QMessageBox.critical(
+                self,
+                "Sample Data Missing",
+                "The bundled sample_data.csv file could not be found.",
+            )
+            return
+        self.load_data(sample_path)
+
+    def report_ui_exception(self, context: str, exc: BaseException, tb=None) -> None:
+        """Log an unexpected UI failure and surface it instead of failing silently."""
+        context = str(context or "Unexpected application error")
+        trace = tb or getattr(exc, "__traceback__", None)
+        logger.error(
+            "%s: %s",
+            context,
+            exc,
+            exc_info=(type(exc), exc, trace) if trace is not None else None,
+        )
+        try:
+            self.statusBar().showMessage(f"{context} failed: {exc}", 10000)
+        except Exception:
+            pass
+        try:
+            panel = getattr(self, "error_panel", None)
+            if panel is not None:
+                panel.show()
+        except Exception:
+            logger.debug("Error Panel could not be shown", exc_info=True)
+        QMessageBox.critical(
+            self,
+            context,
+            f"The action could not be completed.\n\nReason: {exc}\n\n"
+            "Details were written to the Error Panel.",
+        )
 
     def _show_plot_view(self) -> None:
         """Raise the current Graph sub-window (the one that was just plotted)."""
@@ -1004,6 +1071,16 @@ def main():
         apply_theme(app)
     
     win = MainWindow()
+    previous_excepthook = sys.excepthook
+
+    def _gui_excepthook(exc_type, exc_value, exc_tb):
+        try:
+            win.report_ui_exception("Unexpected Application Error", exc_value, exc_tb)
+        except Exception:
+            previous_excepthook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _gui_excepthook
+    win._previous_excepthook = previous_excepthook
     # Ensure the very first canvas adopts current Matplotlib theme
     try:
         win.apply_current_mpl_theme_to_canvas()

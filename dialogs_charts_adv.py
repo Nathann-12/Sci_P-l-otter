@@ -502,7 +502,9 @@ class ChartOptionsDialogPro(QDialog):
 
         if o['sortx']:
             M = M[np.argsort(M[:, 0])]
-        idx = _down_idx(M.shape[0], o['maxpts'])
+        # Line plots use the shared viewport min-max LOD after artist creation;
+        # retaining all rows here preserves spikes that stride sampling loses.
+        idx = np.arange(M.shape[0]) if kind == 'line' else _down_idx(M.shape[0], o['maxpts'])
         M = M[idx]
         if M.size == 0:
             raise ValueError('No data left to plot after downsampling.')

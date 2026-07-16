@@ -251,6 +251,19 @@ def test_add_book_creates_sub_window(qapp):
     assert "graph" in kinds
 
 
+def test_remove_book_updates_registry_and_emits(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    book_widget = QWidget()
+    ws.add_book(book_widget, "Book1")
+    removed = []
+    ws.subWindowRemoved.connect(lambda kind, title: removed.append((kind, title)))
+
+    assert ws.remove_book(widget=book_widget) is True
+    assert ws.book_widget("Book1") is None
+    assert removed == [("book", "Book1")]
+
+
 def test_book_focus_preserves_last_selected_graph_target(qapp):
     host = _Host()
     ws = MdiWorkspace(host)

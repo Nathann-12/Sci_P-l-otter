@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -123,8 +124,8 @@ class MainWindowExportMixin:
         lower, upper = axes.get_xlim()
         series = tuple(
             ExportSeries(
-                x=line.get_xdata(orig=False),
-                y=line.get_ydata(orig=False),
+                x=getattr(line, "_sciplotter_x_values", line.get_xdata(orig=False)),
+                y=getattr(line, "_sciplotter_y_values", line.get_ydata(orig=False)),
                 label=line.get_label() or "",
             )
             for line in axes.get_lines()
@@ -174,7 +175,15 @@ class MainWindowExportMixin:
         if not path:
             return
         try:
-            self._export_target_figure().savefig(path, dpi=300, bbox_inches="tight")
+            fig = self._export_target_figure()
+            tab = self._active_export_tab()
+            pixel_width = int(round(float(fig.get_size_inches()[0]) * 300)) \
+                if hasattr(fig, "get_size_inches") else 1800
+            context = tab.export_render(pixel_width) if tab is not None and hasattr(
+                tab, "export_render"
+            ) else nullcontext()
+            with context:
+                fig.savefig(path, dpi=300, bbox_inches="tight")
             self.statusBar().showMessage(f"Image saved: {path}")
         except Exception as e:
             QMessageBox.critical(self, "Save failed", f"Reason: {e}")
@@ -201,6 +210,13 @@ class MainWindowExportMixin:
             pass
         return self.canvas.fig
 
+    def _active_export_tab(self):
+        try:
+            tab = self.tabs.currentWidget()
+            return tab if tab is not None and hasattr(tab, "get_figure") else None
+        except Exception:
+            return None
+
     @staticmethod
     def _figure_has_exportable_content(fig) -> bool:
         try:
@@ -225,6 +241,7 @@ class MainWindowExportMixin:
         ext: str,
         options: FigureExportOptions | BatchFigureExportOptions,
         print_spec: dict | None = None,
+        tab=None,
     ) -> None:
         saved_size = fig.get_size_inches().copy()
         try:
@@ -233,17 +250,26 @@ class MainWindowExportMixin:
                     float(print_spec["width_in"]),
                     float(print_spec.get("height_in") or saved_size[1]),
                 )
-            fig.savefig(
-                path,
-                format=ext,
-                dpi=options.dpi,
-                transparent=options.transparent,
-                bbox_inches="tight" if options.tight else None,
-            )
+            pixel_width = int(round(float(fig.get_size_inches()[0]) * int(options.dpi)))
+            context = tab.export_render(pixel_width) if tab is not None and hasattr(
+                tab, "export_render"
+            ) else nullcontext()
+            with context:
+                fig.savefig(
+                    path,
+                    format=ext,
+                    dpi=options.dpi,
+                    transparent=options.transparent,
+                    bbox_inches="tight" if options.tight else None,
+                )
         finally:
             try:
                 fig.set_size_inches(*saved_size)
                 fig.canvas.draw_idle()
+            except Exception:
+                pass
+            try:
+                tab.lod_controller.refresh(emit_status=False)
             except Exception:
                 pass
 
@@ -281,7 +307,9 @@ class MainWindowExportMixin:
         print_spec = getattr(self.tabs.currentWidget(), "_print_figure", None) \
             if hasattr(self, "tabs") else None
         try:
-            self._save_figure_with_options(fig, path, ext, options, print_spec)
+            self._save_figure_with_options(
+                fig, path, ext, options, print_spec, self._active_export_tab()
+            )
             self.notify(f"Exported {options.format_name}: {path}")
         except Exception as e:
             self.error_box("Export failed", f"Reason: {e}")
@@ -367,6 +395,7 @@ class MainWindowExportMixin:
                     ext,
                     options,
                     getattr(tab, "_print_figure", None),
+                    tab,
                 )
                 saved.append(path)
             except Exception as exc:
@@ -393,7 +422,13 @@ class MainWindowExportMixin:
             return
         try:
             buf = io.BytesIO()
-            fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+            tab = self._active_export_tab()
+            pixel_width = int(round(float(fig.get_size_inches()[0]) * 200))
+            context = tab.export_render(pixel_width) if tab is not None and hasattr(
+                tab, "export_render"
+            ) else nullcontext()
+            with context:
+                fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
             image = QImage.fromData(buf.getvalue(), "PNG")
             QApplication.clipboard().setImage(image)
             self.notify("Graph copied to clipboard")

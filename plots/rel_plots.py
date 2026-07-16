@@ -94,7 +94,23 @@ def corr_heatmap(ax, df, **opts) -> None:
 
 def scatter_matrix(ax, df, **opts) -> None:
     """Pairwise scatter grid (diagonal = histogram) for numeric columns."""
+    prepared = prepare_scatter_matrix(df)
+    draw_scatter_matrix_prepared(ax, prepared)
+
+
+def prepare_scatter_matrix(df, cancel_token=None):
+    """Clean/downsample matrix inputs off the GUI thread."""
     series = numeric_series(df, max_n=6)
+    prepared = []
+    for name, values in series:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        prepared.append((name, downsample(np.asarray(values, dtype=float))))
+    return prepared
+
+
+def draw_scatter_matrix_prepared(ax, series) -> None:
+    """Draw already prepared arrays; this must run on the GUI thread."""
     if len(series) < 2:
         placeholder(ax, "Need >= 2 numeric columns")
         return
@@ -108,10 +124,10 @@ def scatter_matrix(ax, df, **opts) -> None:
         for j in range(k):
             a = axes[i, j]
             if i == j:
-                a.hist(downsample(series[i][1]), bins=20, color=color_cycle(1)[0])
+                a.hist(series[i][1], bins=20, color=color_cycle(1)[0])
             else:
                 x, y = clean_pair(series[j][1], series[i][1])
-                a.scatter(downsample(x), downsample(y), s=6, alpha=0.5)
+                a.scatter(x, y, s=6, alpha=0.5, rasterized=True)
             if i == k - 1:
                 a.set_xlabel(names[j], fontsize=8)
             if j == 0:
@@ -298,7 +314,8 @@ PLOTS = [
     {"key": "corr_heatmap", "title": "Correlation Plot", "category": "Relational", "func": corr_heatmap,
      "desc": "Correlation-matrix heatmap", "min_cols": 2, "multi": False},
     {"key": "scatter_matrix", "title": "Scatter Matrix", "category": "Relational", "func": scatter_matrix,
-     "desc": "Pairwise scatter grid (diagonal histograms)", "min_cols": 2, "multi": True},
+     "prepare": prepare_scatter_matrix, "draw_prepared": draw_scatter_matrix_prepared,
+     "heavy": True, "desc": "Pairwise scatter grid (diagonal histograms)", "min_cols": 2, "multi": True},
     {"key": "qq_plot", "title": "Q-Q Plot", "category": "Probability", "func": qq_plot,
      "desc": "Quantile-quantile plot vs normal distribution", "min_cols": 1, "multi": False},
     {"key": "probability_plot", "title": "Normal Probability Plot", "category": "Probability", "func": probability_plot,

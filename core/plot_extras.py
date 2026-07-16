@@ -75,7 +75,9 @@ def _line_style(line) -> dict[str, Any]:
 def _finite_line_data(ax):
     payload = []
     for line in ax.get_lines():
-        x, y = _clean(line.get_xdata(orig=False), line.get_ydata(orig=False))
+        source_x = getattr(line, "_sciplotter_x_values", line.get_xdata(orig=False))
+        source_y = getattr(line, "_sciplotter_y_values", line.get_ydata(orig=False))
+        x, y = _clean(source_x, source_y)
         payload.append((x, y, _line_style(line)))
     if not payload:
         raise ValueError("broken axis needs at least one line plot")
@@ -162,7 +164,9 @@ def draw_broken_axis(ax, axis: str, lower: float, upper: float) -> Tuple[Any, An
 
     for target in target_axes:
         for x, y, style in payload:
-            target.plot(x, y, **style)
+            (line,) = target.plot(x, y, **style)
+            line._sciplotter_x_values = x.tolist()
+            line._sciplotter_y_values = y.tolist()
         target.grid(True, alpha=0.25)
     if title:
         figure.suptitle(title)

@@ -91,8 +91,10 @@ class MainWindowFitMixin:
                 lbl = line.get_label() or "series"
                 if lbl.startswith("_"):
                     continue
-                x = line.get_xdata()
-                y = line.get_ydata()
+                # Viewport LOD changes only the visible Line2D samples. Fits
+                # must always use the retained full source arrays.
+                x = getattr(line, "_sciplotter_x_values", line.get_xdata())
+                y = getattr(line, "_sciplotter_y_values", line.get_ydata())
                 x_arr = np.asarray(x)
                 y_arr = np.asarray(y)
                 used_seconds = False

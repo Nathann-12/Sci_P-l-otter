@@ -15,6 +15,8 @@ class PlotOptions:
     histogram_bins: int = 20
     fit_normal: bool = False
     bar_width: float = 0.8
+    bar_reducer: str = "sum"
+    scatter_mode: str = "auto"
 
     def __post_init__(self) -> None:
         if self.line_width <= 0:
@@ -25,6 +27,10 @@ class PlotOptions:
             raise ValueError("histogram_bins must be positive")
         if not 0 < self.bar_width <= 1:
             raise ValueError("bar_width must be in the range (0, 1]")
+        if self.bar_reducer not in {"none", "sum", "mean"}:
+            raise ValueError("bar_reducer must be one of: none, sum, mean")
+        if self.scatter_mode not in {"auto", "points", "density"}:
+            raise ValueError("scatter_mode must be one of: auto, points, density")
 
     @property
     def resolved_scatter_size(self) -> float:

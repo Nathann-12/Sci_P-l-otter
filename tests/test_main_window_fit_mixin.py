@@ -277,3 +277,26 @@ def test_open_fit_dialog_collects_series_and_stores_result(qapp, monkeypatch):
     assert window.current_fit_result["metrics"] == {"r2": 0.99, "rmse": 0.05}
     np.testing.assert_allclose(window.current_fit_result["xfit"], np.array([0.0, 1.0, 2.0]))
     np.testing.assert_allclose(window.current_fit_result["yfit"], np.array([1.1, 1.9, 3.1]))
+
+
+def test_fit_dialog_uses_full_source_arrays_instead_of_line_lod(qapp, monkeypatch):
+    window = DummyFitWindow()
+    window._df = None
+    (line,) = window.canvas.ax.plot([0.0, 2.0], [1.0, 3.0], label="signal")
+    line._sciplotter_x_values = [0.0, 1.0, 2.0]
+    line._sciplotter_y_values = [1.0, 50.0, 3.0]
+    captured = {}
+
+    class FakeFitDialog:
+        def __init__(self, _parent, _labels, series_data):
+            captured.update(series_data)
+
+        def exec(self):
+            return QDialog.Rejected
+
+    monkeypatch.setattr(dialogs, "FitDialog", FakeFitDialog)
+
+    window._open_fit_dialog()
+
+    np.testing.assert_allclose(captured["signal"][0], [0.0, 1.0, 2.0])
+    np.testing.assert_allclose(captured["signal"][1], [1.0, 50.0, 3.0])

@@ -71,6 +71,12 @@ from core.plot_data import (
     reset_numeric_axis,
     to_sequence_for_plot,
 )
+from core.render_optimization import (
+    apply_line_lod,
+    canvas_pixel_width,
+    draw_bar_series,
+    draw_scatter_series,
+)
 from widgets.plot_tabs import GraphTab
 
 logger = logging.getLogger(__name__)
@@ -150,6 +156,7 @@ class MdiWorkspace(QWidget):
     currentChanged = Signal(int)
     tabCreated = Signal(str)
     tabRemoved = Signal(str)
+    renderStatusChanged = Signal(str)
 
     # --- Project Explorer helper signals ------------------------------------
     subWindowAdded = Signal(str, str)    # (kind, title)
@@ -237,9 +244,18 @@ class MdiWorkspace(QWidget):
         self._tab_counter += 1
         if name is None:
             name = f"Graph {self._tab_counter}"
+        else:
+            base_name = str(name).strip() or f"Graph {self._tab_counter}"
+            existing = {tab.name for tab in self.tabs.values()}
+            name = base_name
+            suffix = 2
+            while name in existing:
+                name = f"{base_name} ({suffix})"
+                suffix += 1
         tab_id = f"tab_{self._tab_counter}"
 
         graph_tab = GraphTab(tab_id, name, self)
+        graph_tab.renderStatusChanged.connect(self.renderStatusChanged.emit)
         sub = _GraphSubWindow(self, tab_id)
         sub.setWidget(graph_tab)
         sub.setWindowTitle(name)
@@ -305,6 +321,38 @@ class MdiWorkspace(QWidget):
         except Exception:
             logger.debug("subWindowAdded emit failed", exc_info=True)
         return sub
+
+    def remove_book(self, title: str | None = None, *, widget: QWidget | None = None) -> bool:
+        """Remove a Book sub-window and keep the workspace registry in sync."""
+        match_title = None
+        match_widget = None
+        match_sub = None
+        for candidate_title, (candidate_widget, candidate_sub) in self._books.items():
+            if (title is not None and candidate_title == title) or (
+                widget is not None and candidate_widget is widget
+            ):
+                match_title = candidate_title
+                match_widget = candidate_widget
+                match_sub = candidate_sub
+                break
+        if match_title is None or match_sub is None:
+            return False
+
+        self._books.pop(match_title, None)
+        try:
+            self.mdi.removeSubWindow(match_sub)
+            match_sub.hide()
+            match_sub.setWidget(None)
+            match_sub.deleteLater()
+            if match_widget is not None:
+                match_widget.deleteLater()
+        except Exception:
+            logger.debug("Book removal failed: %s", match_title, exc_info=True)
+        try:
+            self.subWindowRemoved.emit("book", match_title)
+        except Exception:
+            logger.debug("subWindowRemoved emit failed", exc_info=True)
+        return True
 
     def remove_all_tabs(self) -> None:
         """Close every graph sub-window, emitting ``tabRemoved`` for each."""
@@ -636,6 +684,7 @@ class MdiWorkspace(QWidget):
             ax.clear()
             local_kwargs = dict(base_kwargs)
             artists = []
+            render_info = None
             auto_label = label
             if not auto_label:
                 try:
@@ -665,20 +714,25 @@ class MdiWorkspace(QWidget):
                         continue
                     if style == "line":
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        for artist in artists:
+                            artist._sciplotter_x_values = list(x_vals)
+                            artist._sciplotter_y_values = list(y_vals)
                     elif style == "scatter":
-                        artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        artists, render_info = draw_scatter_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     elif style == "bar":
-                        container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
-                        artists = list(container)
-                        ax.set_xticks(range(len(x_vals)))
-                        try:
-                            ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha="right")
-                        except Exception:
-                            pass
+                        artists, render_info = draw_bar_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     else:
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
                 ax.relim()
                 ax.autoscale_view()
+                if style == "line" and artists:
+                    render_info = apply_line_lod(
+                        ax, artists[0], pixel_width=canvas_pixel_width(ax)
+                    )
                 if not x_is_datetime and axis_uses_dates(ax.xaxis):
                     reset_numeric_axis(ax)
                 if x_is_datetime and len(x_vals) >= 2:
@@ -715,6 +769,8 @@ class MdiWorkspace(QWidget):
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
+                if render_info is not None:
+                    layer_meta["render"] = dict(render_info)
                 layer_id = tab.register_layer(
                     artists, auto_label or label or "", style, meta=layer_meta, kwargs=local_kwargs
                 )
@@ -753,6 +809,7 @@ class MdiWorkspace(QWidget):
                     auto_label = "Series"
             local_kwargs = dict(base_kwargs)
             artists = []
+            render_info = None
             x_vals, y_vals, x_is_datetime = prepare_plot_data(x, y)
             try:
                 if style == "histogram":
@@ -776,20 +833,25 @@ class MdiWorkspace(QWidget):
                         continue
                     if style == "line":
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        for artist in artists:
+                            artist._sciplotter_x_values = list(x_vals)
+                            artist._sciplotter_y_values = list(y_vals)
                     elif style == "scatter":
-                        artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        artists, render_info = draw_scatter_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     elif style == "bar":
-                        container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
-                        artists = list(container)
-                        ax.set_xticks(range(len(x_vals)))
-                        try:
-                            ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha="right")
-                        except Exception:
-                            pass
+                        artists, render_info = draw_bar_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     else:
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
                 ax.relim()
                 ax.autoscale_view()
+                if style == "line" and artists:
+                    render_info = apply_line_lod(
+                        ax, artists[0], pixel_width=canvas_pixel_width(ax)
+                    )
                 if not x_is_datetime and axis_uses_dates(ax.xaxis):
                     reset_numeric_axis(ax)
                 if x_is_datetime and len(x_vals) >= 2:
@@ -820,6 +882,8 @@ class MdiWorkspace(QWidget):
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
+                if render_info is not None:
+                    layer_meta["render"] = dict(render_info)
                 layer_id = tab.register_layer(
                     artists, auto_label or label or "", style, meta=layer_meta, kwargs=local_kwargs
                 )

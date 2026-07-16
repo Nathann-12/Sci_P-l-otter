@@ -171,14 +171,65 @@ class MainWindowFeaturesMixin:
             return os.path.basename(str(path))
         return "Book1"
 
-    def _swap_dataframe(self, new_df) -> None:
+    def _push_dataframe_undo(self, label: str) -> None:
+        """Snapshot the active DataFrame before a destructive operation."""
+        current = getattr(self, "_df", None)
+        if not isinstance(current, pd.DataFrame):
+            return
+        stack = getattr(self, "_dataframe_undo_stack", None)
+        if stack is None:
+            stack = []
+            self._dataframe_undo_stack = stack
+        workbook = getattr(self, "workbook", None)
+        stack.append({
+            "label": str(label),
+            "dataframe": current.copy(deep=True),
+            "workbook": workbook,
+            "book_title": getattr(self, "_book_title_for", lambda _wb: "")(workbook),
+        })
+        del stack[:-5]
+        self._update_dataframe_undo_action()
+
+    def _update_dataframe_undo_action(self) -> None:
+        action = getattr(self, "actDataUndo", None)
+        if action is not None:
+            action.setEnabled(bool(getattr(self, "_dataframe_undo_stack", [])))
+        refresh_processing = getattr(self, "_refresh_processing_context", None)
+        if callable(refresh_processing):
+            refresh_processing()
+
+    def undo_last_dataframe_change(self) -> None:
+        """Restore the most recent DataFrame snapshot and its active Book."""
+        stack = getattr(self, "_dataframe_undo_stack", [])
+        if not stack:
+            self.inform("Nothing to Undo", "No destructive data change is available to undo.")
+            return
+        snapshot = stack.pop()
+        title = snapshot.get("book_title")
+        if title:
+            getattr(self, "_activate_book_by_name", lambda _name: False)(title)
+        self.workbook = snapshot.get("workbook") or getattr(self, "workbook", None)
+        self._df = snapshot["dataframe"].copy(deep=True)
+        self._sync_dataframe_after_column_edit()
+        self._update_dataframe_undo_action()
+        self.notify(f"Undid data change: {snapshot['label']}")
+
+    def _swap_dataframe(self, new_df, *, undo_label: str | None = None) -> None:
         """Replace the active DataFrame and refresh columns/worksheet views."""
+        if undo_label:
+            self._push_dataframe_undo(undo_label)
         self._df = new_df
         for refresh in ("load_columns_from_df", "_refresh_workbook"):
             try:
                 fn = getattr(self, refresh, None)
                 if callable(fn):
-                    fn()
+                    if refresh == "load_columns_from_df":
+                        try:
+                            fn(show_status=False)
+                        except TypeError:
+                            fn()
+                    else:
+                        fn()
             except Exception:
                 import logging
                 logging.getLogger(__name__).debug("%s failed after swap", refresh, exc_info=True)
@@ -216,7 +267,10 @@ class MainWindowFeaturesMixin:
         try:
             fn = getattr(self, "load_columns_from_df", None)
             if callable(fn):
-                fn()
+                try:
+                    fn(show_status=False)
+                except TypeError:
+                    fn()
         except Exception:
             import logging
             logging.getLogger(__name__).debug("load_columns_from_df failed after column edit", exc_info=True)
@@ -545,7 +599,7 @@ class MainWindowFeaturesMixin:
                 subset = [res["col"]]
             out = df.dropna(subset=subset).reset_index(drop=True)
             removed = len(df) - len(out)
-            self._swap_dataframe(out)
+            self._swap_dataframe(out, undo_label="Remove missing rows")
             self._log_workflow("remove_missing_rows", scope=res["scope"], col=res["col"])
             self.notify(f"Removed {removed} rows with missing values.")
         except Exception as e:
@@ -576,7 +630,7 @@ class MainWindowFeaturesMixin:
             nums = pd.to_numeric(df[col], errors="coerce")
             out = df.loc[(nums >= lo) & (nums <= hi)].reset_index(drop=True)
             removed = len(df) - len(out)
-            self._swap_dataframe(out)
+            self._swap_dataframe(out, undo_label="Crop range")
             self._log_workflow("crop_range", col=col, min_value=lo, max_value=hi)
             self.notify(f"Cropped range on {col}: removed {removed} rows.")
         except Exception as e:
@@ -671,7 +725,7 @@ class MainWindowFeaturesMixin:
             return
         try:
             new_df, removed = remove_duplicates(self._df)
-            self._swap_dataframe(new_df)
+            self._swap_dataframe(new_df, undo_label="Remove duplicates")
             self._log_workflow("remove_duplicates")
             self.notify(f"Removed {removed} duplicate rows ({len(new_df)} rows remain).")
         except Exception as e:
@@ -692,7 +746,7 @@ class MainWindowFeaturesMixin:
         method, threshold = res["method"], res["threshold"]
         try:
             new_df, removed = remove_outliers(self._df, y_col, method=method, threshold=threshold)
-            self._swap_dataframe(new_df)
+            self._swap_dataframe(new_df, undo_label="Remove outliers")
             self._log_workflow("remove_outliers", col=y_col, method=method, threshold=threshold)
             self.notify(f"Removed {removed} outlier rows from {y_col} (method: {method}).")
         except Exception as e:
@@ -1737,6 +1791,10 @@ class MainWindowFeaturesMixin:
                 # Dialog จะสร้างคอลัมน์ใหม่ใน self._df โดยตรง
                 # ดังนั้นเราต้องรีเฟรชการแสดงผลเท่านั้น
 
+                # Sync the worksheet/column selectors without replacing the
+                # success feedback with a generic "Columns loaded" message.
+                self._sync_dataframe_after_column_edit()
+
                 # รีเฟรชกราฟ
                 self.refresh_plot()
 
@@ -1749,6 +1807,7 @@ class MainWindowFeaturesMixin:
                     "สำเร็จ",
                     "สร้างคอลัมน์ใหม่เรียบร้อยแล้ว\nกราฟจะอัปเดตอัตโนมัติ"
                 )
+                self.notify("Derived column created successfully.")
 
         except Exception as e:
             # แสดงข้อผิดพลาดถ้าเกิดปัญหา

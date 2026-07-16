@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -235,3 +236,50 @@ def test_gallery_empty_data_reports_status_without_crashing(qapp):
 
     assert "No data" in window.statusBar().currentMessage() or "Open or type" in window.statusBar().currentMessage()
     window.close()
+
+
+def _wait_until(qapp, predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_heavy_gallery_prepares_before_creating_graph(win, qapp):
+    win._force_background_plots = True
+    before = _graph_count(win)
+
+    win.plot_from_gallery(get_plot("distribution"))
+
+    assert _graph_count(win) == before
+    assert _wait_until(qapp, lambda: _graph_count(win) == before + 1)
+    assert getattr(win, "_heavy_plot_worker", None) is None
+
+
+def test_heavy_gallery_cancel_does_not_leave_blank_graph(win, qapp):
+    win._force_background_plots = True
+    before = _graph_count(win)
+
+    def prepare(_df, token):
+        for _ in range(2_000):
+            token.raise_if_cancelled()
+            time.sleep(0.001)
+        return [1]
+
+    entry = {
+        "key": "slow",
+        "title": "Slow",
+        "func": lambda ax, df: ax.plot([1], [1]),
+        "prepare": prepare,
+        "draw_prepared": lambda ax, data: ax.plot(data, data),
+        "heavy": True,
+    }
+    win.plot_from_gallery(entry)
+    worker = win._heavy_plot_worker
+    worker.cancel()
+
+    assert _wait_until(qapp, lambda: getattr(win, "_heavy_plot_worker", None) is None)
+    assert _graph_count(win) == before

@@ -64,6 +64,18 @@ class MainWindowMenuMixin:
         except Exception:
             pass
 
+        self.actDataUndo = self._add_data_action(
+            data_menu,
+            "Undo Last Data Change",
+            self.undo_last_dataframe_change,
+            shortcut="Ctrl+Alt+Z",
+            status_tip="Restore the active DataFrame to its state before the last destructive clean operation.",
+            icon_key="undo_data",
+            fallback_icon=QStyle.StandardPixmap.SP_ArrowBack,
+        )
+        self.actDataUndo.setEnabled(bool(getattr(self, "_dataframe_undo_stack", [])))
+        data_menu.addSeparator()
+
         active_menu = data_menu.addMenu("Active Book")
         self._add_data_action(
             active_menu,
@@ -848,3 +860,11 @@ class MainWindowMenuMixin:
             self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
         except Exception:
             pass
+
+        # Put task menus before utility/help menus.  Analysis used to appear
+        # after Help, which made it look like an add-on rather than a core flow.
+        try:
+            m.removeAction(analysisMenu.menuAction())
+            m.insertMenu(exportMenu.menuAction(), analysisMenu)
+        except Exception:
+            logging.getLogger(__name__).debug("menu order normalization skipped", exc_info=True)

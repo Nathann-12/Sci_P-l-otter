@@ -7,6 +7,7 @@ from typing import List
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QPushButton,
@@ -23,6 +24,8 @@ class WelcomeWidget(QWidget):
     """
 
     open_requested = Signal()
+    sample_requested = Signal()
+    blank_requested = Signal()
     recent_file_activated = Signal(str)
 
     def __init__(self, parent=None):
@@ -59,18 +62,36 @@ class WelcomeWidget(QWidget):
         layout.addSpacing(8)
 
         # --- subtitle: muted, smaller ---
-        self.subtitle_label = QLabel("Start analyzing your data from a clean worksheet.", self)
+        self.subtitle_label = QLabel(
+            "Open a data file, try the included sample, or start with a blank worksheet.\n"
+            "In a worksheet, columns marked X and Y are used when you click a plot button.",
+            self,
+        )
         self.subtitle_label.setObjectName("WelcomeSubtitle")
         self.subtitle_label.setAlignment(Qt.AlignCenter)
+        self.subtitle_label.setWordWrap(True)
         layout.addWidget(self.subtitle_label)
 
         layout.addSpacing(28)
 
-        # --- primary accent button ---
+        # --- prominent first-run actions ---
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
         self.open_button = QPushButton("Open File", self)
         self.open_button.setObjectName("WelcomeOpenButton")
         self.open_button.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.open_button, 0, Qt.AlignCenter)
+        action_row.addWidget(self.open_button)
+
+        self.sample_button = QPushButton("Try Sample Data", self)
+        self.sample_button.setObjectName("WelcomeSampleButton")
+        self.sample_button.setCursor(Qt.PointingHandCursor)
+        action_row.addWidget(self.sample_button)
+
+        self.blank_button = QPushButton("Blank Worksheet", self)
+        self.blank_button.setObjectName("WelcomeBlankButton")
+        self.blank_button.setCursor(Qt.PointingHandCursor)
+        action_row.addWidget(self.blank_button)
+        layout.addLayout(action_row)
 
         layout.addSpacing(36)
 
@@ -100,6 +121,8 @@ class WelcomeWidget(QWidget):
         layout.addStretch(3)
 
         self.open_button.clicked.connect(self.open_requested.emit)
+        self.sample_button.clicked.connect(self.sample_requested.emit)
+        self.blank_button.clicked.connect(self.blank_requested.emit)
         self.recent_list.itemDoubleClicked.connect(self._on_recent_activated)
 
         self._update_recent_empty_state()

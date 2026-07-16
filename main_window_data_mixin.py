@@ -112,6 +112,22 @@ class MainWindowDataMixin:
         self._on_book_activated(sub.windowTitle())
         return wb
 
+    def _discard_unused_initial_book(self) -> bool:
+        """Close the untouched startup Book1 after the first real Book opens."""
+        starter = getattr(self, "_initial_workbook", None)
+        if starter is None or starter is getattr(self, "workbook", None):
+            return False
+        source_df = getattr(starter, "source_df", None)
+        has_source = isinstance(source_df, pd.DataFrame) and not source_df.empty
+        if has_source or bool(getattr(starter, "is_dirty", False)):
+            return False
+        remover = getattr(getattr(self, "mdi", None), "remove_book", None)
+        if not callable(remover) or not remover(widget=starter):
+            return False
+        self._initial_workbook = None
+        self._book_sub = None
+        return True
+
     def _show_workbook_status(self, message: str) -> None:
         """Surface transient worksheet feedback (e.g. 'select a column first')."""
         try:
@@ -133,7 +149,7 @@ class MainWindowDataMixin:
             self._df = df
             self._current_path = (registry or {}).get("path")
             try:
-                self.load_columns_from_df()
+                self.load_columns_from_df(show_status=False)
             except Exception:
                 import logging
                 logging.getLogger(__name__).debug("column reload on book switch failed", exc_info=True)
@@ -155,6 +171,9 @@ class MainWindowDataMixin:
         refresh_ai = getattr(self, "_refresh_ai_context", None)
         if callable(refresh_ai):
             refresh_ai()
+        refresh_processing = getattr(self, "_refresh_processing_context", None)
+        if callable(refresh_processing):
+            refresh_processing()
 
     def load_data(self, path: str):
         """โหลดไฟล์ (เช่นจาก drag & drop) → Book ใหม่ตามโมเดล Origin"""
@@ -214,7 +233,8 @@ class MainWindowDataMixin:
             logging.getLogger(__name__).debug("book registry sync failed", exc_info=True)
         self.load_columns_from_df()
         self.statusBar().showMessage(
-            f"Worksheet data is active ({len(df)} rows x {len(df.columns)} columns). Choose X/Y, then plot.")
+            f"Worksheet data is active ({len(df)} rows x {len(df.columns)} columns). "
+            "Select worksheet columns or use the X/Y column designations, then plot.")
         refresh_ai = getattr(self, "_refresh_ai_context", None)
         if callable(refresh_ai):
             refresh_ai()
@@ -246,7 +266,7 @@ class MainWindowDataMixin:
             pass
         return ""
 
-    def load_columns_from_df(self):
+    def load_columns_from_df(self, *, show_status: bool = True):
         self._df = self._resolve_active_dataframe()
         if not isinstance(self._df, pd.DataFrame):
             QMessageBox.information(self, "No Data", "Open a data file first.")
@@ -276,9 +296,11 @@ class MainWindowDataMixin:
             import logging
             logging.getLogger(__name__).debug("smart X/Y default skipped", exc_info=True)
 
-        self.statusBar().showMessage(
-            f"Columns loaded - {rows_count:,} rows, {cols_count} columns - choose X/Y, then plot."
-        )
+        if show_status:
+            self.statusBar().showMessage(
+                f"Columns loaded - {rows_count:,} rows, {cols_count} columns. "
+                "Select columns in the worksheet or use the X/Y designations, then plot."
+            )
 
         try:
             self._sb_rows.setText(f"rows: {rows_count:,}")
@@ -288,6 +310,9 @@ class MainWindowDataMixin:
         _refresh_states = getattr(self, "_refresh_action_states", None)
         if callable(_refresh_states):
             _refresh_states()
+        refresh_processing = getattr(self, "_refresh_processing_context", None)
+        if callable(refresh_processing):
+            refresh_processing()
 
     def _convert_to_datetime_if_possible(self, col_name):
         if col_name not in self._df.columns:

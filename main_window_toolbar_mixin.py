@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QStyle, QToolBar
+from PySide6.QtWidgets import QLabel, QStyle, QToolBar
 
 
 class MainWindowToolbarMixin:
@@ -132,9 +132,16 @@ class MainWindowToolbarMixin:
 
     def _toolbar_slot(self, method_name: str) -> Callable:
         def _run(*_args):
-            method = getattr(self, method_name, None)
-            if callable(method):
-                return method()
+            try:
+                method = getattr(self, method_name, None)
+                if callable(method):
+                    return method()
+            except Exception as exc:
+                reporter = getattr(self, "report_ui_exception", None)
+                if callable(reporter):
+                    reporter(method_name.replace("_", " ").title(), exc)
+                else:
+                    logging.getLogger(__name__).exception("Toolbar action failed: %s", method_name)
             return None
 
         return _run
@@ -149,10 +156,17 @@ class MainWindowToolbarMixin:
 
     def _workbook_slot(self, method_name: str) -> Callable:
         def _run(*_args):
-            workbook = getattr(self, "workbook", None)
-            method = getattr(workbook, method_name, None)
-            if callable(method):
-                return method()
+            try:
+                workbook = getattr(self, "workbook", None)
+                method = getattr(workbook, method_name, None)
+                if callable(method):
+                    return method()
+            except Exception as exc:
+                reporter = getattr(self, "report_ui_exception", None)
+                if callable(reporter):
+                    reporter(method_name.replace("_", " ").title(), exc)
+                else:
+                    logging.getLogger(__name__).exception("Worksheet action failed: %s", method_name)
             return None
 
         return _run
@@ -184,6 +198,21 @@ class MainWindowToolbarMixin:
 
     def _add_separator(self, toolbar: QToolBar) -> None:
         toolbar.addSeparator()
+
+    def _add_group_label(self, toolbar: QToolBar, text: str, key: str) -> QAction:
+        """Add a small visible section label without changing icon-only tools."""
+        label = QLabel(text)
+        label.setObjectName("ToolbarGroupLabel")
+        label.setAlignment(Qt.AlignCenter)
+        label.setContentsMargins(6, 2, 6, 2)
+        label.setStyleSheet(
+            "QLabel#ToolbarGroupLabel { color: palette(mid); font-family: 'Segoe UI'; "
+            "font-size: 8pt; font-weight: 600; }"
+        )
+        action = toolbar.addWidget(label)
+        action.setProperty("toolbarIconKey", f"group_{key}")
+        action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowRight))
+        return action
 
     def _ensure_core_actions(self) -> None:
         if not hasattr(self, "actToggleInspector"):
@@ -380,6 +409,7 @@ class MainWindowToolbarMixin:
         )
 
         # --- Row 2: Plot ---
+        self._add_group_label(plot_row, "Plot", "plot")
         act_plot = self._add_toolbar_action(
             plot_row, "plot", "Plot", self.on_action_plot, "plot",
             QStyle.StandardPixmap.SP_FileDialogContentsView,
@@ -478,6 +508,7 @@ class MainWindowToolbarMixin:
             )
 
         # ---- BOTTOM: clean & prepare ----
+        self._add_group_label(bottom, "Clean", "clean")
         for key, text, method, icon in (
             ("fill_missing", "Fill Missing", "feature_clean_fill_missing", "fill_missing"),
             ("interpolate_missing", "Interpolate", "feature_clean_interpolate", "interpolate_missing"),
@@ -497,6 +528,7 @@ class MainWindowToolbarMixin:
             )
         self._add_separator(bottom)
 
+        self._add_group_label(bottom, "Analyze", "analyze")
         for key, text, method, icon in (
             ("butterworth", "Butterworth", "feature_filter_butterworth", "butterworth"),
             ("smooth", "Smooth", "feature_filter_smooth", "smooth"),
@@ -766,6 +798,7 @@ class MainWindowToolbarMixin:
             "window_cascade", SP.SP_TitleBarNormalButton, tooltip="Cascade windows")
         self._reuse_action(right, "inspector")
         self._add_separator(right)
+        self._add_group_label(right, "Export", "export")
         self._add_toolbar_action(
             right, "export_figure", "Export Figure",
             self._toolbar_slot("on_action_export_figure"), "export_figure",

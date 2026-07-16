@@ -49,6 +49,26 @@ def _type_into_book1(win, rows):
         wb.table.item(META_ROW_COUNT + r, 1).setText(str(yv))
 
 
+def test_first_run_has_a_real_welcome_state(win):
+    assert win.windowTitle() == "SciPlotter"
+    assert win._workspace_stack.currentWidget() is win.welcome
+    assert win.welcome.open_button.text() == "Open File"
+    assert win.welcome.sample_button.text() == "Try Sample Data"
+
+    menu_titles = [action.text().replace("&", "") for action in win.menuBar().actions()]
+    assert menu_titles.index("Analysis") < menu_titles.index("Help")
+
+
+def test_welcome_sample_opens_real_data_and_replaces_empty_book1(win, qapp):
+    win.welcome.sample_button.click()
+    qapp.processEvents()
+
+    assert win._workspace_stack.currentWidget() is win.mdi
+    assert "Book1" not in win.mdi._books
+    assert win._df is not None and not win._df.empty
+    assert {"time_s", "value_a", "value_b"}.issubset(win._df.columns)
+
+
 def test_typed_data_becomes_active_dataframe(win):
     _type_into_book1(win, [(0, 1.0), (1, 4.0), (2, 9.0), (3, 16.0)])
 
@@ -97,6 +117,7 @@ def test_plot_from_workbook_creates_new_graph_with_typed_data(win):
     assert ydata == [1.0, 2.0, 3.0]
     assert win.cbX.currentText() == "t"
     assert win.cbY.currentText() == "signal"
+    assert "signal vs t" in win.tabs.get_open_tabs()[-1][1]
 
 
 def test_single_selected_x_column_plots_selected_values_against_row_index(win, tmp_path):
@@ -402,7 +423,11 @@ def test_multibook_one_file_one_book_and_active_switch(win, tmp_path):
     win.load_data(str(a))
     win.load_data(str(b))
 
-    assert len(win.mdi._books) == books_before + 2
+    # The untouched startup Book1 is a placeholder, not a permanent third
+    # dataset. It is replaced by the first real file.
+    assert books_before == 1
+    assert len(win.mdi._books) == 2
+    assert "Book1" not in win.mdi._books
     # last opened book is active → its data is the working df
     assert "vb" in win._df.columns
     assert win._df["vb"].tolist() == [10, 20]

@@ -68,8 +68,20 @@ class MainWindowSessionMixin:
         if callable(opener):
             try:
                 opener(name, df, path)
-            except Exception:
-                logger.debug("open book for dataset failed: %s", name, exc_info=True)
+            except Exception as exc:
+                self._datasets.pop(name, None)
+                reporter = getattr(self, "report_ui_exception", None)
+                if callable(reporter):
+                    reporter("Open Book", exc)
+                else:
+                    logger.exception("open book for dataset failed: %s", name)
+                return
+        discard_starter = getattr(self, "_discard_unused_initial_book", None)
+        if callable(discard_starter):
+            discard_starter()
+        show_workspace = getattr(self, "_show_workspace", None)
+        if callable(show_workspace):
+            show_workspace()
         lst = getattr(self, "lstFiles", None)
         if lst is not None:
             try:
@@ -121,7 +133,9 @@ class MainWindowSessionMixin:
         self._df = data["df"].copy()
         self._current_path = data["path"]
         self.lblFile.setText(f"ใช้งานไฟล์: {name}")
-        self.statusBar().showMessage("Dataset switched. Reload columns to choose X/Y.")
+        self.statusBar().showMessage(
+            "Dataset switched. Reload columns, then select worksheet columns or use their X/Y designations."
+        )
 
     def stage_remove_selected(self):
         row = self.lstFiles.currentRow()

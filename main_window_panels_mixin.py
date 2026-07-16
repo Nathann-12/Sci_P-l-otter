@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -83,7 +84,8 @@ class MainWindowPanelsMixin:
         - ทำ alias ตัวแปรเดิมให้โค้ดส่วนอื่นเรียกต่อได้
         """
         from PySide6.QtWidgets import (
-            QTabWidget, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QPushButton, QFrame
+            QTabWidget, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QPushButton,
+            QFrame, QGridLayout, QComboBox, QScrollArea
         )
         from PySide6.QtCore import Qt
 
@@ -125,30 +127,220 @@ class MainWindowPanelsMixin:
         self.layerGroupLayout.addWidget(self._layer_manager_empty)
         tp.addWidget(self.layerGroup)
 
+        render_group = QGroupBox("Large Data Rendering", self)
+        render_layout = QGridLayout(render_group)
+        render_layout.setContentsMargins(8, 14, 8, 8)
+        render_layout.setHorizontalSpacing(6)
+        render_layout.setVerticalSpacing(6)
+        line_lod = QLabel("Line", render_group)
+        line_policy = QLabel("Auto min-max LOD", render_group)
+        line_policy.setToolTip(
+            "Keeps peaks and spikes using about two samples per screen pixel; statistics use full data."
+        )
+        self.cboBarReducer = QComboBox(render_group)
+        self.cboBarReducer.addItem("Sum per pixel", "sum")
+        self.cboBarReducer.addItem("Mean per pixel", "mean")
+        self.cboBarReducer.addItem("Off (all bars)", "none")
+        self.cboBarReducer.setToolTip(
+            "Explicit reducer used only when several bars occupy one screen pixel."
+        )
+        self.cboScatterRender = QComboBox(render_group)
+        self.cboScatterRender.addItem("Auto", "auto")
+        self.cboScatterRender.addItem("Points", "points")
+        self.cboScatterRender.addItem("Density", "density")
+        self.cboScatterRender.setToolTip(
+            "Auto rasterizes large point clouds and switches very large clouds to hex density."
+        )
+        render_layout.addWidget(line_lod, 0, 0)
+        render_layout.addWidget(line_policy, 0, 1)
+        render_layout.addWidget(QLabel("Bars", render_group), 1, 0)
+        render_layout.addWidget(self.cboBarReducer, 1, 1)
+        render_layout.addWidget(QLabel("Scatter", render_group), 2, 0)
+        render_layout.addWidget(self.cboScatterRender, 2, 1)
+        current_options = getattr(self, "_plot_options", None)
+        for combo, value in (
+            (self.cboBarReducer, getattr(current_options, "bar_reducer", "sum")),
+            (self.cboScatterRender, getattr(current_options, "scatter_mode", "auto")),
+        ):
+            index = combo.findData(value)
+            combo.setCurrentIndex(max(0, index))
+        self.cboBarReducer.currentIndexChanged.connect(self._update_render_options)
+        self.cboScatterRender.currentIndexChanged.connect(self._update_render_options)
+        tp.addWidget(render_group)
+
         tabs.addTab(tab_plot, "Plot")
 
         # ================== TAB: PROCESSING ==================
         tab_proc = QWidget()
-        pr = QVBoxLayout(tab_proc); pr.setContentsMargins(8,8,8,8); pr.setSpacing(8)
+        tab_proc.setObjectName("ProcessingInspector")
+        tab_proc_layout = QVBoxLayout(tab_proc)
+        tab_proc_layout.setContentsMargins(0, 0, 0, 0)
 
-        gb_feat = QGroupBox("Extra Features"); pr.addWidget(gb_feat)
-        gbl = QVBoxLayout(gb_feat); gbl.setContentsMargins(8,8,8,8); gbl.setSpacing(8)
-        row1 = QHBoxLayout();
-        self.btnTZ  = QPushButton("Add Bangkok Time (+7h)");
-        self.btnMag = QPushButton("Add |B| from 3 Axes");
-        row1.addWidget(self.btnTZ); row1.addWidget(self.btnMag); gbl.addLayout(row1)
-        row2 = QHBoxLayout();
-        self.btnMA  = QPushButton("Add Moving Average (Y)");
-        row2.addWidget(self.btnMA); gbl.addLayout(row2)
-        rowAgg = QHBoxLayout();
-        self.btnAgg = QPushButton("Aggregate…");
-        rowAgg.addWidget(self.btnAgg); gbl.addLayout(rowAgg)
+        proc_scroll = QScrollArea(tab_proc)
+        proc_scroll.setObjectName("ProcessingScroll")
+        proc_scroll.setWidgetResizable(True)
+        proc_scroll.setFrameShape(QFrame.NoFrame)
+        proc_content = QWidget(proc_scroll)
+        proc_content.setObjectName("ProcessingContent")
+        pr = QVBoxLayout(proc_content)
+        pr.setContentsMargins(10, 10, 10, 12)
+        pr.setSpacing(10)
 
-        gb_fmt = QGroupBox("Data Formatting"); pr.addWidget(gb_fmt)
-        gbf = QVBoxLayout(gb_fmt); gbf.setContentsMargins(8,8,8,8); gbf.setSpacing(8)
-        row3 = QHBoxLayout();
-        self.btnTypes = QPushButton("Set Column Types");
-        row3.addWidget(self.btnTypes); gbf.addLayout(row3)
+        def _compact_group(title: str) -> tuple[QGroupBox, QGridLayout]:
+            group = QGroupBox(title, proc_content)
+            group.setObjectName("ProcessingGroup")
+            group.setProperty("class", "card")
+            group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+            grid = QGridLayout(group)
+            grid.setContentsMargins(8, 14, 8, 8)
+            grid.setHorizontalSpacing(6)
+            grid.setVerticalSpacing(6)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            return group, grid
+
+        def _proc_button(text: str, tooltip: str, *, primary: bool = False) -> QPushButton:
+            button = QPushButton(text, proc_content)
+            button.setProperty("class", "btn-primary" if primary else "btn-secondary")
+            button.setToolTip(tooltip)
+            button.setMinimumHeight(32)
+            return button
+
+        # Context first: every processing command has an explicit Book/target.
+        context_card = QFrame(proc_content)
+        context_card.setObjectName("ProcessingContextCard")
+        context_card.setProperty("class", "card")
+        context_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        context_layout = QVBoxLayout(context_card)
+        context_layout.setContentsMargins(10, 9, 10, 10)
+        context_layout.setSpacing(5)
+        context_eyebrow = QLabel("ACTIVE DATA", context_card)
+        context_eyebrow.setObjectName("ProcessingEyebrow")
+        self.procBookLabel = QLabel("No active data", context_card)
+        self.procBookLabel.setObjectName("ProcessingBookLabel")
+        self.procBookLabel.setWordWrap(True)
+        self.procDataSummary = QLabel("Open a file or use worksheet data to begin.", context_card)
+        self.procDataSummary.setObjectName("ProcessingDataSummary")
+        self.procDataSummary.setWordWrap(True)
+        target_row = QHBoxLayout()
+        self.procXLabel = QLabel("X / time: -", context_card)
+        self.procXLabel.setObjectName("ProcessingXLabel")
+        target_label = QLabel("Target Y", context_card)
+        target_label.setObjectName("ProcessingTargetLabel")
+        self.procColumnCombo = QComboBox(context_card)
+        self.procColumnCombo.setObjectName("ProcessingColumnCombo")
+        self.procColumnCombo.setToolTip(
+            "The numeric column used by moving average, normalize, detrend, and outlier tools."
+        )
+        target_row.addWidget(target_label)
+        target_row.addWidget(self.procColumnCombo, 1)
+        self.procQualityLabel = QLabel("Missing: -   Duplicates: -", context_card)
+        self.procQualityLabel.setObjectName("ProcessingQualityLabel")
+        context_layout.addWidget(context_eyebrow)
+        context_layout.addWidget(self.procBookLabel)
+        context_layout.addWidget(self.procDataSummary)
+        context_layout.addWidget(self.procXLabel)
+        context_layout.addLayout(target_row)
+        context_layout.addWidget(self.procQualityLabel)
+        pr.addWidget(context_card)
+
+        clean_group, clean_grid = _compact_group("Clean rows")
+        self.btnRemoveMissing = _proc_button(
+            "Missing rows...", "Remove rows containing missing values. This operation can be undone."
+        )
+        self.btnRemoveDuplicates = _proc_button(
+            "Duplicates", "Remove duplicate rows. This operation can be undone."
+        )
+        self.btnOutliers = _proc_button(
+            "Outliers...", "Remove target-column outliers. This operation can be undone."
+        )
+        self.btnCrop = _proc_button(
+            "Crop range...", "Keep rows inside a numeric range. This operation can be undone."
+        )
+        clean_grid.addWidget(self.btnRemoveMissing, 0, 0)
+        clean_grid.addWidget(self.btnRemoveDuplicates, 0, 1)
+        clean_grid.addWidget(self.btnOutliers, 1, 0)
+        clean_grid.addWidget(self.btnCrop, 1, 1)
+        pr.addWidget(clean_group)
+
+        transform_group, transform_grid = _compact_group("Transform column")
+        self.btnMA = _proc_button(
+            "Moving average...", "Create a moving-average column from the selected target.", primary=True
+        )
+        self.btnNormalize = _proc_button(
+            "Normalize...", "Create a normalized or standardized target column."
+        )
+        self.btnDetrend = _proc_button(
+            "Detrend...", "Remove a fitted baseline from the selected target column."
+        )
+        self.btnDerived = _proc_button(
+            "Derived column...", "Create a new column from a mathematical expression."
+        )
+        self.btnTypes = _proc_button(
+            "Column types...", "Convert columns to numeric, datetime, string, or automatic types."
+        )
+        transform_grid.addWidget(self.btnMA, 0, 0, 1, 2)
+        transform_grid.addWidget(self.btnNormalize, 1, 0)
+        transform_grid.addWidget(self.btnDetrend, 1, 1)
+        transform_grid.addWidget(self.btnDerived, 2, 0)
+        transform_grid.addWidget(self.btnTypes, 2, 1)
+        pr.addWidget(transform_group)
+
+        domain_group, domain_grid = _compact_group("Time & vector")
+        self.btnTZ = _proc_button(
+            "Bangkok time", "Create a UTC+7 datetime column from the selected time column."
+        )
+        self.btnMag = _proc_button(
+            "Vector |B|...", "Create vector magnitude from three selected axis columns."
+        )
+        domain_grid.addWidget(self.btnTZ, 0, 0)
+        domain_grid.addWidget(self.btnMag, 0, 1)
+        pr.addWidget(domain_group)
+
+        summary_group, summary_grid = _compact_group("Summarize")
+        self.btnAgg = _proc_button("Aggregate...", "Group rows and calculate summary values.")
+        self.btnProcStats = _proc_button("Statistics", "Show statistics for the active Book.")
+        summary_grid.addWidget(self.btnAgg, 0, 0)
+        summary_grid.addWidget(self.btnProcStats, 0, 1)
+        pr.addWidget(summary_group)
+
+        self.btnProcUndo = _proc_button(
+            "Undo last data change", "Restore the last destructive clean operation."
+        )
+        self.btnProcUndo.setObjectName("ProcessingUndoButton")
+        pr.addWidget(self.btnProcUndo)
+        self.procStatusLabel = QLabel("Open data to enable processing tools.", proc_content)
+        self.procStatusLabel.setObjectName("ProcessingStatusLabel")
+        self.procStatusLabel.setWordWrap(True)
+        pr.addWidget(self.procStatusLabel)
+        pr.addStretch(1)
+
+        self._processing_data_buttons = [
+            self.btnRemoveMissing, self.btnRemoveDuplicates, self.btnOutliers,
+            self.btnCrop, self.btnMA, self.btnNormalize, self.btnDetrend,
+            self.btnDerived, self.btnTypes, self.btnTZ, self.btnMag, self.btnAgg,
+            self.btnProcStats,
+        ]
+        self.procColumnCombo.currentTextChanged.connect(self._on_processing_target_changed)
+        x_combo = getattr(self, "cbX", None)
+        if x_combo is not None:
+            x_combo.currentTextChanged.connect(
+                lambda value: self.procXLabel.setText(f"X / time: {value or '-'}")
+            )
+        self.btnRemoveMissing.clicked.connect(self.feature_clean_remove_nan)
+        self.btnRemoveDuplicates.clicked.connect(self.feature_clean_remove_duplicates)
+        self.btnOutliers.clicked.connect(self.feature_clean_remove_outliers)
+        self.btnCrop.clicked.connect(self.feature_clean_crop_range)
+        self.btnNormalize.clicked.connect(self.feature_clean_normalize)
+        self.btnDetrend.clicked.connect(self.feature_clean_detrend)
+        self.btnDerived.clicked.connect(self.open_derived_column_dialog)
+        self.btnProcStats.clicked.connect(self.feature_show_statistics)
+        self.btnProcUndo.clicked.connect(self.undo_last_dataframe_change)
+
+        proc_scroll.setWidget(proc_content)
+        tab_proc_layout.addWidget(proc_scroll)
+        self.processingScroll = proc_scroll
+        self._refresh_processing_context()
 
         tabs.addTab(tab_proc, "Processing")
 
@@ -170,6 +362,107 @@ class MainWindowPanelsMixin:
         r.addWidget(tabs)
         self._mount_layer_manager()
         return
+
+    def _update_render_options(self, *_args) -> None:
+        """Commit explicit large-data render policies to immutable options."""
+        options = getattr(self, "_plot_options", None)
+        if options is None:
+            return
+        try:
+            self._plot_options = replace(
+                options,
+                bar_reducer=str(self.cboBarReducer.currentData() or "sum"),
+                scatter_mode=str(self.cboScatterRender.currentData() or "auto"),
+            )
+        except Exception:
+            pass
+
+    def _on_processing_target_changed(self, column: str) -> None:
+        """Keep the visible processing target and the app's active Y in sync."""
+        column = str(column or "").strip()
+        if not column:
+            return
+        combo = getattr(self, "cbY", None)
+        if combo is not None:
+            index = combo.findText(column)
+            if index >= 0 and combo.currentIndex() != index:
+                combo.setCurrentIndex(index)
+        status = getattr(self, "procStatusLabel", None)
+        if status is not None:
+            status.setText(
+                f"Ready to process '{column}'. Destructive clean actions can be undone."
+            )
+
+    def _refresh_processing_context(self) -> None:
+        """Refresh Book context, quality summary, target columns, and enablement."""
+        combo = getattr(self, "procColumnCombo", None)
+        if combo is None:
+            return
+        df = getattr(self, "_df", None)
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            source = getattr(getattr(self, "workbook", None), "source_df", None)
+            df = source if isinstance(source, pd.DataFrame) and not source.empty else None
+
+        has_data = isinstance(df, pd.DataFrame) and not df.empty
+        for button in getattr(self, "_processing_data_buttons", []):
+            button.setEnabled(has_data)
+        undo_available = bool(getattr(self, "_dataframe_undo_stack", []))
+        undo_button = getattr(self, "btnProcUndo", None)
+        if undo_button is not None:
+            undo_button.setEnabled(undo_available)
+
+        from PySide6.QtCore import QSignalBlocker
+        blocker = QSignalBlocker(combo)
+        previous = combo.currentText().strip()
+        combo.clear()
+        if not has_data:
+            combo.setEnabled(False)
+            self.procBookLabel.setText("No active data")
+            self.procDataSummary.setText(
+                "Open a file or click Use Active Worksheet Data to begin."
+            )
+            self.procXLabel.setText("X / time: -")
+            self.procQualityLabel.setText("Missing: -   Duplicates: -")
+            self.procStatusLabel.setText(
+                "Processing tools will enable when an active Book contains data."
+            )
+            del blocker
+            return
+
+        numeric = [
+            str(column) for column in df.columns
+            if pd.api.types.is_numeric_dtype(df[column])
+        ]
+        targets = numeric or [str(column) for column in df.columns]
+        combo.addItems(targets)
+        preferred = previous
+        y_combo = getattr(self, "cbY", None)
+        if not preferred and y_combo is not None:
+            preferred = y_combo.currentText().strip()
+        if preferred in targets:
+            combo.setCurrentText(preferred)
+        combo.setEnabled(bool(targets))
+
+        workbook = getattr(self, "workbook", None)
+        book_name = str(getattr(workbook, "dataset_name", "") or "Active Book")
+        missing = int(df.isna().sum().sum())
+        duplicates = int(df.duplicated().sum())
+        self.procBookLabel.setText(book_name)
+        self.procDataSummary.setText(
+            f"{len(df):,} rows x {len(df.columns)} columns   |   {len(numeric)} numeric"
+        )
+        x_combo = getattr(self, "cbX", None)
+        x_column = x_combo.currentText().strip() if x_combo is not None else ""
+        self.procXLabel.setText(f"X / time: {x_column or '-'}")
+        self.procQualityLabel.setText(
+            f"Missing: {missing:,}   Duplicates: {duplicates:,}"
+        )
+        target = combo.currentText().strip()
+        self.procStatusLabel.setText(
+            f"Ready to process '{target}'. Destructive clean actions can be undone."
+            if target else "Choose a target column to continue."
+        )
+        del blocker
 
     def _mount_layer_manager(self):
         layout = getattr(self, 'layerGroupLayout', None)

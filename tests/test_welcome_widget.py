@@ -36,6 +36,18 @@ def test_open_button_emits_open_requested(qapp):
     assert fired == [True]
 
 
+def test_sample_and_blank_buttons_emit_their_actions(qapp):
+    widget = WelcomeWidget()
+    fired = []
+    widget.sample_requested.connect(lambda: fired.append("sample"))
+    widget.blank_requested.connect(lambda: fired.append("blank"))
+
+    widget.sample_button.click()
+    widget.blank_button.click()
+
+    assert fired == ["sample", "blank"]
+
+
 def test_set_recent_files_populates_list(qapp):
     widget = WelcomeWidget()
     paths = ["C:/data/a.csv", "C:/data/b.xlsx"]

@@ -34,8 +34,15 @@ from core.plot_data import (
     reset_numeric_axis,
     to_sequence_for_plot,
 )
+from core.render_optimization import (
+    apply_line_lod,
+    canvas_pixel_width,
+    draw_bar_series,
+    draw_scatter_series,
+)
 from toolbar import PlotNavigationToolbar
 from widgets.layer_manager import LayerManagerWidget
+from widgets.viewport_lod import ViewportLODController
 
 
 class PlotCanvas(FigureCanvas):
@@ -109,6 +116,8 @@ class PlotCanvas(FigureCanvas):
 
 
 class GraphTab(QWidget):
+    renderStatusChanged = Signal(str)
+
     def __init__(self, tab_id, name="Graph", parent=None):
         super().__init__(parent)
         self.tab_id = tab_id
@@ -136,6 +145,7 @@ class GraphTab(QWidget):
         self.layer_manager.layerStyleRequested.connect(self._on_layer_style_request)
         self.layers: Dict[str, Dict[str, Any]] = {}
         self._layer_id_seq = itertools.count(1)
+        self.lod_controller = ViewportLODController(self)
 
         try:
             mw = self.parent().parent() if hasattr(self.parent(), "parent") else None
@@ -151,6 +161,7 @@ class GraphTab(QWidget):
             self.ctx_menu = None
 
     def clear(self):
+        self.lod_controller.detach_axes()
         self.canvas.clear()
         self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
 
@@ -169,7 +180,19 @@ class GraphTab(QWidget):
             except Exception:
                 pass
 
+    def export_render(self, pixel_width: int):
+        """Return a context manager for resolution-aware export rendering."""
+        return self.lod_controller.export_render(pixel_width)
+
+    def closeEvent(self, event):
+        try:
+            self.lod_controller.shutdown()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     def clear_layers(self) -> None:
+        self.lod_controller.detach_axes()
         for info in self.layers.values():
             for artist in info.get("artists", []):
                 try:
@@ -203,6 +226,7 @@ class GraphTab(QWidget):
         }
         self.layers[layer_id] = info
         self.layer_manager.add_layer(layer_id, label, style, visible=visible)
+        self.lod_controller.attach_layer(layer_id)
         return layer_id
 
     def serialize_layers(self) -> List[Dict[str, Any]]:
@@ -220,6 +244,15 @@ class GraphTab(QWidget):
             artists = info.get("artists", [])
             if artists:
                 artist = artists[0]
+                source_x = getattr(artist, "_sciplotter_x_values", None)
+                source_y = getattr(artist, "_sciplotter_y_values", None)
+                if source_x is not None and source_y is not None:
+                    entry["data"] = {
+                        "x": self._to_serializable_array(source_x),
+                        "y": self._to_serializable_array(source_y),
+                    }
+                    data.append(entry)
+                    continue
                 try:
                     entry["data"] = {
                         "x": self._to_serializable_array(artist.get_xdata()),
@@ -470,6 +503,7 @@ class GraphTab(QWidget):
 class TabManager(QTabWidget):
     tabCreated = Signal(str)
     tabRemoved = Signal(str)
+    renderStatusChanged = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -498,6 +532,7 @@ class TabManager(QTabWidget):
             name = f"Graph {self.tab_counter}"
         tab_id = f"tab_{self.tab_counter}"
         graph_tab = GraphTab(tab_id, name, self)
+        graph_tab.renderStatusChanged.connect(self.renderStatusChanged.emit)
         index = self.addTab(graph_tab, name)
         self.tabs[tab_id] = graph_tab
         self.setCurrentIndex(index)
@@ -614,6 +649,7 @@ class TabManager(QTabWidget):
             ax.clear()
             local_kwargs = dict(base_kwargs)
             artists = []
+            render_info = None
             auto_label = label
             if not auto_label:
                 try:
@@ -643,20 +679,25 @@ class TabManager(QTabWidget):
                         continue
                     if style == "line":
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        for artist in artists:
+                            artist._sciplotter_x_values = list(x_vals)
+                            artist._sciplotter_y_values = list(y_vals)
                     elif style == "scatter":
-                        artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        artists, render_info = draw_scatter_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     elif style == "bar":
-                        container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
-                        artists = list(container)
-                        ax.set_xticks(range(len(x_vals)))
-                        try:
-                            ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha="right")
-                        except Exception:
-                            pass
+                        artists, render_info = draw_bar_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     else:
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
                 ax.relim()
                 ax.autoscale_view()
+                if style == "line" and artists:
+                    render_info = apply_line_lod(
+                        ax, artists[0], pixel_width=canvas_pixel_width(ax)
+                    )
                 if not x_is_datetime and axis_uses_dates(ax.xaxis):
                     reset_numeric_axis(ax)
                 if x_is_datetime and len(x_vals) >= 2:
@@ -693,6 +734,8 @@ class TabManager(QTabWidget):
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
+                if render_info is not None:
+                    layer_meta["render"] = dict(render_info)
                 layer_id = tab.register_layer(artists, auto_label or label or "", style, meta=layer_meta, kwargs=local_kwargs)
                 if layer_id:
                     created.append((tab_id, layer_id))
@@ -718,6 +761,7 @@ class TabManager(QTabWidget):
                     auto_label = "Series"
             local_kwargs = dict(base_kwargs)
             artists = []
+            render_info = None
             x_vals, y_vals, x_is_datetime = prepare_plot_data(x, y)
             try:
                 if style == "histogram":
@@ -741,20 +785,25 @@ class TabManager(QTabWidget):
                         continue
                     if style == "line":
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
+                        for artist in artists:
+                            artist._sciplotter_x_values = list(x_vals)
+                            artist._sciplotter_y_values = list(y_vals)
                     elif style == "scatter":
-                        artists = [ax.scatter(x_vals, y_vals, label=auto_label, **local_kwargs)]
+                        artists, render_info = draw_scatter_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     elif style == "bar":
-                        container = ax.bar(range(len(x_vals)), y_vals, label=auto_label, **local_kwargs)
-                        artists = list(container)
-                        ax.set_xticks(range(len(x_vals)))
-                        try:
-                            ax.set_xticklabels(list(map(str, x_vals)), rotation=45, ha="right")
-                        except Exception:
-                            pass
+                        artists, render_info = draw_bar_series(
+                            ax, x_vals, y_vals, label=auto_label, **local_kwargs
+                        )
                     else:
                         artists = list(ax.plot(x_vals, y_vals, label=auto_label, **local_kwargs))
                 ax.relim()
                 ax.autoscale_view()
+                if style == "line" and artists:
+                    render_info = apply_line_lod(
+                        ax, artists[0], pixel_width=canvas_pixel_width(ax)
+                    )
                 if not x_is_datetime and axis_uses_dates(ax.xaxis):
                     reset_numeric_axis(ax)
                 if x_is_datetime and len(x_vals) >= 2:
@@ -792,6 +841,8 @@ class TabManager(QTabWidget):
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
+                if render_info is not None:
+                    layer_meta["render"] = dict(render_info)
                 layer_id = tab.register_layer(artists, auto_label or label or "", style, meta=layer_meta, kwargs=local_kwargs)
                 if layer_id:
                     created.append((tab_id, layer_id))

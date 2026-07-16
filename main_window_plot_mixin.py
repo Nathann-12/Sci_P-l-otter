@@ -9,6 +9,12 @@ import pandas as pd
 from PySide6.QtWidgets import QMessageBox
 
 from core.plot_request import BarRequest, HistogramRequest, PlotOptions, PlotRequest
+from core.render_optimization import (
+    render_info_for,
+    render_status,
+    scatter_kwargs_for_count,
+    set_categorical_bar_ticks,
+)
 from processors import beautify_axes
 
 
@@ -27,6 +33,34 @@ class MainWindowPlotMixin:
                 if isinstance(info, dict) and info.get("path") == path:
                     return name or ""
         return ""
+
+    def _descriptive_graph_name(
+        self,
+        style: str,
+        x_column: str | None,
+        y_columns,
+    ) -> str:
+        """Build a short, useful MDI title from the active Book and columns."""
+        workbook = getattr(self, "workbook", None)
+        dataset = str(getattr(workbook, "dataset_name", "") or "").strip()
+        if not dataset:
+            dataset = self._get_dataset_name_for_path(getattr(self, "_current_path", None))
+        dataset = dataset.split(" [", 1)[0]
+        y_names = [str(name) for name in (y_columns or []) if str(name)]
+        y_label = ", ".join(y_names[:2])
+        if len(y_names) > 2:
+            y_label += f" +{len(y_names) - 2}"
+        x_label = str(x_column or "Row")
+        relation = f"{y_label} vs {x_label}" if y_label else x_label
+        style_label = {
+            "line": "Line",
+            "linesymbol": "Line + Symbol",
+            "scatter": "Scatter",
+            "bar": "Bar",
+            "histogram": "Histogram",
+        }.get(str(style).casefold(), str(style).title())
+        title = f"{dataset} - {relation} ({style_label})" if dataset else f"{relation} ({style_label})"
+        return title if len(title) <= 88 else f"{title[:85].rstrip()}..."
 
     def _build_layer_meta(
         self,
@@ -92,6 +126,17 @@ class MainWindowPlotMixin:
             if tab_id in self.tabs.tabs:
                 yield self.tabs.tabs[tab_id]
 
+    def _actual_render_info(self, created, fallback: dict[str, Any]) -> dict[str, Any]:
+        """Read renderer-owned audit metadata after the artist is registered."""
+        for tab_id, layer_id in reversed(list(created or [])):
+            try:
+                info = self.tabs.tabs[tab_id].layers[layer_id]["meta"]["render"]
+                if isinstance(info, dict):
+                    return dict(info)
+            except Exception:
+                continue
+        return dict(fallback)
+
     def _draw_tab(self, tab, *, attempts: int = 1) -> None:
         for attempt in range(attempts):
             try:
@@ -125,11 +170,10 @@ class MainWindowPlotMixin:
             if title:
                 ax.set_title(title)
             if tick_labels is not None:
-                ax.set_xticks(range(len(tick_labels)))
                 try:
-                    ax.set_xticklabels(list(map(str, tick_labels)), rotation=45, ha="right")
+                    set_categorical_bar_ticks(ax, tick_labels)
                 except Exception:
-                    pass
+                    logger.debug("categorical tick optimization skipped", exc_info=True)
             try:
                 beautify_axes(ax, title=title or None, x_is_datetime=x_is_datetime)
             except Exception:
@@ -259,7 +303,9 @@ class MainWindowPlotMixin:
 
         graph_id = None
         if new_graph:
-            graph_id = self.tabs.add_tab()
+            graph_id = self.tabs.add_tab(
+                self._descriptive_graph_name(style, x_column, y_names)
+            )
             if not graph_id:
                 raise RuntimeError("a new Graph window could not be created")
         else:
@@ -452,7 +498,10 @@ class MainWindowPlotMixin:
 
         if new_graph:
             try:
-                self.tabs.add_tab()  # Origin: คำสั่งพล็อต = Graph window ใหม่
+                graph_x = None if use_row_index or style == "histogram" else x_name
+                self.tabs.add_tab(
+                    self._descriptive_graph_name(style, graph_x, y_names)
+                )  # Origin: one plot command creates one Graph window
             except Exception:
                 logger.debug("add new graph failed; plotting into current", exc_info=True)
 
@@ -489,15 +538,17 @@ class MainWindowPlotMixin:
 
         try:
             label = request.label
+            render_info = render_info_for("line", request.x, request.y)
             plot_kwargs = {"linewidth": options.line_width}
             if options.show_marker:
                 plot_kwargs["marker"] = options.marker
             meta = self._build_layer_meta(
                 "line", label, plot_kwargs, source="plot_line", request=request
             )
+            meta["render"] = dict(render_info)
 
             plotter = self.tabs.add_series_to_tabs if self._is_overlay_plot_mode() else self.tabs.plot_to_tabs
-            plotter(
+            created = plotter(
                 selected_tab_ids,
                 request.x,
                 request.y,
@@ -506,6 +557,7 @@ class MainWindowPlotMixin:
                 meta=meta,
                 **plot_kwargs,
             )
+            render_info = self._actual_render_info(created, render_info)
 
             self._update_tabs_after_plot(
                 selected_tab_ids,
@@ -514,7 +566,9 @@ class MainWindowPlotMixin:
                 x_is_datetime=request.x_is_datetime,
                 draw_attempts=3,
             )
-            self.statusBar().showMessage("Line plot created.")
+            self.statusBar().showMessage(
+                f"Line plot created • {render_status('line', render_info)}"
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Line plot failed", f"Reason: {exc}")
 
@@ -534,13 +588,20 @@ class MainWindowPlotMixin:
 
         try:
             label = request.label
-            plot_kwargs = {"s": options.resolved_scatter_size}
+            render_info = render_info_for(
+                "scatter", request.x, request.y, scatter_mode=options.scatter_mode
+            )
+            plot_kwargs = scatter_kwargs_for_count(
+                render_info["rendered_count"],
+                {"s": options.resolved_scatter_size, "scatter_mode": options.scatter_mode},
+            )
             meta = self._build_layer_meta(
                 "scatter", label, plot_kwargs, source="plot_scatter", request=request
             )
+            meta["render"] = dict(render_info)
 
             plotter = self.tabs.add_series_to_tabs if self._is_overlay_plot_mode() else self.tabs.plot_to_tabs
-            plotter(
+            created = plotter(
                 selected_tab_ids,
                 request.x,
                 request.y,
@@ -549,6 +610,7 @@ class MainWindowPlotMixin:
                 meta=meta,
                 **plot_kwargs,
             )
+            render_info = self._actual_render_info(created, render_info)
 
             self._update_tabs_after_plot(
                 selected_tab_ids,
@@ -556,7 +618,9 @@ class MainWindowPlotMixin:
                 ylabel=request.y_column,
                 x_is_datetime=request.x_is_datetime,
             )
-            self.statusBar().showMessage("Scatter plot created.")
+            self.statusBar().showMessage(
+                f"Scatter plot created • {render_status('scatter', render_info)}"
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Scatter plot failed", f"Reason: {exc}")
 
@@ -578,15 +642,17 @@ class MainWindowPlotMixin:
             return
 
         label = request.label
+        render_info = render_info_for("line", request.x, request.y)
         plot_kwargs = {"linewidth": options.line_width}
         if options.show_marker:
             plot_kwargs["marker"] = options.marker
         meta = self._build_layer_meta(
             "line", label, plot_kwargs, source="add_line_overlay", request=request
         )
+        meta["render"] = dict(render_info)
 
         try:
-            self.tabs.add_series_to_tabs(
+            created = self.tabs.add_series_to_tabs(
                 selected_tab_ids,
                 request.x,
                 request.y,
@@ -595,13 +661,16 @@ class MainWindowPlotMixin:
                 meta=meta,
                 **plot_kwargs,
             )
+            render_info = self._actual_render_info(created, render_info)
             self._update_tabs_after_plot(
                 selected_tab_ids,
                 xlabel=request.x_column,
                 ylabel=request.y_column,
                 x_is_datetime=request.x_is_datetime,
             )
-            self.statusBar().showMessage("Added line series (overlay)")
+            self.statusBar().showMessage(
+                f"Added line series • {render_status('line', render_info)}"
+            )
         except Exception:
             logger.debug("Failed to add line overlay", exc_info=True)
 
@@ -623,13 +692,20 @@ class MainWindowPlotMixin:
             return
 
         label = request.label
-        plot_kwargs = {"s": options.resolved_scatter_size}
+        render_info = render_info_for(
+            "scatter", request.x, request.y, scatter_mode=options.scatter_mode
+        )
+        plot_kwargs = scatter_kwargs_for_count(
+            render_info["rendered_count"],
+            {"s": options.resolved_scatter_size, "scatter_mode": options.scatter_mode},
+        )
         meta = self._build_layer_meta(
             "scatter", label, plot_kwargs, source="add_scatter_overlay", request=request
         )
+        meta["render"] = dict(render_info)
 
         try:
-            self.tabs.add_series_to_tabs(
+            created = self.tabs.add_series_to_tabs(
                 selected_tab_ids,
                 request.x,
                 request.y,
@@ -638,13 +714,16 @@ class MainWindowPlotMixin:
                 meta=meta,
                 **plot_kwargs,
             )
+            render_info = self._actual_render_info(created, render_info)
             self._update_tabs_after_plot(
                 selected_tab_ids,
                 xlabel=request.x_column,
                 ylabel=request.y_column,
                 x_is_datetime=request.x_is_datetime,
             )
-            self.statusBar().showMessage("Added scatter series (overlay)")
+            self.statusBar().showMessage(
+                f"Added scatter series • {render_status('scatter', render_info)}"
+            )
         except Exception:
             logger.debug("Failed to add scatter overlay", exc_info=True)
 
@@ -744,10 +823,24 @@ class MainWindowPlotMixin:
             return
 
         label = request.label
-        meta = self._build_layer_meta(
-            "bar", label, {"width": request.options.bar_width}, source="plot_bar", request=request
+        render_info = render_info_for(
+            "bar",
+            request.x,
+            request.y,
+            bar_reducer=request.options.bar_reducer,
         )
-        self.tabs.plot_to_tabs(
+        meta = self._build_layer_meta(
+            "bar",
+            label,
+            {
+                "width": request.options.bar_width,
+                "bar_reducer": request.options.bar_reducer,
+            },
+            source="plot_bar",
+            request=request,
+        )
+        meta["render"] = dict(render_info)
+        created = self.tabs.plot_to_tabs(
             selected_tab_ids,
             request.x,
             request.y,
@@ -755,11 +848,16 @@ class MainWindowPlotMixin:
             style="bar",
             meta=meta,
             width=request.options.bar_width,
+            bar_reducer=request.options.bar_reducer,
         )
+        render_info = self._actual_render_info(created, render_info)
         self._update_tabs_after_plot(
             selected_tab_ids,
             xlabel=request.x_column,
             ylabel=request.y_column,
             title=request.title,
             x_tick_labels=request.x,
+        )
+        self.statusBar().showMessage(
+            f"Bar chart created • {render_status('bar', render_info)}"
         )

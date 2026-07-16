@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -142,7 +143,9 @@ def test_plot_line_then_scatter_updates_current_tab_headless(qapp):
     line_layer = next(iter(graph_tab.layers.values()))
     assert line_layer["style"] == "line"
     assert line_layer["meta"]["style_kwargs"] == {"linewidth": 2, "marker": "o"}
-    assert window.statusBar().messages[-1] == "Line plot created."
+    assert window.statusBar().messages[-1].startswith(
+        "Line plot created • Rendered 3 of 3 points"
+    )
 
     window.plot_mode = "OVERLAY"
     window.plot_scatter()
@@ -151,7 +154,7 @@ def test_plot_line_then_scatter_updates_current_tab_headless(qapp):
     assert len(graph_tab.get_axes().collections) == 1
     scatter_layer = next(info for info in graph_tab.layers.values() if info["style"] == "scatter")
     assert scatter_layer["kwargs"]["s"] == 10
-    assert window.statusBar().messages[-1] == "Scatter plot created."
+    assert window.statusBar().messages[-1].startswith("Scatter plot created • Rendered 3 of 3 points")
 
 
 def test_plot_line_accepts_widget_independent_request(qapp):
@@ -185,10 +188,12 @@ def test_overlay_helpers_add_line_and_scatter_layers_headless(qapp):
 
     assert len(graph_tab.layers) == 2
     assert {info["style"] for info in graph_tab.layers.values()} == {"line", "scatter"}
-    assert window.statusBar().messages[-2:] == [
-        "Added line series (overlay)",
-        "Added scatter series (overlay)",
-    ]
+    assert window.statusBar().messages[-2].startswith(
+        "Added line series • Rendered 3 of 3 points"
+    )
+    assert window.statusBar().messages[-1].startswith(
+        "Added scatter series • Rendered 3 of 3 points"
+    )
 
 
 def test_plot_histogram_and_bar_headless(qapp):
@@ -216,3 +221,45 @@ def test_plot_histogram_and_bar_headless(qapp):
     assert ax.get_ylabel() == "count"
     assert ax.get_title() == "Counts"
     assert [tick.get_text() for tick in ax.get_xticklabels()[:3]] == ["alpha", "beta", "gamma"]
+    assert window.statusBar().messages[-1].startswith("Bar chart created • Rendered 3 of 3 bars")
+
+
+def test_large_bar_and_scatter_use_phase_one_render_optimizations(qapp):
+    window = DummyWindow()
+    count = 10_000
+
+    window.plot_bar(
+        [f"row-{index}" for index in range(count)],
+        np.sin(np.arange(count) / 50.0),
+        xlabel="row",
+        ylabel="signal",
+        title="Large Bar",
+    )
+
+    graph_tab = window.tabs.tabs[window.tabs.get_current_tab_id()]
+    bar_layer = next(iter(graph_tab.layers.values()))
+    assert len(bar_layer["artists"]) == 1
+    assert bar_layer["meta"]["render"]["render_mode"] == "pixel-sum"
+    assert bar_layer["meta"]["render"]["bar_reducer"] == "sum"
+    assert bar_layer["meta"]["render"]["rendered_count"] < count
+    assert bar_layer["meta"]["render"]["source_count"] == count
+    assert len(graph_tab.get_axes().get_xticks()) <= 20
+    serialized = graph_tab.serialize_layers()
+    assert len(serialized[0]["data"]["x"]) == count
+    assert len(serialized[0]["data"]["y"]) == count
+
+    request = PlotRequest(
+        np.arange(count),
+        np.cos(np.arange(count) / 25.0),
+        "sample",
+        "response",
+    )
+    window.plot_mode = "REPLACE"
+    window.plot_scatter(request)
+
+    scatter_layer = next(iter(graph_tab.layers.values()))
+    collection = scatter_layer["artists"][0]
+    assert collection.get_rasterized() is True
+    assert scatter_layer["meta"]["render"]["render_mode"] == "rasterized"
+    assert scatter_layer["meta"]["render"]["lod_applied"] is False
+    assert "Rendered 10,000 of 10,000 points" in window.statusBar().messages[-1]

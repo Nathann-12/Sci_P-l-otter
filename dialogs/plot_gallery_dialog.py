@@ -48,7 +48,13 @@ class _Thumb(FigureCanvas):
         self.setFixedSize(112, 82)
         ax = fig.add_subplot(111)
         try:
-            entry["func"](ax, df if df is not None else pd.DataFrame())
+            preview_df = df if df is not None else pd.DataFrame()
+            if len(preview_df) > 2_000:
+                import numpy as np
+
+                indexes = np.linspace(0, len(preview_df) - 1, 2_000, dtype=int)
+                preview_df = preview_df.iloc[indexes]
+            entry["func"](ax, preview_df)
         except Exception:
             logger.debug("thumbnail render failed for %s", entry.get("key"), exc_info=True)
             ax.clear()

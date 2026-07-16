@@ -145,6 +145,65 @@ def test_remove_reflects_in_tree(qapp):
     assert len(explorer._item_to_sub) == 1
 
 
+def test_closed_book_is_dropped_from_tree(qapp):
+    # Regression: a Book sub-window is only *hidden* on close (it emits no
+    # removal signal), so the Explorer used to keep showing a Book the user had
+    # already closed. Now closed (hidden) windows are filtered out on refresh.
+    host = _Host()
+    ws = MdiWorkspace(host)  # "Graph 1"
+    book_sub = ws.add_book(QWidget(), "Book1")
+    explorer = ProjectExplorer(host, workspace=ws)
+    assert "Book1" in _leaf_titles(explorer)
+
+    book_sub.close()          # hides it (WA_DeleteOnClose is False for Books)
+    explorer.refresh()
+
+    assert "Book1" not in _leaf_titles(explorer)
+    assert "Graph 1" in _leaf_titles(explorer)  # untouched
+
+
+def test_close_from_context_menu_removes_book_node(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.add_book(QWidget(), "Book1")
+    explorer = ProjectExplorer(host, workspace=ws)
+
+    _item, sub = _find_leaf(explorer, "Book1")
+    explorer._close_item(sub)   # the Explorer's "Close" action
+
+    assert "Book1" not in _leaf_titles(explorer)
+
+
+def test_rename_book_from_explorer_updates_tree_and_registry(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.add_book(QWidget(), "Book1")
+    explorer = ProjectExplorer(host, workspace=ws)
+
+    _item, sub = _find_leaf(explorer, "Book1")
+    explorer._rename_book(sub, "Measurements")
+
+    assert "Measurements" in _leaf_titles(explorer)
+    assert "Book1" not in _leaf_titles(explorer)
+    # registry key stays in sync with the window title
+    assert "Measurements" in ws._books and "Book1" not in ws._books
+    assert sub.windowTitle() == "Measurements"
+
+
+def test_graph_tab_id_resolution_for_rename(qapp):
+    # _rename_item opens a modal dialog (can't run headless); exercise the
+    # tab-id resolution it relies on, plus the rename_tab plumbing.
+    host = _Host()
+    ws = MdiWorkspace(host)  # "Graph 1"
+    explorer = ProjectExplorer(host, workspace=ws)
+
+    _item, sub = _find_leaf(explorer, "Graph 1")
+    tab_id = explorer._graph_tab_id_for(sub)
+    assert tab_id is not None
+    ws.rename_tab(tab_id, "Signal")
+    assert "Signal" in _leaf_titles(explorer)
+
+
 def test_set_workspace_rebinds_and_refreshes(qapp):
     host = _Host()
     ws1 = MdiWorkspace(host)

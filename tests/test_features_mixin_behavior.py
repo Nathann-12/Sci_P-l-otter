@@ -144,6 +144,12 @@ def test_feature_clean_remove_outliers_swaps_dataframe():
     assert 999.0 not in win._df["y"].tolist()
     assert "columns-reloaded" in win.messages  # df swap refreshed the columns
 
+    win.undo_last_dataframe_change()
+
+    assert len(win._df) == 11
+    assert 999.0 in win._df["y"].tolist()
+    assert any("Undid data change" in message for message in win.messages)
+
 
 def test_feature_clean_normalize_minmax_adds_column():
     df = pd.DataFrame({"y": [10.0, 20.0, 30.0]})

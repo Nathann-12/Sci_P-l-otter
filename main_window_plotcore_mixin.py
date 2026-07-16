@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from core.plot_data import clamp_date_limits as _clamp_date_limits
 from core.plot_mode import PlotMode
+from core.render_optimization import apply_line_lod, canvas_pixel_width
 from processors import beautify_axes
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,32 @@ class MainWindowPlotCoreMixin:
                     style = self._infer_artist_style(artist)
                     if style == 'layer':
                         continue
+                    render_info = None
+                    if style == 'line':
+                        try:
+                            artist._sciplotter_x_values = list(artist.get_xdata())
+                            artist._sciplotter_y_values = list(artist.get_ydata())
+                            render_info = apply_line_lod(
+                                ax, artist, pixel_width=canvas_pixel_width(ax)
+                            )
+                        except Exception:
+                            logger.debug("analysis line LOD skipped", exc_info=True)
+                    elif style == 'scatter':
+                        try:
+                            offsets = artist.get_offsets()
+                            if len(offsets) >= 10_000:
+                                artist.set_rasterized(True)
+                            artist._sciplotter_x_values = offsets[:, 0].tolist()
+                            artist._sciplotter_y_values = offsets[:, 1].tolist()
+                            render_info = {
+                                'source_count': len(offsets),
+                                'rendered_count': len(offsets),
+                                'render_mode': 'rasterized' if len(offsets) >= 10_000 else 'vector',
+                                'artist_count': 1,
+                                'lod_applied': False,
+                            }
+                        except Exception:
+                            logger.debug("analysis scatter optimization skipped", exc_info=True)
                     try:
                         label = artist.get_label()
                     except Exception:
@@ -161,6 +188,8 @@ class MainWindowPlotCoreMixin:
                     else:
                         used_labels.add(label)
                     layer_meta = {'source': 'analysis.apply_plot', 'style': style}
+                    if render_info is not None:
+                        layer_meta['render'] = render_info
                     layer_id = tab.register_layer([artist], label, style, meta=layer_meta, kwargs={})
                     if layer_id:
                         registered = True

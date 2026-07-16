@@ -152,7 +152,9 @@ def test_load_data_json_opens_book(win, tmp_path):
 
     win.load_data(str(p))
 
-    assert len(win.mdi._books) == books_before + 1
+    assert books_before == 1
+    assert len(win.mdi._books) == 1
+    assert "Book1" not in win.mdi._books
     assert win._df["y"].tolist() == [7, 8, 9]
 
 
@@ -170,6 +172,8 @@ def test_batch_import_opens_book_per_file(win, tmp_path, monkeypatch):
     books_before = len(win.mdi._books)
     win.stage_add_files()
 
-    assert len(win.mdi._books) == books_before + 2
+    assert books_before == 1
+    assert len(win.mdi._books) == 2
+    assert "Book1" not in win.mdi._books
     # ไฟล์สุดท้ายที่เปิดกลายเป็น Book ที่ active → ข้อมูลพร้อมใช้
     assert "z" in win._df.columns
