@@ -421,3 +421,23 @@ def test_add_tab_toolbar_creates_and_selects_graph_after_book_focus(win, qapp):
 
     assert win.tabs.count() == before_count + 1
     assert win.tabs.currentWidget() is next(reversed(win.tabs.tabs.values()))
+
+
+def test_closing_the_only_book_reopens_a_blank_worksheet(win, qapp):
+    # Regression: closing the only Book was blocked ("can't close the sheet").
+    # Now it closes and a fresh blank Book replaces it so the app stays usable.
+    assert len(win.mdi._books) == 1
+    old_wb = win.workbook
+    sub = next(iter(win.mdi._books.values()))[1]
+
+    sub.close()
+    qapp.processEvents()
+
+    assert len(win.mdi._books) == 1          # a fresh blank Book replaced it
+    assert win.workbook is not None
+    assert win.workbook is not old_wb        # a brand-new worksheet
+    # the new Book is fully wired: typing into it re-enables plotting
+    wb = win.workbook
+    wb.table.item(META_ROW_COUNT + 0, 0).setText("1")
+    wb.table.item(META_ROW_COUNT + 0, 1).setText("2")
+    assert win.toolbar_actions["plot"].isEnabled()

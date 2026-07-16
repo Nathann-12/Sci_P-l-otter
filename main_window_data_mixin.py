@@ -92,6 +92,18 @@ class MainWindowDataMixin:
         wb = WorkbookWidget(self)
         wb.set_dataframe(df)
         wb.dataset_name = name
+        self._wire_book_signals(wb)
+        sub = self.mdi.add_book(wb, title=name)
+        try:
+            self.mdi.mdi.setActiveSubWindow(sub)
+        except Exception:
+            pass
+        # activation signal may be suppressed while constructing — sync now
+        self._on_book_activated(sub.windowTitle())
+        return wb
+
+    def _wire_book_signals(self, wb) -> None:
+        """Connect a Book worksheet's signals to the MainWindow handlers."""
         try:
             wb.use_data_requested.connect(self.adopt_workbook_data)
             wb.plot_requested.connect(lambda s: self.plot_from_workbook(s, new_graph=True))
@@ -101,14 +113,25 @@ class MainWindowDataMixin:
             if callable(connect_state):
                 connect_state(wb)
         except Exception:
-            import logging
             logging.getLogger(__name__).debug("book signal wiring failed", exc_info=True)
-        sub = self.mdi.add_book(wb, title=name)
+
+    def _new_blank_book(self, title: str = "Book1"):
+        """Open a fresh empty worksheet so the app always has a Book to work in
+        (used when the user closes the last remaining Book)."""
+        from widgets.workbook import WorkbookWidget
+
+        wb = WorkbookWidget(self)
+        wb.dataset_name = title
+        self._wire_book_signals(wb)
+        sub = self.mdi.add_book(wb, title=title)
+        self.workbook = wb
+        self._book_sub = sub
+        self._df = None
+        self._current_path = None
         try:
             self.mdi.mdi.setActiveSubWindow(sub)
         except Exception:
-            pass
-        # activation signal may be suppressed while constructing — sync now
+            logging.getLogger(__name__).debug("activate blank book failed", exc_info=True)
         self._on_book_activated(sub.windowTitle())
         return wb
 
@@ -136,38 +159,30 @@ class MainWindowDataMixin:
             logging.getLogger(__name__).debug("workbook status show failed", exc_info=True)
 
     def _on_book_closed(self, title: str):
-        """After a Book window is closed, re-point the active data if needed.
+        """After a Book window is closed, keep the active data valid.
 
         The closed Book's widget is deleted right after this returns, so if it
-        was the active worksheet we must switch ``self.workbook``/``self._df`` to
-        a surviving Book now (QMdiArea may otherwise activate a Graph, leaving a
-        dangling reference). The last-Book guard means one Book always remains.
+        was the active worksheet we switch ``self.workbook``/``self._df`` to a
+        surviving Book now (QMdiArea may otherwise activate a Graph, leaving a
+        dangling reference). If it was the *last* Book, open a fresh blank one so
+        the app always has a worksheet to type/plot into.
         """
         ws = getattr(self, "mdi", None)
         books = getattr(ws, "_books", {}) or {}
         active = getattr(self, "workbook", None)
         active_still_open = any(entry[0] is active for entry in books.values())
-        if not active_still_open and books:
-            try:
+        try:
+            if not books:
+                self._new_blank_book()
+            elif not active_still_open:
                 self._activate_book_by_name(next(iter(books)))
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "re-point after book close failed", exc_info=True
-                )
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "recover active book after close failed", exc_info=True
+            )
         refresh = getattr(self, "_refresh_action_states", None)
         if callable(refresh):
             refresh()
-
-    def _on_book_close_blocked(self, title: str):
-        """Tell the user why the last Book can't be closed."""
-        try:
-            self.statusBar().showMessage(
-                f"'{title}' is the only Book — a worksheet must stay open.", 4000
-            )
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "book close blocked status failed", exc_info=True
-            )
 
     def _on_book_activated(self, title: str):
         """สลับข้อมูลทำงานตาม Book ที่ active (หัวใจของ Origin multi-book)"""

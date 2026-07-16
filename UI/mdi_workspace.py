@@ -189,9 +189,6 @@ class MdiWorkspace(QWidget):
     # Emitted after a Book sub-window is closed and removed from the registry so
     # the MainWindow can re-point its active DataFrame before the widget dies.
     bookClosed = Signal(str)             # (title)
-    # Emitted instead when the user tries to close the last remaining Book (the
-    # app is sheet-first and always needs at least one worksheet).
-    bookCloseBlocked = Signal(str)       # (title)
 
     def __init__(self, parent=None, *, start_with_graph: bool = True):
         super().__init__(parent)
@@ -385,11 +382,10 @@ class MdiWorkspace(QWidget):
     def _detach_book(self, sub) -> bool:
         """Sync registries when a Book sub-window is closed interactively.
 
-        Blocks closing the *last* Book (the app is sheet-first and always needs a
-        worksheet) and reports it via ``bookCloseBlocked``. Otherwise pops the
-        Book, emits ``subWindowRemoved`` + ``bookClosed`` (so the MainWindow can
-        re-point its active DataFrame while the widget is still alive) and returns
-        True so the window may finish closing.
+        Pops the Book and emits ``subWindowRemoved`` + ``bookClosed`` (so the
+        MainWindow can re-point its active DataFrame — or open a fresh blank Book
+        when the last one is closed — while the widget is still alive), then
+        returns True so the window may finish closing.
         """
         match_title = None
         for candidate_title, (_widget, candidate_sub) in self._books.items():
@@ -398,12 +394,6 @@ class MdiWorkspace(QWidget):
                 break
         if match_title is None:
             return True  # not one of ours — allow the close
-        if len(self._books) <= 1:
-            try:
-                self.bookCloseBlocked.emit(match_title)
-            except Exception:
-                logger.debug("bookCloseBlocked emit failed", exc_info=True)
-            return False
         self._books.pop(match_title, None)
         for _sig, _args in (
             (self.subWindowRemoved, ("book", match_title)),

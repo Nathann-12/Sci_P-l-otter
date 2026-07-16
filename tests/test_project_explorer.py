@@ -176,16 +176,18 @@ def test_close_from_context_menu_removes_book_node(qapp):
     assert "Book1" in _leaf_titles(explorer)
 
 
-def test_last_book_close_is_blocked_and_stays_in_tree(qapp):
+def test_closing_the_only_book_removes_the_node(qapp):
+    # The workspace removes the closed Book; the MainWindow (not present here)
+    # is what re-opens a fresh blank Book, so the node simply disappears.
     host = _Host()
     ws = MdiWorkspace(host)
     ws.add_book(QWidget(), "Book1")  # the only Book
     explorer = ProjectExplorer(host, workspace=ws)
 
     _item, sub = _find_leaf(explorer, "Book1")
-    explorer._close_item(sub)   # blocked by the last-Book guard
+    explorer._close_item(sub)
 
-    assert "Book1" in _leaf_titles(explorer)
+    assert "Book1" not in _leaf_titles(explorer)
 
 
 def test_rename_book_from_explorer_updates_tree_and_registry(qapp):

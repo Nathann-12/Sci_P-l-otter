@@ -283,19 +283,19 @@ def test_closing_a_book_via_x_pops_registry_and_emits(qapp):
     assert closed == ["Book2"]
 
 
-def test_closing_the_last_book_is_blocked(qapp):
+def test_closing_a_book_always_removes_it_from_registry(qapp):
+    # The workspace itself always removes a closed Book + signals; recreating a
+    # fresh blank Book when it was the last one is the MainWindow's job.
     host = _Host()
     ws = MdiWorkspace(host)
     book = ws.add_book(QWidget(), "Book1")
-    blocked, removed = [], []
-    ws.bookCloseBlocked.connect(blocked.append)
-    ws.subWindowRemoved.connect(lambda kind, title: removed.append((kind, title)))
+    closed = []
+    ws.bookClosed.connect(closed.append)
 
-    book.close()  # only Book -> must be blocked
+    book.close()
 
-    assert "Book1" in ws._books            # still there
-    assert blocked == ["Book1"]
-    assert removed == []                    # not removed
+    assert "Book1" not in ws._books
+    assert closed == ["Book1"]
 
 
 def test_book_focus_preserves_last_selected_graph_target(qapp):
