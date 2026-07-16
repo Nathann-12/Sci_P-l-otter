@@ -264,6 +264,40 @@ def test_remove_book_updates_registry_and_emits(qapp):
     assert removed == [("book", "Book1")]
 
 
+def test_closing_a_book_via_x_pops_registry_and_emits(qapp):
+    # Regression: closing a Book via its title-bar X used to only hide it — the
+    # registry (and Project Explorer) kept it. Now it removes it and signals.
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.add_book(QWidget(), "Book1")
+    book2 = ws.add_book(QWidget(), "Book2")
+    removed, closed = [], []
+    ws.subWindowRemoved.connect(lambda kind, title: removed.append((kind, title)))
+    ws.bookClosed.connect(closed.append)
+
+    book2.close()  # triggers _BookSubWindow.closeEvent -> _detach_book
+
+    assert "Book2" not in ws._books
+    assert "Book1" in ws._books
+    assert ("book", "Book2") in removed
+    assert closed == ["Book2"]
+
+
+def test_closing_the_last_book_is_blocked(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    book = ws.add_book(QWidget(), "Book1")
+    blocked, removed = [], []
+    ws.bookCloseBlocked.connect(blocked.append)
+    ws.subWindowRemoved.connect(lambda kind, title: removed.append((kind, title)))
+
+    book.close()  # only Book -> must be blocked
+
+    assert "Book1" in ws._books            # still there
+    assert blocked == ["Book1"]
+    assert removed == []                    # not removed
+
+
 def test_book_focus_preserves_last_selected_graph_target(qapp):
     host = _Host()
     ws = MdiWorkspace(host)

@@ -146,6 +146,27 @@ class _GraphSubWindow(QMdiSubWindow):
             super().closeEvent(event)
 
 
+class _BookSubWindow(QMdiSubWindow):
+    """A Book sub-window that removes itself from the workspace registry when the
+    user closes it via the title-bar button, so the Project Explorer and the
+    multi-book state never keep a Book the user already closed."""
+
+    def __init__(self, workspace):
+        super().__init__()
+        self._workspace = workspace
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+
+    def closeEvent(self, event):
+        try:
+            proceed = self._workspace._detach_book(self)
+        except Exception:
+            proceed = True
+        if proceed:
+            super().closeEvent(event)
+        else:
+            event.ignore()
+
+
 class MdiWorkspace(QWidget):
     """OriginPro-style MDI workspace exposing a TabManager-compatible surface.
 
@@ -165,6 +186,12 @@ class MdiWorkspace(QWidget):
     # Origin multi-book: emitted when a Book sub-window becomes active so the
     # MainWindow can switch its working DataFrame to that Book's data.
     bookActivated = Signal(str)          # (title)
+    # Emitted after a Book sub-window is closed and removed from the registry so
+    # the MainWindow can re-point its active DataFrame before the widget dies.
+    bookClosed = Signal(str)             # (title)
+    # Emitted instead when the user tries to close the last remaining Book (the
+    # app is sheet-first and always needs at least one worksheet).
+    bookCloseBlocked = Signal(str)       # (title)
 
     def __init__(self, parent=None, *, start_with_graph: bool = True):
         super().__init__(parent)
@@ -303,10 +330,11 @@ class MdiWorkspace(QWidget):
         self._book_counter += 1
         if title in self._books:
             title = f"Book{self._book_counter}"
-        sub = QMdiSubWindow()
+        # _BookSubWindow syncs the registry (and re-points the active data) when
+        # the user closes it via the title-bar X, and frees the widget on close.
+        sub = _BookSubWindow(self)
         sub.setWidget(widget)
         sub.setWindowTitle(title)
-        sub.setAttribute(Qt.WA_DeleteOnClose, False)
         icon = _sub_window_icon("book")
         if icon is not None:
             sub.setWindowIcon(icon)
@@ -352,6 +380,39 @@ class MdiWorkspace(QWidget):
             self.subWindowRemoved.emit("book", match_title)
         except Exception:
             logger.debug("subWindowRemoved emit failed", exc_info=True)
+        return True
+
+    def _detach_book(self, sub) -> bool:
+        """Sync registries when a Book sub-window is closed interactively.
+
+        Blocks closing the *last* Book (the app is sheet-first and always needs a
+        worksheet) and reports it via ``bookCloseBlocked``. Otherwise pops the
+        Book, emits ``subWindowRemoved`` + ``bookClosed`` (so the MainWindow can
+        re-point its active DataFrame while the widget is still alive) and returns
+        True so the window may finish closing.
+        """
+        match_title = None
+        for candidate_title, (_widget, candidate_sub) in self._books.items():
+            if candidate_sub is sub:
+                match_title = candidate_title
+                break
+        if match_title is None:
+            return True  # not one of ours — allow the close
+        if len(self._books) <= 1:
+            try:
+                self.bookCloseBlocked.emit(match_title)
+            except Exception:
+                logger.debug("bookCloseBlocked emit failed", exc_info=True)
+            return False
+        self._books.pop(match_title, None)
+        for _sig, _args in (
+            (self.subWindowRemoved, ("book", match_title)),
+            (self.bookClosed, (match_title,)),
+        ):
+            try:
+                _sig.emit(*_args)
+            except Exception:
+                logger.debug("signal emit failed on book close", exc_info=True)
         return True
 
     def remove_all_tabs(self) -> None:

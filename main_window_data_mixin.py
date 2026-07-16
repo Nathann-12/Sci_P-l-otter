@@ -135,6 +135,40 @@ class MainWindowDataMixin:
         except Exception:
             logging.getLogger(__name__).debug("workbook status show failed", exc_info=True)
 
+    def _on_book_closed(self, title: str):
+        """After a Book window is closed, re-point the active data if needed.
+
+        The closed Book's widget is deleted right after this returns, so if it
+        was the active worksheet we must switch ``self.workbook``/``self._df`` to
+        a surviving Book now (QMdiArea may otherwise activate a Graph, leaving a
+        dangling reference). The last-Book guard means one Book always remains.
+        """
+        ws = getattr(self, "mdi", None)
+        books = getattr(ws, "_books", {}) or {}
+        active = getattr(self, "workbook", None)
+        active_still_open = any(entry[0] is active for entry in books.values())
+        if not active_still_open and books:
+            try:
+                self._activate_book_by_name(next(iter(books)))
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "re-point after book close failed", exc_info=True
+                )
+        refresh = getattr(self, "_refresh_action_states", None)
+        if callable(refresh):
+            refresh()
+
+    def _on_book_close_blocked(self, title: str):
+        """Tell the user why the last Book can't be closed."""
+        try:
+            self.statusBar().showMessage(
+                f"'{title}' is the only Book — a worksheet must stay open.", 4000
+            )
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "book close blocked status failed", exc_info=True
+            )
+
     def _on_book_activated(self, title: str):
         """สลับข้อมูลทำงานตาม Book ที่ active (หัวใจของ Origin multi-book)"""
         wb = self.mdi.book_widget(title)

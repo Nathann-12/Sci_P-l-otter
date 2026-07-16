@@ -146,19 +146,19 @@ def test_remove_reflects_in_tree(qapp):
 
 
 def test_closed_book_is_dropped_from_tree(qapp):
-    # Regression: a Book sub-window is only *hidden* on close (it emits no
-    # removal signal), so the Explorer used to keep showing a Book the user had
-    # already closed. Now closed (hidden) windows are filtered out on refresh.
+    # Regression: closing a Book used to keep it in the registry/Explorer. Now
+    # closing a Book removes it (and the tree also filters hidden windows).
     host = _Host()
     ws = MdiWorkspace(host)  # "Graph 1"
-    book_sub = ws.add_book(QWidget(), "Book1")
+    ws.add_book(QWidget(), "Book1")
+    book2 = ws.add_book(QWidget(), "Book2")  # need >1 (last Book can't close)
     explorer = ProjectExplorer(host, workspace=ws)
+    assert "Book2" in _leaf_titles(explorer)
+
+    book2.close()             # removes it (emits subWindowRemoved -> refresh)
+
+    assert "Book2" not in _leaf_titles(explorer)
     assert "Book1" in _leaf_titles(explorer)
-
-    book_sub.close()          # hides it (WA_DeleteOnClose is False for Books)
-    explorer.refresh()
-
-    assert "Book1" not in _leaf_titles(explorer)
     assert "Graph 1" in _leaf_titles(explorer)  # untouched
 
 
@@ -166,12 +166,26 @@ def test_close_from_context_menu_removes_book_node(qapp):
     host = _Host()
     ws = MdiWorkspace(host)
     ws.add_book(QWidget(), "Book1")
+    ws.add_book(QWidget(), "Book2")
+    explorer = ProjectExplorer(host, workspace=ws)
+
+    _item, sub = _find_leaf(explorer, "Book2")
+    explorer._close_item(sub)   # the Explorer's "Close" action
+
+    assert "Book2" not in _leaf_titles(explorer)
+    assert "Book1" in _leaf_titles(explorer)
+
+
+def test_last_book_close_is_blocked_and_stays_in_tree(qapp):
+    host = _Host()
+    ws = MdiWorkspace(host)
+    ws.add_book(QWidget(), "Book1")  # the only Book
     explorer = ProjectExplorer(host, workspace=ws)
 
     _item, sub = _find_leaf(explorer, "Book1")
-    explorer._close_item(sub)   # the Explorer's "Close" action
+    explorer._close_item(sub)   # blocked by the last-Book guard
 
-    assert "Book1" not in _leaf_titles(explorer)
+    assert "Book1" in _leaf_titles(explorer)
 
 
 def test_rename_book_from_explorer_updates_tree_and_registry(qapp):

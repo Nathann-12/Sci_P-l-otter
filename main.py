@@ -469,6 +469,9 @@ class MainWindow(
         self._book_sub = self.mdi.add_book(self.workbook, "Book1")   # worksheet แบบ Origin
         # Origin multi-book: คลิกหน้าต่าง Book ไหน = ใช้ข้อมูลชุดนั้น
         self.mdi.bookActivated.connect(self._on_book_activated)
+        # ปิด Book (กากบาท) → sync active data / เตือนเมื่อเป็น Book สุดท้าย
+        self.mdi.bookClosed.connect(self._on_book_closed)
+        self.mdi.bookCloseBlocked.connect(self._on_book_close_blocked)
         try:
             self.mdi.mdi.setActiveSubWindow(self._book_sub)          # โชว์ Book1 หน้าสุดตอนเปิด
         except Exception:
