@@ -139,6 +139,78 @@ CREATE_TOOLS = {
 }
 
 
+_EXPLANATION_OR_NEGATION_CUES = (
+    "explain", "what is", "how does", "do not", "don't", "not yet",
+    "without plotting", "without fitting", "อธิบาย", "คืออะไร", "ทำงานยังไง",
+    "อย่า", "ไม่ต้อง", "ยังไม่ต้อง",
+)
+
+
+def select_high_confidence_tool(
+    user_text: str,
+    available: Iterable[str],
+) -> str | None:
+    """Return a tool only for narrow intents that are safe to classify exactly.
+
+    This is the deterministic half of the hybrid router.  It deliberately
+    handles only command-shaped phrases with strong semantic markers; all
+    ambiguous requests still go to the local model.  Arguments remain the
+    responsibility of the Safe Router resolver.
+    """
+    folded = " ".join(str(user_text or "").casefold().split())
+    available_names = set(available)
+    if not folded or any(cue in folded for cue in _EXPLANATION_OR_NEGATION_CUES):
+        return None
+
+    if "list_fit_models" in available_names:
+        fit_subject = any(
+            cue in folded
+            for cue in (
+                "fit model", "fitting model", "curve model", "regression model",
+                "โมเดลฟิต", "สมการฟิต", "ฟิตเส้นโค้ง",
+            )
+        )
+        english_list = any(
+            cue in folded
+            for cue in (
+                "list", "available", "catalog", "catalogue", "options",
+                "which models", "what models", "models can i", "kinds of",
+            )
+        )
+        thai_list = (
+            "รายชื่อ" in folded
+            or "รายการ" in folded
+            or "ให้เลือก" in folded
+            or ("มี" in folded and "อะไร" in folded and "บ้าง" in folded)
+            or ("แบบไหน" in folded and "บ้าง" in folded)
+        )
+        if fit_subject and (english_list or thai_list):
+            return "list_fit_models"
+
+    if "plot_chart" in available_names:
+        advanced_chart = any(
+            cue in folded
+            for cue in (
+                "surface 3d", "3d surface", "surface_3d", "surface 3 มิติ",
+                "wireframe", "wireframe 3 มิติ", "scatter 3d", "3d scatter",
+                "scatter_3d", "scatter 3 มิติ", "bar 3d", "3d bar",
+                "bar_3d", "trisurface", "contour 3d", "3d contour",
+                "contour_3d", "matrix heatmap",
+            )
+        )
+        plot_command = any(
+            cue in folded
+            for cue in (
+                "plot", "create", "make a", "draw", "show a", "show the",
+                "พล็อต", "พลอต", "สร้างกราฟ", "วาดกราฟ", "แสดงกราฟ",
+            )
+        )
+        if advanced_chart and plot_command:
+            return "plot_chart"
+
+    return None
+
+
 def metadata_for(name: str) -> Dict[str, str]:
     category = next(
         (group for group, names in GROUPS.items() if name in names), "general"

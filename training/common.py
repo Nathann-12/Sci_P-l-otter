@@ -68,19 +68,32 @@ def validate_records(records: Iterable[dict]) -> None:
         if record["schema_version"] != TOOL_SCHEMA_VERSION:
             raise ValueError(f"{record['id']}: stale tool schema version")
         target = json.loads(record["target"])
+        router_v2 = str(record.get("router_protocol", "")) == "2.0"
         if record["kind"] == "tool_call":
             tool = str(target.get("tool") or "")
-            arguments = target.get("arguments")
-            if not registry.has(tool) or not isinstance(arguments, dict):
+            if not registry.has(tool):
                 raise ValueError(f"{record['id']}: invalid tool target")
-            error = registry.validate_arguments(tool, arguments)
-            if error:
-                raise ValueError(f"{record['id']}: {error}")
+            if router_v2:
+                if target != {"tool": tool}:
+                    raise ValueError(
+                        f"{record['id']}: router v2 target must contain only the tool"
+                    )
+            else:
+                arguments = target.get("arguments")
+                if not isinstance(arguments, dict):
+                    raise ValueError(f"{record['id']}: invalid tool arguments")
+                error = registry.validate_arguments(tool, arguments)
+                if error:
+                    raise ValueError(f"{record['id']}: {error}")
             offered = select_tool_names(record["user"], names)
             if tool not in offered:
                 raise ValueError(f"{record['id']}: target tool is not offered")
         elif not isinstance(target.get("answer"), str):
             raise ValueError(f"{record['id']}: invalid answer target")
+        elif router_v2 and set(target) != {"answer"}:
+            raise ValueError(
+                f"{record['id']}: router v2 answer target must contain only answer"
+            )
 
 
 def system_prompt(user_text: str) -> str:

@@ -11,6 +11,7 @@ from ai.tool_registry import ToolRegistry
 
 class _Client:
     def __init__(self, tool_name: str, invented_arguments=None):
+        self.calls = 0
         self.replies = [
             json.dumps(
                 {
@@ -23,6 +24,7 @@ class _Client:
 
     def chat(self, _messages, *, format_json=False):
         assert format_json is True
+        self.calls += 1
         return self.replies.pop(0)
 
 
@@ -199,6 +201,154 @@ def test_required_sampling_rate_is_not_guessed_from_an_unrelated_request():
 
     assert calls == []
     assert "sampling rate" in result.answer
+
+
+def test_short_clarification_reply_completes_the_pending_request():
+    calls = []
+    registry = _registry(["Signal"])
+    registry.add(
+        "filter_signal",
+        "filter a signal",
+        {
+            "fs": {"type": "number", "required": True},
+            "kind": {"type": "string", "enum": ["lowpass", "highpass"]},
+            "column": {"type": "string"},
+        },
+        lambda arguments: calls.append(arguments) or "filtered",
+    )
+    client = _Client("filter_signal", {"fs": 9999})
+    assistant = LocalAssistant(registry, client)
+
+    first = assistant.ask("Lowpass filter Signal")
+    second = assistant.ask("sampling rate 1 kHz")
+
+    assert first.needs_input is True
+    assert "sampling rate" in first.answer
+    assert second.answer == "filtered"
+    assert calls == [{"kind": "lowpass", "column": "Signal", "fs": 1000.0}]
+    assert client.calls == 1
+
+
+def test_exact_column_reply_resolves_a_pending_column_ambiguity():
+    calls = []
+    registry = _registry(["Signal A", "Signal B"])
+    registry.add(
+        "smooth_data",
+        "smooth a column",
+        {"column": {"type": "string"}},
+        lambda arguments: calls.append(arguments) or "smoothed",
+    )
+    assistant = LocalAssistant(registry, _Client("smooth_data"))
+
+    first = assistant.ask('Smooth "Signal"')
+    second = assistant.ask("Signal A")
+
+    assert first.needs_input is True
+    assert second.answer == "smoothed"
+    assert calls == [{"column": "Signal A"}]
+
+
+def test_pending_request_can_be_cancelled_without_running_a_tool():
+    calls = []
+    registry = _registry(["Signal"])
+    registry.add(
+        "filter_signal",
+        "filter a signal",
+        {"fs": {"type": "number", "required": True}},
+        lambda arguments: calls.append(arguments) or "filtered",
+    )
+    assistant = LocalAssistant(registry, _Client("filter_signal"))
+
+    assistant.ask("กรองสัญญาณ")
+    result = assistant.ask("ยกเลิก")
+
+    assert result.cancelled is True
+    assert "ยกเลิก" in result.answer
+    assert calls == []
+
+
+def test_unrelated_message_replaces_a_pending_request():
+    calls = []
+    registry = _registry(["Signal"])
+    registry.add(
+        "filter_signal",
+        "filter a signal",
+        {"fs": {"type": "number", "required": True}},
+        lambda arguments: calls.append(arguments) or "filtered",
+    )
+    client = _Client("filter_signal")
+    assistant = LocalAssistant(registry, client)
+
+    assistant.ask("Filter Signal")
+    result = assistant.ask("hello")
+
+    assert result.answer == "done"
+    assert calls == []
+    assert client.calls == 2
+
+
+def test_clearing_conversation_forgets_pending_request():
+    calls = []
+    registry = _registry(["Signal"])
+    registry.add(
+        "filter_signal",
+        "filter a signal",
+        {"fs": {"type": "number", "required": True}},
+        lambda arguments: calls.append(arguments) or "filtered",
+    )
+    client = _Client("filter_signal")
+    assistant = LocalAssistant(registry, client)
+
+    assistant.ask("Filter Signal")
+    assistant.clear_pending_request()
+    result = assistant.ask("sampling rate 1 kHz")
+
+    assert result.answer == "done"
+    assert calls == []
+
+
+def test_pending_request_is_invalidated_when_the_active_book_changes():
+    calls = []
+    context = {"book_token": "book-a", "columns": ["Signal"]}
+    registry = ToolRegistry(context_provider=lambda: dict(context))
+    registry.add(
+        "filter_signal",
+        "filter a signal",
+        {"fs": {"type": "number", "required": True}},
+        lambda arguments: calls.append(arguments) or "filtered",
+    )
+    assistant = LocalAssistant(registry, _Client("filter_signal"))
+
+    assistant.ask("Filter Signal")
+    context["book_token"] = "book-b"
+    result = assistant.ask("sampling rate 1 kHz")
+
+    assert result.needs_input is True
+    assert "active Book changed" in result.answer
+    assert calls == []
+
+
+def test_tool_does_not_run_if_book_changes_during_model_inference():
+    calls = []
+    context = {"book_token": "book-a", "columns": ["Signal"]}
+    registry = ToolRegistry(context_provider=lambda: dict(context))
+    registry.add(
+        "smooth_data",
+        "smooth a column",
+        {"column": {"type": "string"}},
+        lambda arguments: calls.append(arguments) or "smoothed",
+    )
+
+    class _SwitchingClient:
+        def chat(self, _messages, *, format_json=False):
+            context["book_token"] = "book-b"
+            return '{"tool":"smooth_data"}'
+
+    result = LocalAssistant(registry, _SwitchingClient()).ask("Smooth Signal")
+
+    assert result.needs_input is True
+    assert "active Book changed" in result.answer
+    assert calls == []
 
 
 def test_labeled_numbers_are_extracted_without_model_help():

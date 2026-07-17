@@ -52,6 +52,11 @@ def _safe_argument_context(window) -> Dict[str, Any]:
     """Return live values that the deterministic AI router may reference."""
     df = _active_df(window)
     columns = [str(column) for column in getattr(df, "columns", [])] if df is not None else []
+    label_getter = getattr(window, "_active_book_label", None)
+    book_label = str(label_getter() or "") if callable(label_getter) else ""
+    book_token = (
+        f"{id(df)}:{len(df)}:{'|'.join(columns)}" if df is not None else ""
+    )
     numeric_columns = []
     if df is not None:
         numeric_columns = [
@@ -76,6 +81,8 @@ def _safe_argument_context(window) -> Dict[str, Any]:
     except Exception:
         logger.debug("Could not load chart choices for AI routing", exc_info=True)
     return {
+        "book_label": book_label,
+        "book_token": book_token,
         "columns": columns,
         "numeric_columns": numeric_columns,
         "parameter_values": parameter_values,

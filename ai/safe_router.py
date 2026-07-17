@@ -269,6 +269,57 @@ def resolve_tool_arguments(
     return result
 
 
+def merge_argument_resolutions(
+    user_text: str,
+    tool: AITool,
+    base: ArgumentResolution,
+    update: ArgumentResolution,
+) -> ArgumentResolution:
+    """Merge a short clarification reply into a previously unresolved call."""
+    arguments = dict(base.arguments)
+    arguments.update(update.arguments)
+
+    resolved_parameters = set(update.arguments)
+    resolved_a_column = any(
+        _is_column_parameter(name, tool.parameters.get(name, {}))
+        for name in resolved_parameters
+    )
+    remaining_problems = []
+    for problem in base.problems:
+        explicitly_resolved = any(f"'{name}'" in problem for name in resolved_parameters)
+        column_resolved = resolved_a_column and "column" in problem.casefold()
+        if not explicitly_resolved and not column_resolved:
+            remaining_problems.append(problem)
+    problems = remaining_problems + list(update.problems)
+    missing = [
+        name
+        for name, schema in tool.parameters.items()
+        if schema.get("required") and name not in arguments
+    ]
+    result = ArgumentResolution(
+        arguments=arguments,
+        missing=missing,
+        problems=problems,
+    )
+    if not result.ready:
+        result.clarification = _clarification(user_text, tool.name, missing, problems)
+    return result
+
+
+def resolution_has_new_details(
+    base: ArgumentResolution,
+    update: ArgumentResolution,
+) -> bool:
+    """Whether a reply contains a value that can advance a pending request."""
+    ignored = {"language", "instruction"}
+    if any(
+        name not in ignored and base.arguments.get(name) != value
+        for name, value in update.arguments.items()
+    ):
+        return True
+    return bool(update.problems)
+
+
 def _is_column_parameter(name: str, schema: Mapping[str, Any]) -> bool:
     source = str(schema.get("source", "") or "").casefold()
     return source == "active_column" or name in _COLUMN_PARAMETERS or name.endswith("_column")

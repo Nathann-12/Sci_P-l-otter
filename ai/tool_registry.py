@@ -206,6 +206,7 @@ class ToolRegistry:
         arguments: Dict[str, Any] | None = None,
         *,
         validate: bool = False,
+        expected_context_token: str = "",
     ) -> str:
         """Run a tool by name; always returns a string observation."""
         tool = self._tools.get(name)
@@ -216,6 +217,13 @@ class ToolRegistry:
             validation_error = self.validate_arguments(name, arguments)
             if validation_error:
                 return f"Error: invalid call to '{name}': {validation_error}."
+        if expected_context_token:
+            current_token = str(self.argument_context().get("book_token", "") or "")
+            if current_token and current_token != str(expected_context_token):
+                return (
+                    "Active Book changed before the action could run; "
+                    "no changes were made. Please repeat the request."
+                )
         try:
             resolved_arguments = dict(arguments or {})
             if (

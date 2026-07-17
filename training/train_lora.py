@@ -330,6 +330,7 @@ def main() -> None:
         "gradient_accumulation": args.gradient_accumulation,
         "max_length": args.max_length,
         "tool_schema_version": train_records[0].get("schema_version"),
+        "router_protocol": train_records[0].get("router_protocol", "legacy-arguments"),
         "train_sha256": hashlib.sha256(args.train.read_bytes()).hexdigest(),
         "validation_sha256": hashlib.sha256(args.validation.read_bytes()).hexdigest(),
         "max_allocated_vram_gb": round(torch.cuda.max_memory_allocated() / 1024**3, 3),

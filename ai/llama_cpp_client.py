@@ -139,6 +139,7 @@ class LlamaCppClient:
             process.wait(timeout=2)
 
     close = stop
+    cancel = stop
 
     def chat(
         self,

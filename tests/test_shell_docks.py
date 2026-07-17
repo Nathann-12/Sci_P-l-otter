@@ -91,7 +91,8 @@ def test_ai_dock_busy_completion_and_error_states(qapp):
     dock.set_busy(True, "Understanding request")
 
     assert not dock.input_edit.isEnabled()
-    assert dock.send_button.text() == "Working"
+    assert dock.send_button.text() == "Cancel"
+    assert dock.send_button.isEnabled()
 
     dock.complete_request(
         AssistantResult(

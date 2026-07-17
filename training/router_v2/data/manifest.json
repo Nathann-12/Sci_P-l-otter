@@ -1,0 +1,24 @@
+{
+  "dataset_version": "2.0",
+  "router_protocol": "2.0",
+  "tool_schema_version": "1.4",
+  "source_sha256": {
+    "train": "cdb78b052e58d666a137ebd7c2785b2c6df7a1e13af7646424e058e9e1bbea0f",
+    "validation": "616ec06278199c246f41a500ae3fd3110687c143c3639c22c9dc2bc6a6886019",
+    "repair": "9b7a627e247bff17405f269ceb6db373f595ecd22527d55c22ca20fdca8012a2"
+  },
+  "counts": {
+    "train": 522,
+    "validation": 138,
+    "train_tools": 468,
+    "train_answers": 54,
+    "validation_tools": 132,
+    "validation_answers": 6,
+    "acceptance_v4": 56
+  },
+  "sha256": {
+    "train": "e33d3e90dc61d4138607887a217145aa08af273141bc5b51e4519e02188ed207",
+    "validation": "9bfd1ee3af29148ca019ce47716a945673211675b2ae31c8603c24dfa39d6fc0",
+    "acceptance_v4": "5b48cb06b28e582bb2dc49417a9cec0158dd7a7b9685d1a103c91be648cc4361"
+  }
+}

@@ -7,7 +7,6 @@ app still works and the dock simply reports that the assistant is unavailable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import logging
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Callable, Dict
@@ -116,6 +115,10 @@ class _AiWorker(QObject):
     def cancel(self) -> None:
         self._cancelled.set()
 
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
     def join(self, timeout: float = 1.0) -> None:
         thread = self._thread
         if thread is not None and thread is not current_thread():
@@ -132,14 +135,16 @@ class _AiWorker(QObject):
             from ai.agent import AssistantResult
 
             result = AssistantResult(answer=f"AI error: {exc}", error=str(exc))
-        if self._cancelled.is_set():
-            return
+        if not self._cancelled.is_set():
+            try:
+                self.replied.emit(result)
+            except RuntimeError:
+                # The owning window may have closed between the cancellation
+                # check and signal delivery.
+                return
         try:
-            self.replied.emit(result)
             self.finished.emit()
         except RuntimeError:
-            # The owning window may have closed between the cancellation check
-            # and signal delivery.
             return
 
 
@@ -194,6 +199,18 @@ class MainWindowAIMixin:
             if not getattr(self, "_ai_dock_connected", False):
                 dock.message_submitted.connect(self._on_ai_message)
                 self._ai_dock_connected = True
+            if (
+                hasattr(dock, "cancel_requested")
+                and not getattr(self, "_ai_cancel_connected", False)
+            ):
+                dock.cancel_requested.connect(self._cancel_ai_request)
+                self._ai_cancel_connected = True
+            if (
+                hasattr(dock, "conversation_cleared")
+                and not getattr(self, "_ai_clear_connected", False)
+            ):
+                dock.conversation_cleared.connect(self._clear_ai_conversation)
+                self._ai_clear_connected = True
             if hasattr(dock, "set_model"):
                 dock.set_model(getattr(client, "model", "Local tools"))
             if hasattr(dock, "set_available"):
@@ -237,19 +254,47 @@ class MainWindowAIMixin:
         def show_confirmation(_unused):
             from PySide6.QtWidgets import QMessageBox
 
-            details = json.dumps(arguments or {}, ensure_ascii=False, indent=2)
+            details = "\n".join(
+                f"• {key}: {value}" for key, value in (arguments or {}).items()
+            ) or "• No additional parameters"
+            book_getter = getattr(self, "_active_book_label", None)
+            book = book_getter() if callable(book_getter) else ""
             risk_label = "hardware/device" if tool.risk == "device" else "active data"
             answer = QMessageBox.question(
                 self,
                 "Confirm AI action",
                 f"SciPlotter AI wants to run: {tool.name}\n"
-                f"This can change {risk_label}.\n\nArguments:\n{details}\n\nContinue?",
+                f"Active Book: {book or '(none)'}\n"
+                f"This can change {risk_label}.\n\nResolved inputs:\n{details}\n\nContinue?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
             return answer == QMessageBox.Yes
 
         return bool(executor(show_confirmation, {}))
+
+    def _clear_ai_conversation(self) -> None:
+        assistant = getattr(self, "_ai_assistant", None)
+        clear = getattr(assistant, "clear_pending_request", None)
+        if callable(clear):
+            clear()
+
+    def _cancel_ai_request(self) -> None:
+        worker = getattr(self, "_ai_worker", None)
+        if worker is None or not getattr(self, "_ai_busy", False):
+            return
+        worker.cancel()
+        assistant = getattr(self, "_ai_assistant", None)
+        client = getattr(assistant, "client", None)
+        cancel = getattr(client, "cancel", None)
+        if callable(cancel):
+            try:
+                cancel()
+            except Exception:
+                logger.debug("Could not interrupt local AI runtime", exc_info=True)
+        dock = getattr(self, "ai_dock", None)
+        if dock is not None and hasattr(dock, "set_busy"):
+            dock.set_busy(True, "Cancelling request")
 
     def _open_ai_model_manager(self) -> None:
         """Open the verified model installer and activate the chosen pack."""
@@ -364,10 +409,19 @@ class MainWindowAIMixin:
 
     def _on_ai_worker_finished(self) -> None:
         worker = self._ai_worker
+        cancelled = bool(worker is not None and worker.cancelled)
         if worker is not None:
             worker.join()
             worker.deleteLater()
         self._ai_worker = None
+        if cancelled:
+            self._ai_busy = False
+            dock = getattr(self, "ai_dock", None)
+            if dock is not None:
+                if hasattr(dock, "set_busy"):
+                    dock.set_busy(False, "Cancelled")
+                if hasattr(dock, "append_message"):
+                    dock.append_message("AI", "Cancelled; no pending action was run.")
 
     def closeEvent(self, event) -> None:
         worker = getattr(self, "_ai_worker", None)

@@ -960,3 +960,83 @@ def test_ai_dock_exposes_local_model_manager_action(qapp):
 
     assert requested == [True]
     assert "local" in dock.models_button.toolTip().casefold()
+
+
+def test_ai_dock_run_button_becomes_cancel_and_shows_resolved_inputs(qapp):
+    from UI.docks.ai_dock import AiAssistantDock
+    from ai.agent import AssistantResult
+
+    dock = AiAssistantDock()
+    cancelled = []
+    dock.cancel_requested.connect(lambda: cancelled.append(True))
+
+    dock.set_busy(True, "Understanding request")
+    assert dock.send_button.text() == "Cancel"
+    assert dock.send_button.isEnabled()
+    dock.send_button.click()
+    assert cancelled == [True]
+
+    dock.complete_request(
+        AssistantResult(
+            answer="done",
+            trace=[("smooth_data", {"column": "Signal", "method": "median"}, "ok")],
+        )
+    )
+    assert "column=Signal" in dock.action_label.text()
+    assert '"column": "Signal"' in dock.action_label.toolTip()
+
+
+def test_ai_dock_marks_clarification_as_needs_input(qapp):
+    from UI.docks.ai_dock import AiAssistantDock
+    from ai.agent import AssistantResult
+
+    dock = AiAssistantDock()
+    dock.set_busy(True)
+    dock.complete_request(
+        AssistantResult(answer="Please specify sampling rate.", needs_input=True)
+    )
+
+    assert dock.status_label.text() == "Needs input"
+    assert dock.input_edit.isEnabled()
+
+
+def test_ai_worker_cancel_interrupts_client_and_unlocks_dock(qapp):
+    from UI.docks.ai_dock import AiAssistantDock
+
+    class _CancellableClient:
+        model = "test"
+
+        def __init__(self):
+            self.started = threading.Event()
+            self.release = threading.Event()
+            self.cancel_calls = 0
+
+        def chat(self, _messages, *, format_json=False):
+            self.started.set()
+            self.release.wait(timeout=3)
+            return json.dumps({"answer": "late reply"})
+
+        def cancel(self):
+            self.cancel_calls += 1
+            self.release.set()
+
+    dock = AiAssistantDock()
+    host = _AiHost(pd.DataFrame({"time": [1, 2], "signal": [3, 4]}), dock)
+    client = _CancellableClient()
+    assert host.init_ai_assistant(client=client) is True
+
+    dock.input_edit.setText("explain this dataset")
+    dock._submit()
+    deadline = time.monotonic() + 3
+    while not client.started.is_set() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    dock.send_button.click()
+    while getattr(host, "_ai_worker", None) is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+
+    assert client.cancel_calls == 1
+    assert host._ai_busy is False
+    assert dock.send_button.text() == "Run"
+    assert "Cancelled" in dock.transcript_text()

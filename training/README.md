@@ -9,6 +9,9 @@ rebuilds arguments from the user's text and the active Book, and discards any
 `arguments` object emitted by these legacy schema-v1.4 adapters. The tracked
 datasets and sealed acceptance files remain unchanged for reproducibility; do
 not rebuild or reinterpret the unopened v3 gate while developing the router.
+New selection-only candidates use the separate, versioned workflow in
+`training/router_v2/README.md`; the legacy files below remain reproducible and
+unchanged.
 
 The tracked dataset contains synthetic but realistic column names, units and
 parameters. It contains no customer or researcher measurements.

@@ -4,7 +4,12 @@ import json
 
 from ai.agent import LocalAssistant
 from ai.app_tools import build_app_registry
-from ai.tool_catalog import MAX_PROMPT_TOOLS, TOOL_SCHEMA_VERSION, select_tool_names
+from ai.tool_catalog import (
+    MAX_PROMPT_TOOLS,
+    TOOL_SCHEMA_VERSION,
+    select_high_confidence_tool,
+    select_tool_names,
+)
 from ai.tool_registry import ToolRegistry
 
 
@@ -48,6 +53,42 @@ def test_signal_request_routes_signal_tools_not_unrelated_specialty_tools():
     assert "run_fft" in selected
     assert "power_spectrum" in selected
     assert "tafel_analysis" not in selected
+
+
+def test_hybrid_router_selects_only_narrow_high_confidence_intents():
+    names = build_app_registry(object()).names()
+
+    assert (
+        select_high_confidence_tool("มีโมเดลฟิตเส้นโค้งอะไรให้ใช้บ้าง", names)
+        == "list_fit_models"
+    )
+    assert (
+        select_high_confidence_tool("พล็อตกราฟ surface 3 มิติ", names)
+        == "plot_chart"
+    )
+    assert select_high_confidence_tool("Fit y against x with Gaussian", names) is None
+    assert select_high_confidence_tool("อธิบายว่า surface 3D คืออะไร", names) is None
+
+
+def test_hybrid_router_bypasses_model_but_still_uses_registry_execution():
+    calls = []
+    registry = ToolRegistry()
+    registry.add(
+        "list_fit_models",
+        "list fit models",
+        {},
+        lambda arguments: calls.append(arguments) or "Linear, Gaussian",
+    )
+    client = _Client([])
+
+    result = LocalAssistant(registry, client).ask(
+        "Which fitting models are available?"
+    )
+
+    assert calls == [{}]
+    assert client.calls == []
+    assert result.answer == "Linear, Gaussian"
+    assert result.trace == [("list_fit_models", {}, "Linear, Gaussian")]
 
 
 def test_model_authored_arguments_are_ignored_and_rebuilt_from_user_text():

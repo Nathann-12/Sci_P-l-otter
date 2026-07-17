@@ -1,4 +1,4 @@
-"""Measure exact JSON routing, tool choice and arguments on held-out seeds."""
+"""Measure exact JSON routing on legacy and selection-only held-out seeds."""
 from __future__ import annotations
 
 import argparse
@@ -58,25 +58,36 @@ def score_prediction(record: dict, raw_prediction: str) -> dict:
     target = json.loads(record["target"])
     expected_tool = target.get("tool")
     predicted_tool = parsed.get("tool")
+    router_v2 = str(record.get("router_protocol", "")) == "2.0"
     try:
         strict = json.loads(raw_prediction.strip())
         strict_json = isinstance(strict, dict)
     except Exception:
         strict_json = False
-    valid_protocol = strict_json and (
-        isinstance(parsed.get("answer"), str)
-        or (isinstance(predicted_tool, str) and isinstance(parsed.get("arguments"), dict))
-    )
+    if router_v2:
+        valid_protocol = strict_json and (
+            (set(parsed) == {"answer"} and isinstance(parsed.get("answer"), str))
+            or (set(parsed) == {"tool"} and isinstance(predicted_tool, str))
+        )
+    else:
+        valid_protocol = strict_json and (
+            isinstance(parsed.get("answer"), str)
+            or (isinstance(predicted_tool, str) and isinstance(parsed.get("arguments"), dict))
+        )
     if record["kind"] == "tool_call":
         tool_correct = predicted_tool == expected_tool
-        arguments_correct = parsed.get("arguments") == target.get("arguments")
-        exact = tool_correct and arguments_correct
+        arguments_correct = (
+            "arguments" not in parsed
+            if router_v2
+            else parsed.get("arguments") == target.get("arguments")
+        )
+        exact = bool(valid_protocol and tool_correct and arguments_correct)
         answer_correct = False
     else:
         tool_correct = predicted_tool is None
         arguments_correct = True
         answer_correct = isinstance(parsed.get("answer"), str) and bool(parsed["answer"].strip())
-        exact = tool_correct and answer_correct
+        exact = bool(valid_protocol and tool_correct and answer_correct)
     return {
         "valid_protocol": bool(valid_protocol),
         "tool_correct": bool(tool_correct),

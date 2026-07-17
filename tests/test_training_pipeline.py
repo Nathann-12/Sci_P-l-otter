@@ -30,6 +30,13 @@ from training.evaluate_router import (
     summarize,
 )
 from training.hard_negative_cases import HARD_NEGATIVE_GROUPS, hard_negative_seeds
+from training.router_v2.build_dataset import (
+    ROUTER_PROTOCOL_VERSION,
+    SEALED_ACCEPTANCE_V4_SHA256,
+    _jsonl_bytes as router_v2_jsonl_bytes,
+    build_acceptance_v4_records,
+    build_records as build_router_v2_records,
+)
 from training.tool_cases import answer_seeds, tool_seeds
 
 
@@ -81,6 +88,70 @@ def test_evaluator_scores_exact_tool_arguments_and_strict_json():
     assert exact["exact"] and exact["valid_protocol"]
     assert wrong["tool_correct"] and not wrong["arguments_correct"]
     assert not noisy["valid_protocol"]
+
+
+def test_router_v2_dataset_is_selection_only_and_keeps_splits_disjoint():
+    train, validation = build_router_v2_records()
+    validate_records(train + validation)
+
+    assert len(train) == 522
+    assert len(validation) == 138
+    assert sum(record["kind"] == "tool_call" for record in train) == 468
+    assert sum(record["kind"] == "answer" for record in train) == 54
+    assert {record["router_protocol"] for record in train + validation} == {
+        ROUTER_PROTOCOL_VERSION
+    }
+    assert {record["seed_id"] for record in train}.isdisjoint(
+        {record["seed_id"] for record in validation}
+    )
+    for record in train + validation:
+        target = json.loads(record["target"])
+        if record["kind"] == "tool_call":
+            assert target == {"tool": record["tool"]}
+        else:
+            assert set(target) == {"answer"}
+
+
+def test_router_v2_evaluator_rejects_legacy_argument_output():
+    record = {
+        "kind": "tool_call",
+        "language": "th",
+        "tool": "sort_data",
+        "router_protocol": "2.0",
+        "target": '{"tool":"sort_data"}',
+    }
+
+    exact = score_prediction(record, record["target"])
+    legacy = score_prediction(
+        record,
+        '{"tool":"sort_data","arguments":{"column":"time_s"}}',
+    )
+
+    assert exact["exact"] and exact["valid_protocol"]
+    assert legacy["tool_correct"]
+    assert not legacy["valid_protocol"]
+    assert not legacy["arguments_correct"]
+    assert not legacy["exact"]
+
+
+def test_router_v2_acceptance_v4_is_balanced_sealed_and_training_rejected():
+    train, validation = build_router_v2_records()
+    acceptance = build_acceptance_v4_records(train, validation)
+
+    assert len(acceptance) == 56
+    assert sum(record["kind"] == "tool_call" for record in acceptance) == 44
+    assert sum(record["kind"] == "answer" for record in acceptance) == 12
+    assert sum(record["language"] == "en" for record in acceptance) == 28
+    assert sum(record["language"] == "th" for record in acceptance) == 28
+    assert {record["tool"] for record in acceptance if record["tool"]} == set(
+        build_app_registry(object()).names()
+    )
+    assert (
+        hashlib.sha256(router_v2_jsonl_bytes(acceptance)).hexdigest()
+        == SEALED_ACCEPTANCE_V4_SHA256
+    )
+    with pytest.raises(ValueError, match="evaluation-only"):
+        reject_acceptance_training(acceptance)
 
 
 def test_evaluator_summary_reports_language_and_failures():

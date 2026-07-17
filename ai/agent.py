@@ -14,13 +14,27 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ai.command_router import route_command
-from ai.safe_router import resolve_tool_arguments
-from ai.tool_catalog import TOOL_SCHEMA_VERSION, select_tool_names
+from ai.safe_router import (
+    ArgumentResolution,
+    merge_argument_resolutions,
+    resolution_has_new_details,
+    resolve_tool_arguments,
+)
+from ai.tool_catalog import (
+    TOOL_SCHEMA_VERSION,
+    select_high_confidence_tool,
+    select_tool_names,
+)
 from ai.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+_CANCEL_RE = re.compile(
+    r"^\s*(?:cancel|never\s*mind|stop|ยกเลิก|ไม่ต้อง(?:แล้ว)?|พอแล้ว)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+_THAI_RE = re.compile(r"[\u0E00-\u0E7F]")
 
 
 @dataclass
@@ -29,6 +43,16 @@ class AssistantResult:
     trace: List[Tuple[str, Dict[str, Any], str]] = field(default_factory=list)
     steps: int = 0
     error: str = ""
+    needs_input: bool = False
+    cancelled: bool = False
+
+
+@dataclass
+class _PendingRequest:
+    tool_name: str
+    user_text: str
+    context_token: str
+    resolution: ArgumentResolution
 
 
 class LocalAssistant:
@@ -43,6 +67,11 @@ class LocalAssistant:
         self.registry = registry
         self.client = client
         self.max_steps = max(1, int(max_steps))
+        self._pending_request: _PendingRequest | None = None
+
+    def clear_pending_request(self) -> None:
+        """Forget any incomplete clarification chain without running a tool."""
+        self._pending_request = None
 
     # ------------------------------------------------------------------ prompt
     def system_prompt(self, user_text: str = "") -> str:
@@ -111,8 +140,17 @@ class LocalAssistant:
         user_text: str,
         on_tool_start: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> AssistantResult:
+        user_text = str(user_text or "").strip()
+        if self._pending_request is not None and _CANCEL_RE.match(user_text):
+            self._pending_request = None
+            answer = "ยกเลิกคำสั่งที่รอข้อมูลแล้ว โดยยังไม่ได้เปลี่ยนแปลงข้อมูล" if _THAI_RE.search(user_text) else (
+                "Cancelled the pending request; no changes were made."
+            )
+            return AssistantResult(answer=answer, cancelled=True)
+
         direct_call = route_command(user_text)
         if direct_call is not None and self.registry.has(direct_call[0]):
+            self._pending_request = None
             tool_name, arguments = direct_call
             if on_tool_start is not None:
                 on_tool_start(tool_name, arguments)
@@ -125,6 +163,53 @@ class LocalAssistant:
             return AssistantResult(
                 answer=observation,
                 trace=[(tool_name, arguments, observation)],
+                steps=1,
+                error=error,
+            )
+
+        turn_context = self.registry.argument_context()
+        pending_result = self._continue_pending_request(
+            user_text,
+            turn_context,
+            on_tool_start,
+        )
+        if pending_result is not None:
+            return pending_result
+
+        trusted_tool_name = select_high_confidence_tool(
+            user_text,
+            self.registry.names(),
+        )
+        if trusted_tool_name:
+            tool = self.registry.get(trusted_tool_name)
+            assert tool is not None
+            context_token = str(turn_context.get("book_token", "") or "")
+            resolution = resolve_tool_arguments(user_text, tool, turn_context)
+            if not resolution.ready:
+                self._pending_request = _PendingRequest(
+                    tool_name=trusted_tool_name,
+                    user_text=user_text,
+                    context_token=context_token,
+                    resolution=resolution,
+                )
+                return AssistantResult(
+                    answer=resolution.clarification,
+                    steps=1,
+                    needs_input=True,
+                )
+            arguments = resolution.arguments
+            if on_tool_start is not None:
+                on_tool_start(trusted_tool_name, arguments)
+            observation = self.registry.execute(
+                trusted_tool_name,
+                arguments,
+                validate=True,
+                expected_context_token=context_token,
+            )
+            error = observation if _observation_is_error(observation) else ""
+            return AssistantResult(
+                answer=observation,
+                trace=[(trusted_tool_name, arguments, observation)],
                 steps=1,
                 error=error,
             )
@@ -157,25 +242,57 @@ class LocalAssistant:
                 tool = self.registry.get(tool_name)
                 if tool is None:
                     arguments: Dict[str, Any] = {}
+                    context_token = ""
                 else:
+                    current_context = self.registry.argument_context()
+                    context_token = str(current_context.get("book_token", "") or "")
+                    turn_token = str(turn_context.get("book_token", "") or "")
+                    if turn_token and context_token and turn_token != context_token:
+                        self._pending_request = None
+                        return AssistantResult(
+                            answer=_book_changed_answer(user_text),
+                            trace=trace,
+                            steps=step,
+                            needs_input=True,
+                        )
                     resolution = resolve_tool_arguments(
                         user_text,
                         tool,
-                        self.registry.argument_context(),
+                        current_context,
                     )
                     if not resolution.ready:
+                        self._pending_request = _PendingRequest(
+                            tool_name=tool_name,
+                            user_text=user_text,
+                            context_token=context_token,
+                            resolution=resolution,
+                        )
                         return AssistantResult(
                             answer=resolution.clarification,
                             trace=trace,
                             steps=step,
+                            needs_input=True,
                         )
                     arguments = resolution.arguments
                 if on_tool_start is not None:
                     on_tool_start(tool_name, arguments)
                 # The model only selected the tool. Arguments came from trusted,
                 # deterministic app code and are still checked against the schema.
-                observation = self.registry.execute(tool_name, arguments, validate=True)
+                observation = self.registry.execute(
+                    tool_name,
+                    arguments,
+                    validate=True,
+                    expected_context_token=context_token,
+                )
                 trace.append((tool_name, arguments, observation))
+                if observation.startswith("Active Book changed"):
+                    self._pending_request = None
+                    return AssistantResult(
+                        answer=_book_changed_answer(user_text),
+                        trace=trace,
+                        steps=step,
+                        needs_input=True,
+                    )
                 messages.append({"role": "assistant", "content": content})
                 messages.append(
                     {"role": "user", "content": f"Tool '{tool_name}' result:\n{observation}"}
@@ -184,6 +301,7 @@ class LocalAssistant:
 
             answer = data.get("answer")
             if isinstance(answer, str) and answer.strip():
+                self._pending_request = None
                 return AssistantResult(answer=answer.strip(), trace=trace, steps=step)
 
             # Model produced neither a tool nor an answer -> use raw text.
@@ -193,6 +311,71 @@ class LocalAssistant:
             answer="I couldn't finish that within the step limit. Try rephrasing.",
             trace=trace,
             steps=self.max_steps,
+        )
+
+    def _continue_pending_request(
+        self,
+        user_text: str,
+        context: Dict[str, Any],
+        on_tool_start: Optional[Callable[[str, Dict[str, Any]], None]],
+    ) -> AssistantResult | None:
+        pending = self._pending_request
+        if pending is None:
+            return None
+        current_token = str(context.get("book_token", "") or "")
+        if pending.context_token and current_token and pending.context_token != current_token:
+            self._pending_request = None
+            return AssistantResult(
+                answer=_book_changed_answer(user_text),
+                needs_input=True,
+            )
+        tool = self.registry.get(pending.tool_name)
+        if tool is None:
+            self._pending_request = None
+            return None
+
+        update = resolve_tool_arguments(user_text, tool, context)
+        if not resolution_has_new_details(pending.resolution, update):
+            # This is a new, unrelated request rather than a clarification.
+            self._pending_request = None
+            return None
+        resolution = merge_argument_resolutions(
+            user_text,
+            tool,
+            pending.resolution,
+            update,
+        )
+        if not resolution.ready:
+            pending.user_text = f"{pending.user_text}\n{user_text}"
+            pending.resolution = resolution
+            return AssistantResult(
+                answer=resolution.clarification,
+                needs_input=True,
+            )
+
+        self._pending_request = None
+        arguments = resolution.arguments
+        if on_tool_start is not None:
+            on_tool_start(tool.name, arguments)
+        observation = self.registry.execute(
+            tool.name,
+            arguments,
+            validate=True,
+            expected_context_token=current_token,
+        )
+        if observation.startswith("Active Book changed"):
+            return AssistantResult(
+                answer=_book_changed_answer(user_text),
+                trace=[(tool.name, arguments, observation)],
+                steps=1,
+                needs_input=True,
+            )
+        error = observation if _observation_is_error(observation) else ""
+        return AssistantResult(
+            answer=observation,
+            trace=[(tool.name, arguments, observation)],
+            steps=1,
+            error=error,
         )
 
 
@@ -216,3 +399,18 @@ def _parse_reply(content: str) -> Dict[str, Any]:
         except Exception:
             logger.debug("AI reply JSON extraction failed", exc_info=True)
     return {"answer": text}
+
+
+def _observation_is_error(observation: str) -> bool:
+    return str(observation or "").casefold().startswith(
+        ("error", "could not", "no active", "unknown", "provide ", "ไม่มีข้อมูล")
+    )
+
+
+def _book_changed_answer(user_text: str) -> str:
+    if _THAI_RE.search(str(user_text or "")):
+        return "Book ที่กำลังใช้งานเปลี่ยนไประหว่างประมวลผล จึงยังไม่ได้รันคำสั่ง กรุณาส่งคำสั่งอีกครั้ง"
+    return (
+        "The active Book changed while the request was being prepared, so the "
+        "action was not run. Please submit the request again."
+    )

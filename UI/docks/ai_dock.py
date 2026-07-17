@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -20,6 +22,8 @@ class AiAssistantDock(QWidget):
     """Compact command workspace for the local tool-using assistant."""
 
     message_submitted = Signal(str)
+    cancel_requested = Signal()
+    conversation_cleared = Signal()
     manage_models_requested = Signal()
 
     QUICK_ACTIONS = (
@@ -163,7 +167,7 @@ class AiAssistantDock(QWidget):
         input_row.addWidget(self.send_button)
         root.addLayout(input_row)
 
-        self.send_button.clicked.connect(self._submit)
+        self.send_button.clicked.connect(self._run_or_cancel)
         self.input_edit.returnPressed.connect(self._submit)
         self.clear_button.clicked.connect(self.clear)
         self.retry_button.clicked.connect(self._retry)
@@ -172,6 +176,12 @@ class AiAssistantDock(QWidget):
 
     def _submit(self) -> None:
         self._submit_text(self.input_edit.text())
+
+    def _run_or_cancel(self) -> None:
+        if self._busy:
+            self.cancel_requested.emit()
+        else:
+            self._submit()
 
     def _submit_text(self, text: str) -> None:
         prompt = str(text or "").strip()
@@ -201,6 +211,7 @@ class AiAssistantDock(QWidget):
         self.action_label.hide()
         self.retry_button.hide()
         self.status_label.setText("Ready" if self._available else "Unavailable")
+        self.conversation_cleared.emit()
 
     def set_model(self, model: str) -> None:
         model = str(model or "Local tools").strip()
@@ -263,9 +274,11 @@ class AiAssistantDock(QWidget):
         self._busy = bool(busy)
         if self._busy:
             self.status_label.setText(status or "Working")
-            self.send_button.setText("Working")
+            self.send_button.setText("Cancel")
+            self.send_button.setToolTip("Cancel the current local AI request")
         else:
             self.send_button.setText("Run")
+            self.send_button.setToolTip("Run command (Enter)")
             if self._available:
                 self.status_label.setText(status or "Ready")
         self._sync_enabled_state()
@@ -274,26 +287,47 @@ class AiAssistantDock(QWidget):
         answer = str(getattr(result, "answer", result) or "(no reply)")
         trace = list(getattr(result, "trace", []) or [])
         error = str(getattr(result, "error", "") or "")
+        needs_input = bool(getattr(result, "needs_input", False))
+        cancelled = bool(getattr(result, "cancelled", False))
         self.set_busy(False)
         self.append_message("AI", answer)
 
         if trace:
             names = []
+            previews = []
+            tooltip_lines = []
             failed = False
-            for name, _arguments, observation in trace:
+            for name, arguments, observation in trace:
                 if name not in names:
                     names.append(str(name))
+                if arguments:
+                    rendered = ", ".join(
+                        f"{key}={value}" for key, value in list(arguments.items())[:4]
+                    )
+                    previews.append(rendered)
+                tooltip_lines.append(
+                    f"{name}\nArguments: "
+                    f"{json.dumps(arguments or {}, ensure_ascii=False)}\n"
+                    f"Result: {observation}"
+                )
                 folded = str(observation or "").casefold()
                 failed = failed or folded.startswith(
                     ("error", "could not", "no active", "unknown", "provide ", "ไม่มีข้อมูล")
                 )
             prefix = "Needs attention" if failed else "Completed"
-            self.action_label.setText(f"{prefix} · {' → '.join(names)}")
-            self.action_label.setToolTip("\n".join(str(item[2]) for item in trace))
+            detail = f" · {previews[-1]}" if previews else ""
+            self.action_label.setText(f"{prefix} · {' → '.join(names)}{detail}")
+            self.action_label.setToolTip("\n\n".join(tooltip_lines))
             self.action_label.show()
             error = error or ("Tool action failed" if failed else "")
 
-        if error:
+        if cancelled:
+            self.status_label.setText("Cancelled")
+            self.retry_button.hide()
+        elif needs_input:
+            self.status_label.setText("Needs input")
+            self.retry_button.hide()
+        elif error:
             self.status_label.setText("Needs attention")
             self.retry_button.setVisible(bool(self._last_prompt))
         else:
@@ -303,7 +337,7 @@ class AiAssistantDock(QWidget):
     def _sync_enabled_state(self) -> None:
         can_submit = self._available and not self._busy
         self.input_edit.setEnabled(can_submit)
-        self.send_button.setEnabled(can_submit)
+        self.send_button.setEnabled(self._available)
         self.clear_button.setEnabled(not self._busy)
         self.models_button.setEnabled(not self._busy)
         for button in self.quick_buttons:
