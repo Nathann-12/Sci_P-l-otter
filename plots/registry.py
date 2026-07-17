@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Source modules, in the order their categories should appear.
 _MODULES = (
+    "plots.basic_extra_plots",
     "plots.dist_plots",
     "plots.rel_plots",
     "plots.qc_plots",
@@ -27,11 +28,13 @@ _MODULES = (
     "plots.multicolumn_plots",
     "plots.polar_plots",
     "plots.frequency_plots",
+    "plots.three_d_plots",
 )
 
 # Preferred category ordering for the gallery sidebar.
 _CATEGORY_ORDER = (
     "Distribution",
+    "Basic 2D",
     "Relational",
     "Contour, Heatmap",
     "Multi-Column",
@@ -41,6 +44,7 @@ _CATEGORY_ORDER = (
     "Probability",
     "Quality",
     "Categorical",
+    "3D",
 )
 
 _REQUIRED_KEYS = ("key", "title", "category", "func")

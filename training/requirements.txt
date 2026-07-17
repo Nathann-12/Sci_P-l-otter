@@ -1,0 +1,9 @@
+# Install PyTorch with the CUDA wheel selected for the training machine first.
+transformers>=4.51,<6
+accelerate>=1.2,<2
+peft>=0.18,<0.20
+bitsandbytes>=0.48,<0.50
+safetensors>=0.5
+sentencepiece>=0.2
+numpy>=1.26
+pandas>=2.2

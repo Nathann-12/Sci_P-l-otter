@@ -51,7 +51,8 @@ def test_registry_has_expected_categories_and_signature_plots():
         "box", "violin", "corr_heatmap", "scatter_matrix",
         "qq_plot", "run_chart", "control_xbar", "pareto",
         "filled_contour", "stacked_lines_y_offset", "polar_line",
-        "nyquist_plot", "subplot_grid",
+        "nyquist_plot", "subplot_grid", "step_plot", "bubble_plot",
+        "surface_3d", "wireframe_3d", "bar_3d", "trajectory_3d",
     ):
         assert key in present, key
         assert get_plot(key) is not None
@@ -128,6 +129,22 @@ def test_apply_plot_switches_projection_without_stale_canvas_axes(win):
     assert rect_axes.name == "rectilinear"
     assert rect_axes in tab.canvas.fig.axes
     assert polar_axes not in tab.canvas.fig.axes
+
+
+def test_gallery_thumbnail_uses_registered_projection(qapp):
+    from dialogs.plot_gallery_dialog import _Thumb
+
+    grid = np.linspace(-2.0, 2.0, 10)
+    x, y = np.meshgrid(grid, grid)
+    dataframe = pd.DataFrame(
+        {"X": x.ravel(), "Y": y.ravel(), "Z": np.sin(x).ravel() * np.cos(y).ravel()}
+    )
+
+    three_d = _Thumb(get_plot("surface_3d"), dataframe)
+    polar = _Thumb(get_plot("polar_line"), dataframe)
+
+    assert three_d.figure.axes[0].name == "3d"
+    assert polar.figure.axes[0].name == "polar"
 
 
 def test_plot_from_gallery_cancels_when_graph_creation_fails(win, monkeypatch):

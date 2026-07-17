@@ -1,0 +1,38 @@
+{
+  "counts": {
+    "acceptance_test_v1_consumed": 28,
+    "final_acceptance_test_v2_consumed": 26,
+    "hard_negative_groups": 14,
+    "kinds": {
+      "answer": 24,
+      "tool_call": 528
+    },
+    "languages": {
+      "en": 276,
+      "th": 276
+    },
+    "release_acceptance_v3_sealed": 56,
+    "repair_train": 118,
+    "risks": {
+      "create": 240,
+      "device": 12,
+      "mutate": 132,
+      "read": 168
+    },
+    "tools": 44,
+    "train": 414,
+    "validation": 138
+  },
+  "dataset_version": "1.4",
+  "privacy": "synthetic scientific prompts; no researcher data",
+  "sha256": {
+    "acceptance_test_v1_consumed.jsonl": "72209a4c318682463ef2636c992e3d83817f2d64b3f63bb68e52b8bfaea360b6",
+    "final_acceptance_test.jsonl": "e2ef1f374b0fbe3318ca2d6e7c61aa4d1097f089a3feb3b27be9c4a229e6eeb1",
+    "release_acceptance_v3.jsonl": "342d1d34ee6b36c805fc214c161c09dc5e6e19a63090955fb8954c389bec1fef",
+    "repair_train.jsonl": "9b7a627e247bff17405f269ceb6db373f595ecd22527d55c22ca20fdca8012a2",
+    "train.jsonl": "cdb78b052e58d666a137ebd7c2785b2c6df7a1e13af7646424e058e9e1bbea0f",
+    "validation.jsonl": "616ec06278199c246f41a500ae3fd3110687c143c3639c22c9dc2bc6a6886019"
+  },
+  "source_revision": "96137fd5487387bfd749ac18a115d7960b22a3b1",
+  "tool_schema_version": "1.4"
+}

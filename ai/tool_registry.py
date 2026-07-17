@@ -21,13 +21,29 @@ class AITool:
     # {arg_name: {"type": "string"|"number"|..., "description": str, "required": bool}}
     parameters: Dict[str, Dict[str, Any]]
     handler: Callable[[Dict[str, Any]], Any]
+    category: str = "general"
+    risk: str = "read"
+    version: str = "1.0"
 
-    def spec(self) -> Dict[str, Any]:
+    def spec(self, *, compact: bool = False) -> Dict[str, Any]:
         """Model-facing schema (no handler)."""
+        parameters = self.parameters
+        if compact:
+            parameters = {
+                name: {
+                    key: value
+                    for key, value in schema.items()
+                    if key in {"type", "required"}
+                }
+                for name, schema in self.parameters.items()
+            }
         return {
             "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters,
+            "description": self.description[:220] if compact else self.description,
+            "parameters": parameters,
+            "category": self.category,
+            "risk": self.risk,
+            "version": self.version,
         }
 
 
@@ -39,9 +55,11 @@ class ToolRegistry:
         executor: Optional[
             Callable[[Callable[[Dict[str, Any]], Any], Dict[str, Any]], Any]
         ] = None,
+        approval_callback: Optional[Callable[[AITool, Dict[str, Any]], bool]] = None,
     ) -> None:
         self._tools: Dict[str, AITool] = {}
         self._executor = executor
+        self._approval_callback = approval_callback
 
     def set_executor(
         self,
@@ -51,6 +69,13 @@ class ToolRegistry:
     ) -> None:
         """Route handlers through *executor* (used to marshal Qt work safely)."""
         self._executor = executor
+
+    def set_approval_callback(
+        self,
+        callback: Optional[Callable[[AITool, Dict[str, Any]], bool]],
+    ) -> None:
+        """Set the UI approval hook for mutation and hardware actions."""
+        self._approval_callback = callback
 
     def register(self, tool: AITool) -> AITool:
         self._tools[tool.name] = tool
@@ -62,8 +87,33 @@ class ToolRegistry:
         description: str,
         parameters: Dict[str, Dict[str, Any]] | None,
         handler: Callable[[Dict[str, Any]], Any],
+        *,
+        category: str | None = None,
+        risk: str | None = None,
+        version: str = "1.0",
     ) -> AITool:
-        return self.register(AITool(name, description, dict(parameters or {}), handler))
+        # Metadata is centralised so existing tool registrations stay concise and
+        # a release can audit every capability from one versioned catalogue.
+        if category is None or risk is None:
+            try:
+                from ai.tool_catalog import metadata_for
+
+                metadata = metadata_for(name)
+            except Exception:
+                metadata = {"category": "general", "risk": "read"}
+            category = category or str(metadata["category"])
+            risk = risk or str(metadata["risk"])
+        return self.register(
+            AITool(
+                name,
+                description,
+                dict(parameters or {}),
+                handler,
+                str(category),
+                str(risk),
+                str(version),
+            )
+        )
 
     def names(self) -> List[str]:
         return list(self._tools)
@@ -71,17 +121,80 @@ class ToolRegistry:
     def has(self, name: str) -> bool:
         return name in self._tools
 
-    def specs(self) -> List[Dict[str, Any]]:
-        return [tool.spec() for tool in self._tools.values()]
+    def get(self, name: str) -> AITool | None:
+        return self._tools.get(name)
 
-    def execute(self, name: str, arguments: Dict[str, Any] | None = None) -> str:
+    def specs(
+        self,
+        names: List[str] | None = None,
+        *,
+        compact: bool = False,
+    ) -> List[Dict[str, Any]]:
+        selected = self._tools.values() if names is None else (
+            self._tools[name] for name in names if name in self._tools
+        )
+        return [tool.spec(compact=compact) for tool in selected]
+
+    def validate_arguments(
+        self, name: str, arguments: Dict[str, Any] | None
+    ) -> str | None:
+        """Return a readable validation error, or ``None`` for a safe call."""
+        tool = self._tools.get(name)
+        if tool is None:
+            return f"unknown tool '{name}'"
+        if arguments is not None and not isinstance(arguments, dict):
+            return "arguments must be a JSON object"
+        values = dict(arguments or {})
+        unknown = sorted(set(values) - set(tool.parameters))
+        if unknown:
+            return "unknown argument(s): " + ", ".join(unknown)
+        for parameter, schema in tool.parameters.items():
+            if schema.get("required") and parameter not in values:
+                return f"missing required argument '{parameter}'"
+            if parameter not in values or values[parameter] is None:
+                continue
+            expected = str(schema.get("type", "") or "").casefold()
+            value = values[parameter]
+            valid = {
+                "string": isinstance(value, str),
+                "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+                "integer": isinstance(value, int) and not isinstance(value, bool),
+                "boolean": isinstance(value, bool),
+                "array": isinstance(value, list),
+                "object": isinstance(value, dict),
+            }.get(expected, True)
+            if not valid:
+                return f"argument '{parameter}' must be {expected}"
+            allowed = schema.get("enum")
+            if isinstance(allowed, (list, tuple)) and value not in allowed:
+                choices = ", ".join(repr(item) for item in allowed)
+                return f"argument '{parameter}' must be one of: {choices}"
+        return None
+
+    def execute(
+        self,
+        name: str,
+        arguments: Dict[str, Any] | None = None,
+        *,
+        validate: bool = False,
+    ) -> str:
         """Run a tool by name; always returns a string observation."""
         tool = self._tools.get(name)
         if tool is None:
             available = ", ".join(self._tools) or "(none)"
             return f"Error: unknown tool '{name}'. Available tools: {available}."
+        if validate:
+            validation_error = self.validate_arguments(name, arguments)
+            if validation_error:
+                return f"Error: invalid call to '{name}': {validation_error}."
         try:
             resolved_arguments = dict(arguments or {})
+            if (
+                tool.risk in {"mutate", "device"}
+                and self._approval_callback is not None
+                and not self._approval_callback(tool, resolved_arguments)
+            ):
+                return f"Confirmation declined for '{name}'; no changes were made."
             if self._executor is None:
                 result = tool.handler(resolved_arguments)
             else:

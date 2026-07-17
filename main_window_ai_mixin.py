@@ -7,6 +7,7 @@ app still works and the dock simply reports that the assistant is unavailable.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Callable, Dict
@@ -157,12 +158,18 @@ class MainWindowAIMixin:
         # Run inference inline instead of on a QThread when True (tests).
         self._ai_synchronous = False
         dock = getattr(self, "ai_dock", None)
+        if (
+            dock is not None
+            and hasattr(dock, "manage_models_requested")
+            and not getattr(self, "_ai_models_connected", False)
+        ):
+            dock.manage_models_requested.connect(self._open_ai_model_manager)
+            self._ai_models_connected = True
         try:
             from ai.agent import LocalAssistant
             from ai.app_tools import build_app_registry
 
             if client is None:
-                from ai.ollama_client import OllamaClient
                 from settings import settings_manager
 
                 ai_cfg = settings_manager.get_ai()
@@ -170,11 +177,12 @@ class MainWindowAIMixin:
                     if dock is not None and hasattr(dock, "set_available"):
                         dock.set_available(False, "Disabled in Settings")
                     return False
-                client = OllamaClient(model=ai_cfg.model, base_url=ai_cfg.base_url)
+                client = self._build_ai_client(ai_cfg)
 
             self._ai_registry = build_app_registry(self)
             self._ai_tool_executor = _shared_gui_tool_executor()
             self._ai_registry.set_executor(self._ai_tool_executor)
+            self._ai_registry.set_approval_callback(self._approve_ai_tool)
             self._ai_assistant = LocalAssistant(self._ai_registry, client)
         except Exception:
             logger.debug("AI assistant init skipped", exc_info=True)
@@ -192,6 +200,88 @@ class MainWindowAIMixin:
                 dock.set_available(True)
         self._refresh_ai_context()
         return True
+
+    def _build_ai_client(self, ai_cfg):
+        """Prefer an installed verified pack, with Ollama as legacy fallback."""
+        backend = str(getattr(ai_cfg, "backend", "auto") or "auto").casefold()
+        pack_id = str(getattr(ai_cfg, "pack_id", "qwen3-0.6b-q8") or "")
+        if backend in {"auto", "bundled"}:
+            from ai.llama_cpp_client import LlamaCppClient, resolve_llama_server
+            from ai.model_catalog import get_model_pack
+            from ai.model_manager import ModelManager
+
+            manager = ModelManager()
+            runtime = resolve_llama_server(getattr(ai_cfg, "runtime_path", ""))
+            if pack_id and manager.is_installed(pack_id) and runtime is not None:
+                pack = get_model_pack(pack_id)
+                return LlamaCppClient(
+                    manager.model_path(pack_id),
+                    runtime_path=runtime,
+                    model=pack.display_name,
+                    context_size=getattr(ai_cfg, "context_size", pack.context_size),
+                )
+            if backend == "bundled":
+                missing = "model" if not manager.is_installed(pack_id) else "llama.cpp runtime"
+                raise RuntimeError(f"Selected local AI {missing} is not installed")
+
+        from ai.ollama_client import OllamaClient
+
+        return OllamaClient(model=ai_cfg.model, base_url=ai_cfg.base_url)
+
+    def _approve_ai_tool(self, tool, arguments: Dict[str, Any]) -> bool:
+        """Ask on the GUI thread before the model mutates data or hardware."""
+        executor = getattr(self, "_ai_tool_executor", None)
+        if executor is None:
+            return False
+
+        def show_confirmation(_unused):
+            from PySide6.QtWidgets import QMessageBox
+
+            details = json.dumps(arguments or {}, ensure_ascii=False, indent=2)
+            risk_label = "hardware/device" if tool.risk == "device" else "active data"
+            answer = QMessageBox.question(
+                self,
+                "Confirm AI action",
+                f"SciPlotter AI wants to run: {tool.name}\n"
+                f"This can change {risk_label}.\n\nArguments:\n{details}\n\nContinue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            return answer == QMessageBox.Yes
+
+        return bool(executor(show_confirmation, {}))
+
+    def _open_ai_model_manager(self) -> None:
+        """Open the verified model installer and activate the chosen pack."""
+        try:
+            from PySide6.QtWidgets import QDialog
+            from dialogs.ai_model_manager_dialog import AiModelManagerDialog
+            from settings import settings_manager
+
+            ai_cfg = settings_manager.get_ai()
+            before = str(getattr(ai_cfg, "pack_id", "") or "")
+            dialog = AiModelManagerDialog(
+                self,
+                active_pack_id=before,
+                runtime_path=getattr(ai_cfg, "runtime_path", ""),
+            )
+            accepted = dialog.exec() == QDialog.Accepted
+            selected = dialog.active_pack_id
+            if not accepted or not selected:
+                return
+            settings_manager.update_ai(backend="bundled", pack_id=selected, enabled=True)
+            settings_manager.save()
+            assistant = getattr(self, "_ai_assistant", None)
+            old_client = getattr(assistant, "client", None)
+            close = getattr(old_client, "close", None)
+            if callable(close):
+                close()
+            self.init_ai_assistant()
+        except Exception:
+            logger.debug("Could not open AI model manager", exc_info=True)
+            dock = getattr(self, "ai_dock", None)
+            if dock is not None and hasattr(dock, "set_available"):
+                dock.set_available(False, "Local model needs setup")
 
     def _refresh_ai_context(self) -> None:
         dock = getattr(self, "ai_dock", None)
@@ -285,4 +375,9 @@ class MainWindowAIMixin:
             worker.cancel()
             self._ai_worker = None
         self._ai_busy = False
+        assistant = getattr(self, "_ai_assistant", None)
+        client = getattr(assistant, "client", None)
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
         super().closeEvent(event)

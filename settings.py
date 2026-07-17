@@ -126,8 +126,13 @@ class MatplotlibConfig:
 
 @dataclass
 class AIConfig:
-    """Local AI assistant settings (Ollama-backed)."""
+    """Local-only AI assistant settings."""
     enabled: bool = True
+    # auto prefers a verified bundled model, then preserves the legacy Ollama path.
+    backend: str = "auto"  # auto | bundled | ollama
+    pack_id: str = "qwen3-0.6b-q8"
+    runtime_path: str = ""
+    context_size: int = 4096
     # Lightest broadly-capable tool router. Swap for a stronger local model
     # (e.g. qwen2.5:7b) on machines with a GPU for more reliable tool use.
     model: str = "gemma2:2b"
@@ -230,6 +235,13 @@ class SettingsManager:
             if 'ai' in data and isinstance(data['ai'], dict):
                 ai_data = data['ai']
                 self.config.ai.enabled = bool(ai_data.get('enabled', self.config.ai.enabled))
+                backend = str(ai_data.get('backend', self.config.ai.backend) or "auto").casefold()
+                self.config.ai.backend = backend if backend in {"auto", "bundled", "ollama"} else "auto"
+                self.config.ai.pack_id = str(ai_data.get('pack_id', self.config.ai.pack_id) or self.config.ai.pack_id)
+                self.config.ai.runtime_path = str(ai_data.get('runtime_path', self.config.ai.runtime_path) or "")
+                self.config.ai.context_size = _bounded_int(
+                    ai_data.get('context_size', self.config.ai.context_size), 4096, 2048, 32768
+                )
                 self.config.ai.model = str(ai_data.get('model', self.config.ai.model) or self.config.ai.model)
                 self.config.ai.base_url = str(ai_data.get('base_url', self.config.ai.base_url) or self.config.ai.base_url)
         except Exception as e:
@@ -280,6 +292,12 @@ class SettingsManager:
             if hasattr(self.config.matplotlib, key):
                 setattr(self.config.matplotlib, key, value)
         self.config.matplotlib.normalize()
+
+    def update_ai(self, **kwargs) -> None:
+        """Update local AI configuration while ignoring unknown keys."""
+        for key, value in kwargs.items():
+            if hasattr(self.config.ai, key):
+                setattr(self.config.ai, key, value)
     
     def validate_paths(self) -> Dict[str, bool]:
         """Validate that all configured paths exist"""

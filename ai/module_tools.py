@@ -293,7 +293,7 @@ def register_module_tools(registry, window) -> None:
         "normalize_spectrum",
         "Normalize a spectrum column into a new column. mode: max | area | minmax.",
         {
-            "mode": {"type": "string", "description": "max|area|minmax", "required": False},
+            "mode": {"type": "string", "description": "max|area|minmax", "required": False, "enum": ["max", "area", "minmax"]},
             "column": {"type": "string", "description": "intensity column", "required": False},
         },
         lambda args: _tool_normalize_spectrum(window, args),
@@ -335,7 +335,7 @@ def register_module_tools(registry, window) -> None:
         {
             "time_column": {"type": "string", "description": "time (s)", "required": False},
             "value_column": {"type": "string", "description": "voltage/current", "required": False},
-            "mode": {"type": "string", "description": "charge|discharge", "required": False},
+            "mode": {"type": "string", "description": "charge|discharge", "required": False, "enum": ["charge", "discharge"]},
         },
         lambda args: _tool_rc_time_constant(window, args),
     )

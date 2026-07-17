@@ -46,7 +46,8 @@ class _Thumb(FigureCanvas):
         fig = Figure(figsize=(1.5, 1.1), dpi=72)
         super().__init__(fig)
         self.setFixedSize(112, 82)
-        ax = fig.add_subplot(111)
+        projection = entry.get("projection") or ("3d" if entry.get("is3d") else None)
+        ax = fig.add_subplot(111, projection=projection)
         try:
             preview_df = df if df is not None else pd.DataFrame()
             if len(preview_df) > 2_000:

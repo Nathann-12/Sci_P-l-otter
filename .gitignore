@@ -121,6 +121,11 @@ temp/
 *.log
 *.tmp
 *.temp
+training/output/
+training/evaluation/
+training/.venv/
+training/**/*.gguf
+training/**/*.safetensors
 
 # Data files (optional - uncomment if you don't want to track data files)
 # data/*.csv

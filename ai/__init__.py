@@ -11,6 +11,9 @@ unit-test with a fake client and never blocks on a model being installed.
 from ai.tool_registry import AITool, ToolRegistry
 from ai.agent import AssistantResult, LocalAssistant
 from ai.ollama_client import OllamaClient
+from ai.llama_cpp_client import LlamaCppClient
+from ai.model_manager import ModelManager
+from ai.runtime_manager import RuntimeManager
 
 __all__ = [
     "AITool",
@@ -18,4 +21,7 @@ __all__ = [
     "LocalAssistant",
     "AssistantResult",
     "OllamaClient",
+    "LlamaCppClient",
+    "ModelManager",
+    "RuntimeManager",
 ]

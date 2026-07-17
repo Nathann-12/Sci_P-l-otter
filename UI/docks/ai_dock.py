@@ -20,6 +20,7 @@ class AiAssistantDock(QWidget):
     """Compact command workspace for the local tool-using assistant."""
 
     message_submitted = Signal(str)
+    manage_models_requested = Signal()
 
     QUICK_ACTIONS = (
         ("Plot line", "Plot the active data as a line graph."),
@@ -51,6 +52,11 @@ class AiAssistantDock(QWidget):
         title_box.addWidget(self.title_label)
         title_box.addWidget(self.model_label)
         header.addLayout(title_box, 1)
+        self.models_button = QToolButton(self)
+        self.models_button.setObjectName("AiModelsButton")
+        self.models_button.setText("Models")
+        self.models_button.setToolTip("Install or switch the private local AI model")
+        header.addWidget(self.models_button)
         self.clear_button = QToolButton(self)
         self.clear_button.setObjectName("AiClearButton")
         self.clear_button.setText("Clear")
@@ -161,6 +167,7 @@ class AiAssistantDock(QWidget):
         self.input_edit.returnPressed.connect(self._submit)
         self.clear_button.clicked.connect(self.clear)
         self.retry_button.clicked.connect(self._retry)
+        self.models_button.clicked.connect(self.manage_models_requested)
         self._sync_enabled_state()
 
     def _submit(self) -> None:
@@ -298,5 +305,6 @@ class AiAssistantDock(QWidget):
         self.input_edit.setEnabled(can_submit)
         self.send_button.setEnabled(can_submit)
         self.clear_button.setEnabled(not self._busy)
+        self.models_button.setEnabled(not self._busy)
         for button in self.quick_buttons:
             button.setEnabled(can_submit and self._has_data)

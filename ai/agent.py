@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ai.command_router import route_command
+from ai.tool_catalog import TOOL_SCHEMA_VERSION, select_tool_names
 from ai.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -43,31 +44,81 @@ class LocalAssistant:
         self.max_steps = max(1, int(max_steps))
 
     # ------------------------------------------------------------------ prompt
-    def system_prompt(self) -> str:
-        tools = json.dumps(self.registry.specs(), ensure_ascii=False, indent=2)
-        return (
-            "You are SciPlotter's built-in data-analysis assistant. SciPlotter is "
-            "a desktop app for plotting and analysing scientific data.\n"
-            "You can use the tools below to inspect the user's data and drive the "
-            "app. Do the real work with tools; never invent numbers.\n\n"
-            f"TOOLS (JSON schema):\n{tools}\n\n"
-            "Reply with EXACTLY ONE JSON object and nothing else, either:\n"
-            '  {"tool": "<tool_name>", "arguments": { ... }}   to call a tool, or\n'
-            '  {"answer": "<reply to the user>"}                to answer.\n\n'
-            "RULES:\n"
-            "- If the user asks about their data's columns, values, statistics, or "
-            "asks you to plot/analyse, you MUST call the matching tool first and "
-            "base your answer ONLY on its result.\n"
-            "- NEVER write placeholder values like '[insert mean]' or made-up "
-            "numbers. If you don't have a value, call a tool to get it.\n"
-            "- After a tool result comes back, either call another tool or answer.\n"
-            "- For a general analyze/summarize request, call summarize_data. "
-            "Do not refuse and do not ask the user to provide statistics that the tool can compute.\n"
-            "- For plot requests, call plot_columns with the exact x_column and "
-            "y_columns when the user names them. Never claim a graph exists unless "
-            "the plot_columns result confirms it.\n"
-            "- Keep answers short and reply in the user's language (Thai or English)."
+    def system_prompt(self, user_text: str = "") -> str:
+        names = select_tool_names(user_text, self.registry.names())
+        tools = json.dumps(
+            self.registry.specs(names, compact=True),
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
+        return (
+            "You are SciPlotter's private local scientific-data assistant. "
+            "Use app tools for data facts and actions; never invent results.\n"
+            f"TOOL SCHEMA v{TOOL_SCHEMA_VERSION} (only these tools are allowed this turn):\n"
+            f"{tools}\n\n"
+            "Output exactly one JSON object and no markdown:\n"
+            '{"tool":"<name>","arguments":{...}} or {"answer":"<text>"}\n'
+            "RULES:\n"
+            "- Data columns, values, statistics, plots and analyses require a listed tool.\n"
+            "- Use exact named columns/arguments. Never claim an action before its tool succeeds.\n"
+            "- Omit optional arguments not stated or unambiguously implied; never invent defaults, labels or opposite flags.\n"
+            "- Explanations, privacy/safety requests, clarification and requests not to act use answer, not a tool.\n"
+            "- After a tool result, call another listed tool or answer from that result only.\n"
+            "- Mutation/device tools may require confirmation.\n"
+            "- Keep answers short and use the user's Thai or English.\n/no_think"
+        )
+
+    def reply_schema(self, user_text: str = "") -> Dict[str, Any]:
+        """Return a strict per-turn JSON Schema for capable local runtimes."""
+        variants: List[Dict[str, Any]] = [
+            {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+                "additionalProperties": False,
+            }
+        ]
+        for name in select_tool_names(user_text, self.registry.names()):
+            tool = self.registry.get(name)
+            if tool is None:
+                continue
+            properties: Dict[str, Dict[str, Any]] = {}
+            required: List[str] = []
+            for parameter, definition in tool.parameters.items():
+                value_type = str(definition.get("type", "") or "").casefold()
+                schema: Dict[str, Any] = {}
+                if value_type in {
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "array",
+                    "object",
+                }:
+                    schema["type"] = value_type
+                allowed = definition.get("enum")
+                if isinstance(allowed, (list, tuple)) and allowed:
+                    schema["enum"] = list(allowed)
+                properties[parameter] = schema
+                if definition.get("required"):
+                    required.append(parameter)
+            variants.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "tool": {"const": name},
+                        "arguments": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                            "additionalProperties": False,
+                        },
+                    },
+                    "required": ["tool", "arguments"],
+                    "additionalProperties": False,
+                }
+            )
+        return {"oneOf": variants}
 
     # -------------------------------------------------------------------- loop
     def ask(
@@ -94,14 +145,17 @@ class LocalAssistant:
             )
 
         messages: List[Dict[str, str]] = [
-            {"role": "system", "content": self.system_prompt()},
+            {"role": "system", "content": self.system_prompt(user_text)},
             {"role": "user", "content": str(user_text)},
         ]
         trace: List[Tuple[str, Dict[str, Any], str]] = []
 
         for step in range(1, self.max_steps + 1):
             try:
-                content = self.client.chat(messages, format_json=True)
+                chat_options: Dict[str, Any] = {"format_json": True}
+                if getattr(self.client, "supports_json_schema", False):
+                    chat_options["json_schema"] = self.reply_schema(user_text)
+                content = self.client.chat(messages, **chat_options)
             except Exception as exc:
                 logger.debug("AI chat call failed", exc_info=True)
                 return AssistantResult(
@@ -120,7 +174,10 @@ class LocalAssistant:
                     arguments = {}
                 if on_tool_start is not None:
                     on_tool_start(tool_name, arguments)
-                observation = self.registry.execute(tool_name, arguments)
+                # Only model-authored calls need schema validation. Deterministic
+                # command routes above are trusted app code and may carry private
+                # context fields that are intentionally not model-facing.
+                observation = self.registry.execute(tool_name, arguments, validate=True)
                 trace.append((tool_name, arguments, observation))
                 messages.append({"role": "assistant", "content": content})
                 messages.append(

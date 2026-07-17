@@ -947,3 +947,16 @@ def test_assistant_disabled_in_config_skips_wiring(qapp, monkeypatch):
     monkeypatch.setattr(settings_manager, "get_ai", lambda: AIConfig(enabled=False))
     host = _AiHost(None, AiAssistantDock())
     assert host.init_ai_assistant() is False
+
+
+def test_ai_dock_exposes_local_model_manager_action(qapp):
+    from UI.docks.ai_dock import AiAssistantDock
+
+    dock = AiAssistantDock()
+    requested = []
+    dock.manage_models_requested.connect(lambda: requested.append(True))
+
+    dock.models_button.click()
+
+    assert requested == [True]
+    assert "local" in dock.models_button.toolTip().casefold()

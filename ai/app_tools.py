@@ -1429,6 +1429,7 @@ def build_app_registry(window) -> ToolRegistry:
                 "type": "string",
                 "description": "th | en",
                 "required": False,
+                "enum": ["th", "en"],
             }
         },
         lambda args: _tool_summarize_data(window, args),
@@ -1443,6 +1444,7 @@ def build_app_registry(window) -> ToolRegistry:
                 "type": "string",
                 "description": "line | linesymbol | scatter | bar | histogram",
                 "required": False,
+                "enum": ["line", "linesymbol", "scatter", "bar", "histogram"],
             },
             "x_column": {
                 "type": "string",
@@ -1479,8 +1481,8 @@ def build_app_registry(window) -> ToolRegistry:
         "action: status|connect|disconnect|mark_on|mark_off|flow_status|configure_flow|configure_wiring. Serial connect requires port; "
         "NI-DAQ connect requires transport=ni_daq, device, and channel. Markers only annotate SciPlotter.",
         {
-            "action": {"type": "string", "description": "status|connect|disconnect|mark_on|mark_off|flow_status|configure_flow|configure_wiring", "required": True},
-            "transport": {"type": "string", "description": "serial|ni_daq; default serial", "required": False},
+            "action": {"type": "string", "description": "status|connect|disconnect|mark_on|mark_off|flow_status|configure_flow|configure_wiring", "required": True, "enum": ["status", "connect", "disconnect", "mark_on", "mark_off", "flow_status", "configure_flow", "configure_wiring"]},
+            "transport": {"type": "string", "description": "serial|ni_daq; default serial", "required": False, "enum": ["serial", "ni_daq"]},
             "port": {"type": "string", "description": "serial port for connect", "required": False},
             "baud": {"type": "number", "description": "baud rate; default 115200", "required": False},
             "device": {"type": "string", "description": "NI-DAQ device, for example Dev1", "required": False},
@@ -1488,14 +1490,14 @@ def build_app_registry(window) -> ToolRegistry:
             "sample_rate_hz": {"type": "number", "description": "NI-DAQ rate from 1 to 20 Hz", "required": False},
             "min_voltage": {"type": "number", "description": "NI-DAQ input minimum voltage", "required": False},
             "max_voltage": {"type": "number", "description": "NI-DAQ input maximum voltage", "required": False},
-            "terminal_config": {"type": "string", "description": "RSE|DIFFERENTIAL|NRSE", "required": False},
+            "terminal_config": {"type": "string", "description": "RSE|DIFFERENTIAL|NRSE", "required": False, "enum": ["RSE", "DIFFERENTIAL", "NRSE"]},
             "label": {"type": "string", "description": "optional exposure marker label", "required": False},
-            "preset": {"type": "string", "description": "visual flow preset: raw|resistance|smoothed", "required": False},
+            "preset": {"type": "string", "description": "visual flow preset: raw|resistance|smoothed", "required": False, "enum": ["raw", "resistance", "smoothed"]},
             "voltage_to_resistance": {"type": "boolean", "description": "enable voltage-divider conversion", "required": False},
             "voltage_field": {"type": "string", "description": "flow input voltage field; blank auto-detects", "required": False},
             "supply_voltage_v": {"type": "number", "description": "voltage-divider supply voltage", "required": False},
             "reference_resistance_ohm": {"type": "number", "description": "known divider resistor in ohms", "required": False},
-            "divider_topology": {"type": "string", "description": "sensor_high|sensor_low", "required": False},
+            "divider_topology": {"type": "string", "description": "sensor_high|sensor_low", "required": False, "enum": ["sensor_high", "sensor_low"]},
             "smoothing": {"type": "boolean", "description": "enable moving-average node", "required": False},
             "smoothing_field": {"type": "string", "description": "moving-average input field", "required": False},
             "smoothing_window": {"type": "number", "description": "moving-average window in samples", "required": False},
@@ -1533,6 +1535,7 @@ def build_app_registry(window) -> ToolRegistry:
                 "type": "string",
                 "description": "none|sigma|1/sigma^2",
                 "required": False,
+                "enum": ["none", "sigma", "1/sigma^2"],
             },
         },
         lambda args: _tool_fit_curve(window, args),
@@ -1542,7 +1545,7 @@ def build_app_registry(window) -> ToolRegistry:
         "Smooth a column and add the result as a new column. method: "
         "savitzky-golay | median | gaussian. column optional (default: active Y / last numeric).",
         {
-            "method": {"type": "string", "description": "savitzky-golay|median|gaussian", "required": False},
+            "method": {"type": "string", "description": "savitzky-golay|median|gaussian", "required": False, "enum": ["savitzky-golay", "median", "gaussian"]},
             "column": {"type": "string", "description": "column to smooth", "required": False},
             "window": {"type": "number", "description": "savgol window (odd)", "required": False},
         },
@@ -1555,7 +1558,7 @@ def build_app_registry(window) -> ToolRegistry:
         "number (low/high pass) or [low, high] (band pass/stop).",
         {
             "fs": {"type": "number", "description": "sampling rate in Hz", "required": True},
-            "kind": {"type": "string", "description": "lowpass|highpass|bandpass|bandstop", "required": False},
+            "kind": {"type": "string", "description": "lowpass|highpass|bandpass|bandstop", "required": False, "enum": ["lowpass", "highpass", "bandpass", "bandstop"]},
             "cutoff": {"type": "number", "description": "cutoff Hz (or [low,high])", "required": False},
             "column": {"type": "string", "description": "column to filter", "required": False},
         },
@@ -1575,7 +1578,7 @@ def build_app_registry(window) -> ToolRegistry:
         "Fill missing (NaN) values in a column into a new column. method: "
         "mean | median | ffill | bfill | value (with 'value').",
         {
-            "method": {"type": "string", "description": "fill method", "required": False},
+            "method": {"type": "string", "description": "fill method", "required": False, "enum": ["mean", "median", "ffill", "bfill", "value"]},
             "value": {"type": "number", "description": "value when method=value", "required": False},
             "column": {"type": "string", "description": "column", "required": False},
         },
@@ -1591,7 +1594,7 @@ def build_app_registry(window) -> ToolRegistry:
         "normalize",
         "Rescale a column into a new column. method: zscore (mean 0/std 1) or minmax (0-1).",
         {
-            "method": {"type": "string", "description": "zscore|minmax", "required": False},
+            "method": {"type": "string", "description": "zscore|minmax", "required": False, "enum": ["zscore", "minmax"]},
             "column": {"type": "string", "description": "column", "required": False},
         },
         lambda args: _tool_normalize(window, args),
@@ -1611,7 +1614,7 @@ def build_app_registry(window) -> ToolRegistry:
         "Drop rows where a column is an outlier (replaces the active data). "
         "method: zscore | iqr; threshold optional.",
         {
-            "method": {"type": "string", "description": "zscore|iqr", "required": False},
+            "method": {"type": "string", "description": "zscore|iqr", "required": False, "enum": ["zscore", "iqr"]},
             "threshold": {"type": "number", "description": "threshold", "required": False},
             "column": {"type": "string", "description": "column", "required": False},
         },
@@ -1623,7 +1626,7 @@ def build_app_registry(window) -> ToolRegistry:
         "method: zscore | iqr; threshold optional. Returns count and the most "
         "extreme points (row index, value, z-score).",
         {
-            "method": {"type": "string", "description": "zscore|iqr", "required": False},
+            "method": {"type": "string", "description": "zscore|iqr", "required": False, "enum": ["zscore", "iqr"]},
             "threshold": {"type": "number", "description": "threshold", "required": False},
             "column": {"type": "string", "description": "column", "required": False},
         },
@@ -1720,7 +1723,7 @@ def build_app_registry(window) -> ToolRegistry:
             "prominence": {"type": "number", "description": "min prominence", "required": False},
             "distance": {"type": "number", "description": "min samples between peaks", "required": False},
             "auto": {"type": "boolean", "description": "derive robust prominence and distance", "required": False},
-            "language": {"type": "string", "description": "th | en", "required": False},
+            "language": {"type": "string", "description": "th | en", "required": False, "enum": ["th", "en"]},
         },
         lambda args: _tool_detect_peaks(window, args),
     )
