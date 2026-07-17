@@ -1,9 +1,9 @@
 """The agent loop: user text -> (tool calls)* -> final answer.
 
 Protocol is prompt-based rather than model-native tool-calling, so it works
-with any Ollama model including tiny ones. Each turn the model must reply with a
-single JSON object: either ``{"tool": name, "arguments": {...}}`` to call a tool
-or ``{"answer": text}`` to reply. ``format: "json"`` guarantees the reply parses.
+with any Ollama model including tiny ones. Each turn the model only selects a
+tool or answers. Tool arguments are resolved deterministically from the user's
+text and the active Book; model-authored arguments are never executed.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ai.command_router import route_command
+from ai.safe_router import resolve_tool_arguments
 from ai.tool_catalog import TOOL_SCHEMA_VERSION, select_tool_names
 from ai.tool_registry import ToolRegistry
 
@@ -46,8 +47,20 @@ class LocalAssistant:
     # ------------------------------------------------------------------ prompt
     def system_prompt(self, user_text: str = "") -> str:
         names = select_tool_names(user_text, self.registry.names())
+        selected_tools = []
+        for name in names:
+            tool = self.registry.get(name)
+            if tool is not None:
+                selected_tools.append(
+                    {
+                        "name": tool.name,
+                        "description": tool.description[:220],
+                        "category": tool.category,
+                        "risk": tool.risk,
+                    }
+                )
         tools = json.dumps(
-            self.registry.specs(names, compact=True),
+            selected_tools,
             ensure_ascii=False,
             separators=(",", ":"),
         )
@@ -57,11 +70,11 @@ class LocalAssistant:
             f"TOOL SCHEMA v{TOOL_SCHEMA_VERSION} (only these tools are allowed this turn):\n"
             f"{tools}\n\n"
             "Output exactly one JSON object and no markdown:\n"
-            '{"tool":"<name>","arguments":{...}} or {"answer":"<text>"}\n'
+            '{"tool":"<name>"} or {"answer":"<text>"}\n'
             "RULES:\n"
             "- Data columns, values, statistics, plots and analyses require a listed tool.\n"
-            "- Use exact named columns/arguments. Never claim an action before its tool succeeds.\n"
-            "- Omit optional arguments not stated or unambiguously implied; never invent defaults, labels or opposite flags.\n"
+            "- Select the tool only. Never output arguments; SciPlotter resolves them from the request and active Book.\n"
+            "- Never claim an action before its tool succeeds.\n"
             "- Explanations, privacy/safety requests, clarification and requests not to act use answer, not a tool.\n"
             "- After a tool result, call another listed tool or answer from that result only.\n"
             "- Mutation/device tools may require confirmation.\n"
@@ -69,7 +82,7 @@ class LocalAssistant:
         )
 
     def reply_schema(self, user_text: str = "") -> Dict[str, Any]:
-        """Return a strict per-turn JSON Schema for capable local runtimes."""
+        """Return the strict tool-selection-only contract for local runtimes."""
         variants: List[Dict[str, Any]] = [
             {
                 "type": "object",
@@ -82,39 +95,11 @@ class LocalAssistant:
             tool = self.registry.get(name)
             if tool is None:
                 continue
-            properties: Dict[str, Dict[str, Any]] = {}
-            required: List[str] = []
-            for parameter, definition in tool.parameters.items():
-                value_type = str(definition.get("type", "") or "").casefold()
-                schema: Dict[str, Any] = {}
-                if value_type in {
-                    "string",
-                    "number",
-                    "integer",
-                    "boolean",
-                    "array",
-                    "object",
-                }:
-                    schema["type"] = value_type
-                allowed = definition.get("enum")
-                if isinstance(allowed, (list, tuple)) and allowed:
-                    schema["enum"] = list(allowed)
-                properties[parameter] = schema
-                if definition.get("required"):
-                    required.append(parameter)
             variants.append(
                 {
                     "type": "object",
-                    "properties": {
-                        "tool": {"const": name},
-                        "arguments": {
-                            "type": "object",
-                            "properties": properties,
-                            "required": required,
-                            "additionalProperties": False,
-                        },
-                    },
-                    "required": ["tool", "arguments"],
+                    "properties": {"tool": {"const": name}},
+                    "required": ["tool"],
                     "additionalProperties": False,
                 }
             )
@@ -169,14 +154,26 @@ class LocalAssistant:
 
             tool_name = data.get("tool")
             if isinstance(tool_name, str) and tool_name:
-                arguments = data.get("arguments")
-                if not isinstance(arguments, dict):
-                    arguments = {}
+                tool = self.registry.get(tool_name)
+                if tool is None:
+                    arguments: Dict[str, Any] = {}
+                else:
+                    resolution = resolve_tool_arguments(
+                        user_text,
+                        tool,
+                        self.registry.argument_context(),
+                    )
+                    if not resolution.ready:
+                        return AssistantResult(
+                            answer=resolution.clarification,
+                            trace=trace,
+                            steps=step,
+                        )
+                    arguments = resolution.arguments
                 if on_tool_start is not None:
                     on_tool_start(tool_name, arguments)
-                # Only model-authored calls need schema validation. Deterministic
-                # command routes above are trusted app code and may carry private
-                # context fields that are intentionally not model-facing.
+                # The model only selected the tool. Arguments came from trusted,
+                # deterministic app code and are still checked against the schema.
                 observation = self.registry.execute(tool_name, arguments, validate=True)
                 trace.append((tool_name, arguments, observation))
                 messages.append({"role": "assistant", "content": content})

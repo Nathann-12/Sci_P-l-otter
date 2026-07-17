@@ -4,6 +4,12 @@ This directory trains Qwen3 0.6B or 1.7B to route bilingual scientific requests 
 SciPlotter's existing JSON tool protocol. The model does not calculate results;
 the deterministic application tools still perform all scientific work.
 
+Runtime note: Safe Router v2 executes only the model's selected tool name. It
+rebuilds arguments from the user's text and the active Book, and discards any
+`arguments` object emitted by these legacy schema-v1.4 adapters. The tracked
+datasets and sealed acceptance files remain unchanged for reproducibility; do
+not rebuild or reinterpret the unopened v3 gate while developing the router.
+
 The tracked dataset contains synthetic but realistic column names, units and
 parameters. It contains no customer or researcher measurements.
 
@@ -20,8 +26,9 @@ parameters. It contains no customer or researcher measurements.
   the split
 - Training rotates one paraphrase per seed per epoch; three epochs cover all
   variants without paying for duplicate semantics in every epoch
-- Release targets: exact JSON, exact tool name, exact arguments, Thai/English
-  metrics, merged HF model, then GGUF
+- Legacy adapter audit targets: exact JSON, exact tool name and exact arguments.
+  Runtime release additionally requires Safe Router clarification/confirmation
+  regression tests; model-authored arguments are never a trusted execution path.
 
 ## 1. Rebuild and audit data
 
@@ -143,6 +150,10 @@ Minimum release gates:
 - direct-answer accuracy: 95% or higher
 - no regression in mutation/device confirmation tests
 - manual review of every validation failure
+
+The exact-arguments gate remains a diagnostic for the frozen v1.4 candidate
+family. Under Safe Router v2 it is not an execution-safety boundary: deterministic
+resolution and its behavioral tests are the authority for arguments.
 
 Do not publish a model selected on training loss alone.
 

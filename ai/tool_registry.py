@@ -56,10 +56,12 @@ class ToolRegistry:
             Callable[[Callable[[Dict[str, Any]], Any], Dict[str, Any]], Any]
         ] = None,
         approval_callback: Optional[Callable[[AITool, Dict[str, Any]], bool]] = None,
+        context_provider: Optional[Callable[[], Dict[str, Any]]] = None,
     ) -> None:
         self._tools: Dict[str, AITool] = {}
         self._executor = executor
         self._approval_callback = approval_callback
+        self._context_provider = context_provider
 
     def set_executor(
         self,
@@ -76,6 +78,33 @@ class ToolRegistry:
     ) -> None:
         """Set the UI approval hook for mutation and hardware actions."""
         self._approval_callback = callback
+
+    def set_context_provider(
+        self,
+        provider: Optional[Callable[[], Dict[str, Any]]],
+    ) -> None:
+        """Provide live, read-only values used to resolve safe arguments.
+
+        The provider is invoked through the registry executor when one is
+        installed, so a background AI worker never reads Qt-owned state
+        directly.
+        """
+        self._context_provider = provider
+
+    def argument_context(self) -> Dict[str, Any]:
+        """Return the current deterministic routing context, or an empty dict."""
+        provider = self._context_provider
+        if provider is None:
+            return {}
+        try:
+            if self._executor is None:
+                result = provider()
+            else:
+                result = self._executor(lambda _arguments: provider(), {})
+        except Exception:
+            logger.debug("AI argument context provider failed", exc_info=True)
+            return {}
+        return dict(result) if isinstance(result, dict) else {}
 
     def register(self, tool: AITool) -> AITool:
         self._tools[tool.name] = tool

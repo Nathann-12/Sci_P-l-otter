@@ -50,7 +50,7 @@ def test_signal_request_routes_signal_tools_not_unrelated_specialty_tools():
     assert "tafel_analysis" not in selected
 
 
-def test_model_authored_arguments_are_validated_before_handler_runs():
+def test_model_authored_arguments_are_ignored_and_rebuilt_from_user_text():
     calls = []
     registry = ToolRegistry()
     registry.add(
@@ -61,13 +61,13 @@ def test_model_authored_arguments_are_validated_before_handler_runs():
     )
     client = _Client([
         json.dumps({"tool": "safe_tool", "arguments": {"count": "many"}}),
-        json.dumps({"answer": "fixed"}),
+        json.dumps({"answer": "done"}),
     ])
 
-    result = LocalAssistant(registry, client).ask("run it")
+    result = LocalAssistant(registry, client).ask("run it with count 3")
 
-    assert calls == []
-    assert "must be integer" in result.trace[0][2]
+    assert calls == [{"count": 3}]
+    assert result.trace[0][2] == "ran"
 
 
 def test_mutating_tool_requires_approval_when_policy_is_installed():
@@ -87,7 +87,7 @@ def test_mutating_tool_requires_approval_when_policy_is_installed():
     assert registry.get("normalize").risk == "mutate"
 
 
-def test_schema_capable_client_receives_per_tool_strict_json_contract():
+def test_schema_capable_client_receives_tool_selection_only_contract():
     registry = ToolRegistry()
     registry.add(
         "safe_tool",
@@ -112,10 +112,9 @@ def test_schema_capable_client_receives_per_tool_strict_json_contract():
         for variant in client.schema["oneOf"]
         if variant.get("properties", {}).get("tool", {}).get("const") == "safe_tool"
     )
-    arguments = tool_variant["properties"]["arguments"]
-    assert arguments["required"] == ["count"]
-    assert arguments["properties"]["mode"]["enum"] == ["fast", "careful"]
-    assert arguments["additionalProperties"] is False
+    assert tool_variant["required"] == ["tool"]
+    assert set(tool_variant["properties"]) == {"tool"}
+    assert tool_variant["additionalProperties"] is False
 
 
 def test_registry_rejects_values_outside_parameter_enum():

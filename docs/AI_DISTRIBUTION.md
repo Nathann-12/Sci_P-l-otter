@@ -57,13 +57,20 @@ Install offline pack** without internet access.
 - Model and runtime downloads use HTTPS and are installed only after SHA-256
   verification.
 - Archives reject traversal paths and suspiciously large extraction sizes.
-- The model sees at most eight relevant tool schemas per turn, not all app tools.
-- Current llama.cpp runtimes receive a strict, per-turn JSON Schema that permits
-  only an answer or one of the offered tools, with exact argument names, types,
-  required fields and categorical enum values. Older runtimes fall back to JSON
-  object mode and still receive the same deterministic validation afterward.
-- Model-authored arguments are schema-checked. Data mutation and device control
-  require a native confirmation dialog before execution.
+- The model sees at most eight relevant tool descriptions per turn, not all app
+  tools.
+- Safe Router v2 gives current llama.cpp runtimes a strict, per-turn JSON Schema
+  that permits only an answer or one offered tool name. The model is not allowed
+  to author executable arguments. Older runtimes may still emit the legacy
+  `arguments` object, but SciPlotter discards it.
+- Tool arguments are rebuilt from the original request, registered enums and
+  the active Book's real column names. Unstated numbers are omitted; missing
+  required values, unknown quoted columns and ambiguous column roles produce a
+  clarification instead of a tool call. Unit-bearing scientific inputs are
+  converted only through explicit allowlists (for example cm to m and mm² to
+  m²); incompatible units are rejected before execution.
+- Data mutation and device control still require a native confirmation dialog
+  after deterministic resolution and before execution.
 - Statistics and scientific calculations remain deterministic SciPlotter code;
   the model is only an intent router and short-language explainer.
 

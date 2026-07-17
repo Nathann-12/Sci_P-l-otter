@@ -48,6 +48,40 @@ def _active_df(window):
     return getter() if callable(getter) else None
 
 
+def _safe_argument_context(window) -> Dict[str, Any]:
+    """Return live values that the deterministic AI router may reference."""
+    df = _active_df(window)
+    columns = [str(column) for column in getattr(df, "columns", [])] if df is not None else []
+    numeric_columns = []
+    if df is not None:
+        numeric_columns = [
+            str(column)
+            for column in getattr(df, "columns", [])
+            if _column_is_numeric(df, column)
+        ]
+
+    parameter_values: Dict[str, List[str]] = {}
+    try:
+        from analysis.fitting import list_available_models
+
+        parameter_values["fit_curve.model"] = list_available_models()
+    except Exception:
+        logger.debug("Could not load fit model choices for AI routing", exc_info=True)
+    try:
+        from plots.registry import all_plots
+
+        parameter_values["plot_chart.chart_type"] = [
+            str(entry.get("key")) for entry in all_plots() if entry.get("key")
+        ]
+    except Exception:
+        logger.debug("Could not load chart choices for AI routing", exc_info=True)
+    return {
+        "columns": columns,
+        "numeric_columns": numeric_columns,
+        "parameter_values": parameter_values,
+    }
+
+
 def _tool_list_columns(window, args: Dict[str, Any]) -> str:
     df = _active_df(window)
     thai = str(args.get("language", "")).casefold() == "th"
@@ -1406,6 +1440,7 @@ def _tool_open_file(window, args: Dict[str, Any]) -> str:
 def build_app_registry(window) -> ToolRegistry:
     """Registry of tools bound to *window* (a MainWindow-like object)."""
     registry = ToolRegistry()
+    registry.set_context_provider(lambda: _safe_argument_context(window))
     registry.add(
         "list_columns",
         "List the column names, row count and column count of the active data table (Book).",
