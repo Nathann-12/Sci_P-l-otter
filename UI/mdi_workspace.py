@@ -841,6 +841,8 @@ class MdiWorkspace(QWidget):
         label: str = "",
         style: str = "line",
         meta: Optional[Dict[str, Any]] = None,
+        *,
+        defer_draw: bool = False,
         **kwargs,
     ):
         created = []
@@ -908,28 +910,31 @@ class MdiWorkspace(QWidget):
                 if x_is_datetime and len(x_vals) >= 2:
                     ax.set_xlim(min(x_vals), max(x_vals))
                 clamp_date_limits(ax)
-                try:
-                    handles, labels = ax.get_legend_handles_labels()
-                    if any(lbl and not lbl.startswith("_") for lbl in labels):
-                        ax.legend(loc="best")
-                except Exception:
-                    pass
+                if not defer_draw:
+                    try:
+                        handles, labels = ax.get_legend_handles_labels()
+                        if any(lbl and not lbl.startswith("_") for lbl in labels):
+                            ax.legend(loc="best")
+                    except Exception:
+                        pass
                 clamp_date_limits(ax)
-                try:
-                    from processors import beautify_axes
+                if not defer_draw:
+                    try:
+                        from processors import beautify_axes
 
-                    beautify_axes(ax, x_is_datetime=x_is_datetime)
-                except Exception:
-                    pass
+                        beautify_axes(ax, x_is_datetime=x_is_datetime)
+                    except Exception:
+                        pass
                 clamp_date_limits(ax)
                 # Defer the render: schedule a redraw instead of forcing a full
                 # figure render here. The plot mixin (_update_tabs_after_plot)
                 # renders once at the end, so a blocking draw here plus tight_layout
                 # meant every plot rendered the figure 2–3× (the "laggy" slowdown).
-                try:
-                    tab.canvas.draw_idle()
-                except Exception:
-                    pass
+                if not defer_draw:
+                    try:
+                        tab.canvas.draw_idle()
+                    except Exception:
+                        pass
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
@@ -940,7 +945,7 @@ class MdiWorkspace(QWidget):
                 )
                 if layer_id:
                     created.append((tab_id, layer_id))
-                    if hasattr(tab, "_refresh_legend"):
+                    if not defer_draw and hasattr(tab, "_refresh_legend"):
                         tab._refresh_legend()
             except Exception:
                 logger.debug("add_series_to_tabs failed for %s", tab_id, exc_info=True)

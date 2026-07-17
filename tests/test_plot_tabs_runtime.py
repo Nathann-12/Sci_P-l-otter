@@ -102,6 +102,27 @@ def test_add_series_to_tabs_supports_bar_and_histogram_headless(qapp):
     assert histogram_layer["artists"]
 
 
+def test_deferred_series_batch_skips_per_series_canvas_draw(qapp):
+    tabs = TabManager(DummyMainWindow())
+    tab_id = tabs.get_current_tab_id()
+    graph_tab = tabs.tabs[tab_id]
+    draws = []
+    graph_tab.draw = lambda: draws.append("draw")
+
+    for label, values in (("A", [1, 2, 3]), ("B", [3, 2, 1])):
+        created = tabs.add_series_to_tabs(
+            [tab_id],
+            [1, 2, 3],
+            values,
+            label=label,
+            defer_draw=True,
+        )
+        assert len(created) == 1
+
+    assert draws == []
+    assert len(graph_tab.layers) == 2
+
+
 def test_layer_style_request_supports_scatter_and_bar_layers_headless(qapp, monkeypatch):
     tabs = TabManager(DummyMainWindow())
     tab_id = tabs.get_current_tab_id()

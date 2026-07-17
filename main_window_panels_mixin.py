@@ -85,7 +85,8 @@ class MainWindowPanelsMixin:
         """
         from PySide6.QtWidgets import (
             QTabWidget, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QPushButton,
-            QFrame, QGridLayout, QComboBox, QScrollArea
+            QFrame, QGridLayout, QComboBox, QScrollArea, QListWidget,
+            QAbstractItemView,
         )
         from PySide6.QtCore import Qt
 
@@ -105,6 +106,57 @@ class MainWindowPanelsMixin:
         tp = QVBoxLayout(tab_plot)
         tp.setContentsMargins(8,8,8,8)
         tp.setSpacing(8)
+
+        data_group = QGroupBox("Graph Data", self)
+        data_layout = QGridLayout(data_group)
+        data_layout.setContentsMargins(8, 14, 8, 8)
+        data_layout.setHorizontalSpacing(6)
+        data_layout.setVerticalSpacing(6)
+        self.cboGraphDataX = QComboBox(data_group)
+        self.cboGraphDataX.setToolTip(
+            "Choose a real X column, or Row (1…N) for one-column data."
+        )
+        self.lstGraphDataY = QListWidget(data_group)
+        self.lstGraphDataY.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.lstGraphDataY.setMinimumHeight(72)
+        self.lstGraphDataY.setMaximumHeight(130)
+        self.lstGraphDataY.setToolTip(
+            "Select one or many numeric Y columns (Ctrl/Shift-click for multiple)."
+        )
+        self.cboGraphDataStyle = QComboBox(data_group)
+        for label, value in (
+            ("Line", "line"),
+            ("Line + Symbol", "linesymbol"),
+            ("Scatter", "scatter"),
+            ("Bar", "bar"),
+        ):
+            self.cboGraphDataStyle.addItem(label, value)
+        self.btnGraphDataReplace = QPushButton("Replace Plot", data_group)
+        self.btnGraphDataAdd = QPushButton("Add Series", data_group)
+        self.btnGraphDataReplace.setToolTip(
+            "Replace all layers in this Graph with the selected X/Y mapping."
+        )
+        self.btnGraphDataAdd.setToolTip(
+            "Add all selected Y columns to this Graph in one render batch."
+        )
+        data_layout.addWidget(QLabel("X axis", data_group), 0, 0)
+        data_layout.addWidget(self.cboGraphDataX, 0, 1)
+        data_layout.addWidget(QLabel("Y data", data_group), 1, 0, Qt.AlignTop)
+        data_layout.addWidget(self.lstGraphDataY, 1, 1)
+        data_layout.addWidget(QLabel("Style", data_group), 2, 0)
+        data_layout.addWidget(self.cboGraphDataStyle, 2, 1)
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.btnGraphDataReplace)
+        button_row.addWidget(self.btnGraphDataAdd)
+        data_layout.addLayout(button_row, 3, 0, 1, 2)
+        tp.addWidget(data_group)
+        self.graphDataGroup = data_group
+        self.btnGraphDataReplace.clicked.connect(
+            lambda _=False: self._plot_graph_data_panel(add=False)
+        )
+        self.btnGraphDataAdd.clicked.connect(
+            lambda _=False: self._plot_graph_data_panel(add=True)
+        )
 
         if not hasattr(self, "panel_plot"):
             # เผื่อกรณีสร้าง Inspector โดยไม่ได้สร้าง left panel (เช่นในเทสต์เก่า)
@@ -360,8 +412,126 @@ class MainWindowPanelsMixin:
 
         # ---------- mount ----------
         r.addWidget(tabs)
+        self.inspectorTabs = tabs
         self._mount_layer_manager()
         return
+
+    def _refresh_graph_data_panel(self) -> None:
+        """Populate the graph mapping controls from the active Book."""
+        x_combo = getattr(self, "cboGraphDataX", None)
+        y_list = getattr(self, "lstGraphDataY", None)
+        if x_combo is None or y_list is None:
+            return
+        resolver = getattr(self, "_resolve_active_dataframe", None)
+        df = resolver() if callable(resolver) else getattr(self, "_df", None)
+        previous_x = x_combo.currentData()
+        previous_y = {item.text() for item in y_list.selectedItems()}
+        x_combo.clear()
+        y_list.clear()
+        x_combo.addItem("Row (1…N)", None)
+
+        has_data = isinstance(df, pd.DataFrame) and not df.empty
+        if not has_data:
+            x_combo.setEnabled(False)
+            y_list.setEnabled(False)
+            self.btnGraphDataReplace.setEnabled(False)
+            self.btnGraphDataAdd.setEnabled(False)
+            return
+
+        x_columns = [
+            str(column)
+            for column in df.columns
+            if pd.api.types.is_numeric_dtype(df[column])
+            or pd.api.types.is_datetime64_any_dtype(df[column])
+        ]
+        y_columns = [
+            str(column)
+            for column in df.columns
+            if pd.api.types.is_numeric_dtype(df[column])
+        ]
+        for column in x_columns:
+            x_combo.addItem(column, column)
+        for column in y_columns:
+            y_list.addItem(column)
+
+        if previous_x in x_columns:
+            x_combo.setCurrentIndex(x_combo.findData(previous_x))
+        else:
+            # Row is intentionally the safe default: selecting one Y always
+            # produces that column against 1…N without silently stealing X.
+            x_combo.setCurrentIndex(0)
+
+        preferred_y = set(previous_y)
+        tab = getattr(getattr(self, "tabs", None), "currentWidget", lambda: None)()
+        if not preferred_y and tab is not None:
+            preferred_y = {
+                str(info.get("meta", {}).get("y_column", ""))
+                for info in getattr(tab, "layers", {}).values()
+            }
+        if not preferred_y:
+            selected_y = getattr(self, "selected_y_column", lambda: "")()
+            if selected_y:
+                preferred_y = {str(selected_y)}
+        selected_any = False
+        for index in range(y_list.count()):
+            item = y_list.item(index)
+            selected = item.text() in preferred_y
+            item.setSelected(selected)
+            selected_any = selected_any or selected
+        if not selected_any and y_list.count():
+            y_list.item(0).setSelected(True)
+
+        enabled = bool(y_columns)
+        x_combo.setEnabled(True)
+        y_list.setEnabled(enabled)
+        self.btnGraphDataReplace.setEnabled(enabled)
+        self.btnGraphDataAdd.setEnabled(enabled)
+
+    def _plot_graph_data_panel(self, *, add: bool) -> dict | None:
+        """Apply the visible X/multi-Y mapping to the current Graph."""
+        tab = getattr(getattr(self, "tabs", None), "currentWidget", lambda: None)()
+        if tab is None or not hasattr(tab, "get_axes"):
+            self.inform("No graph", "Open or select a Graph first.")
+            return None
+        y_columns = [item.text() for item in self.lstGraphDataY.selectedItems()]
+        if not y_columns:
+            self.inform("Choose Y data", "Select at least one Y column.")
+            return None
+        x_column = self.cboGraphDataX.currentData()
+        style = str(self.cboGraphDataStyle.currentData() or "line")
+        try:
+            result = self.plot_explicit_columns(
+                style,
+                str(x_column) if x_column is not None else None,
+                y_columns,
+                new_graph=False,
+                replace_existing=not add,
+            )
+        except Exception as exc:
+            self.inform("Could not update graph", str(exc))
+            return None
+        self._mount_layer_manager()
+        return result
+
+    def open_graph_data_panel(self) -> bool:
+        """Reveal and focus Graph Data; used by canvas double-click."""
+        tab = getattr(getattr(self, "tabs", None), "currentWidget", lambda: None)()
+        if tab is None or not hasattr(tab, "get_axes"):
+            self.inform("No graph", "Open or select a Graph first.")
+            return False
+        self.toggle_inspector(True)
+        action = getattr(self, "actToggleInspector", None)
+        if action is not None:
+            action.setChecked(True)
+        inspector_tabs = getattr(self, "inspectorTabs", None)
+        if inspector_tabs is not None:
+            inspector_tabs.setCurrentIndex(0)
+        self._refresh_graph_data_panel()
+        self.lstGraphDataY.setFocus()
+        self.statusBar().showMessage(
+            "Graph Data opened — choose Row or an X column, select one or more Y columns, then Add or Replace."
+        )
+        return True
 
     def _update_render_options(self, *_args) -> None:
         """Commit explicit large-data render policies to immutable options."""
@@ -503,6 +673,9 @@ class MainWindowPanelsMixin:
                 pass
             layout.addWidget(placeholder)
             placeholder.show()
+        refresh_data = getattr(self, "_refresh_graph_data_panel", None)
+        if callable(refresh_data):
+            refresh_data()
 
     def refresh_xy_columns(self):
         """

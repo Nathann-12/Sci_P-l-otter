@@ -675,8 +675,8 @@ class MainWindow(
         except Exception:
             pass
 
-        # Origin: double-click a graph opens Plot Details. Bind the current
-        # graph now and rebind whenever a graph is created/activated.
+        # Double-click opens Graph Data; Ctrl+double-click opens Plot Details.
+        # Bind now and rebind whenever a graph is created/activated.
         try:
             self.bind_graph_dblclick()
             self.tabs.currentChanged.connect(self.bind_graph_dblclick)

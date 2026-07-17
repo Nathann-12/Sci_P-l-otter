@@ -247,6 +247,7 @@ class MainWindowPlotMixin:
         y_columns,
         *,
         new_graph: bool = True,
+        replace_existing: bool = False,
     ) -> dict:
         """Plot explicit columns and verify that a real graph artist was created.
 
@@ -316,6 +317,11 @@ class MainWindowPlotMixin:
         graph_tab = getattr(self.tabs, "tabs", {}).get(graph_id)
         if graph_tab is None:
             raise RuntimeError("the target Graph is unavailable")
+        if replace_existing:
+            # Requests were fully validated above, so an invalid mapping never
+            # destroys the current graph before reporting its error.
+            graph_tab.clear_layers()
+            graph_tab.clear()
         ax = graph_tab.get_axes()
         artists_before = self._axes_artist_count(ax)
 
@@ -333,6 +339,71 @@ class MainWindowPlotMixin:
             self.plot_histogram(requests[0])
         elif style == "bar":
             self.plot_bar(requests[0])
+        elif len(requests) > 1:
+            # Batch multi-column rendering: register every layer first, then
+            # rebuild the legend/layout and draw the canvas exactly once.
+            scatter = style == "scatter"
+            created = []
+            render_infos = []
+            for request in requests:
+                if scatter:
+                    render_info = render_info_for(
+                        "scatter",
+                        request.x,
+                        request.y,
+                        scatter_mode=options.scatter_mode,
+                    )
+                    plot_kwargs = scatter_kwargs_for_count(
+                        render_info["rendered_count"],
+                        {
+                            "s": options.resolved_scatter_size,
+                            "scatter_mode": options.scatter_mode,
+                        },
+                    )
+                    render_style = "scatter"
+                else:
+                    render_info = render_info_for("line", request.x, request.y)
+                    plot_kwargs = {"linewidth": options.line_width}
+                    if options.show_marker:
+                        plot_kwargs["marker"] = options.marker
+                    render_style = "line"
+                meta = self._build_layer_meta(
+                    render_style,
+                    request.label,
+                    plot_kwargs,
+                    source="multi_column_batch",
+                    request=request,
+                )
+                meta["render"] = dict(render_info)
+                created.extend(
+                    self.tabs.add_series_to_tabs(
+                        [graph_id],
+                        request.x,
+                        request.y,
+                        label=request.label,
+                        style=render_style,
+                        meta=meta,
+                        defer_draw=True,
+                        **plot_kwargs,
+                    )
+                )
+                render_infos.append(render_info)
+            if len(created) != len(requests):
+                raise RuntimeError("the batch renderer did not add every requested series")
+            if hasattr(graph_tab, "_refresh_legend"):
+                graph_tab._refresh_legend()
+            self._update_tabs_after_plot(
+                [graph_id],
+                xlabel=requests[0].x_column,
+                ylabel=", ".join(y_names),
+                x_is_datetime=requests[0].x_is_datetime,
+            )
+            total_source = sum(info["source_count"] for info in render_infos)
+            total_rendered = sum(info["rendered_count"] for info in render_infos)
+            self.statusBar().showMessage(
+                f"Added {len(requests)} series in one batch • "
+                f"Rendered {total_rendered:,} of {total_source:,} total points"
+            )
         else:
             scatter = style == "scatter"
             if new_graph:
@@ -458,6 +529,19 @@ class MainWindowPlotMixin:
         if not use_row_index:
             self.cbX.setCurrentText(x_name)
         self.cbY.setCurrentText(y_names[0])
+
+        if style in {"line", "linesymbol", "scatter"} and len(y_names) > 1:
+            try:
+                self.plot_explicit_columns(
+                    style,
+                    None if use_row_index else x_name,
+                    y_names,
+                    new_graph=new_graph,
+                )
+            except Exception as exc:
+                QMessageBox.critical(self, "Plot failed", f"Reason: {exc}")
+            return
+
         options = self._resolve_plot_options()
         if style == "histogram":
             primary_request = self.build_histogram_request(y_names[0], options)

@@ -478,7 +478,7 @@ def test_dialog_output_roundtrips_through_engine(qapp):
 def test_format_action_wired(win):
     assert callable(getattr(win, "open_plot_details_dialog", None))
     assert hasattr(win, "actFormatGraph")
-    # double-click binding present on the current graph canvas
+    # Graph Data / Ctrl+Plot Details double-click binding is present.
     win.tabs.add_tab()
     win.bind_graph_dblclick()
     tab = win.tabs.currentWidget()

@@ -139,6 +139,7 @@ Generated Files/
 *.tiff
 
 # Test outputs
+/.pytest_*/
 test_*.png
 test_*.jpg
 *_test_output.*

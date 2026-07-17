@@ -745,7 +745,23 @@ class TabManager(QTabWidget):
                 pass
         return created
 
-    def add_series_to_tabs(self, tab_ids, x, y, label: str = "", style: str = "line", meta: Optional[Dict[str, Any]] = None, **kwargs):
+    def add_series_to_tabs(
+        self,
+        tab_ids,
+        x,
+        y,
+        label: str = "",
+        style: str = "line",
+        meta: Optional[Dict[str, Any]] = None,
+        *,
+        defer_draw: bool = False,
+        **kwargs,
+    ):
+        """Add a series, optionally deferring expensive legend/layout/draw work.
+
+        ``defer_draw`` is used by multi-column plotting so N columns cause one
+        final layout and canvas draw instead of N complete redraw cycles.
+        """
         created = []
         base_kwargs = dict(kwargs)
         for tab_id in tab_ids:
@@ -809,35 +825,36 @@ class TabManager(QTabWidget):
                 if x_is_datetime and len(x_vals) >= 2:
                     ax.set_xlim(min(x_vals), max(x_vals))
                 clamp_date_limits(ax)
-                try:
-                    handles, labels = ax.get_legend_handles_labels()
-                    if any(lbl and not lbl.startswith("_") for lbl in labels):
-                        ax.legend(loc="best")
-                except Exception:
-                    pass
-                clamp_date_limits(ax)
-                try:
-                    from processors import beautify_axes
-
-                    beautify_axes(ax, x_is_datetime=x_is_datetime)
-                except Exception:
-                    pass
-                clamp_date_limits(ax)
-                try:
-                    tab.canvas.fig.tight_layout()
-                except Exception:
-                    pass
-                clamp_date_limits(ax)
-                try:
-                    tab.draw()
-                except Exception:
+                if not defer_draw:
                     try:
-                        tab.canvas.draw()
+                        handles, labels = ax.get_legend_handles_labels()
+                        if any(lbl and not lbl.startswith("_") for lbl in labels):
+                            ax.legend(loc="best")
+                    except Exception:
+                        pass
+                    clamp_date_limits(ax)
+                    try:
+                        from processors import beautify_axes
+
+                        beautify_axes(ax, x_is_datetime=x_is_datetime)
+                    except Exception:
+                        pass
+                    clamp_date_limits(ax)
+                    try:
+                        tab.canvas.fig.tight_layout()
+                    except Exception:
+                        pass
+                    clamp_date_limits(ax)
+                    try:
+                        tab.draw()
                     except Exception:
                         try:
-                            tab.canvas.fig.canvas.draw_idle()
+                            tab.canvas.draw()
                         except Exception:
-                            pass
+                            try:
+                                tab.canvas.fig.canvas.draw_idle()
+                            except Exception:
+                                pass
                 layer_meta = dict(meta or {})
                 layer_meta.setdefault("style", style)
                 layer_meta.setdefault("label", auto_label)
@@ -846,7 +863,7 @@ class TabManager(QTabWidget):
                 layer_id = tab.register_layer(artists, auto_label or label or "", style, meta=layer_meta, kwargs=local_kwargs)
                 if layer_id:
                     created.append((tab_id, layer_id))
-                    if hasattr(tab, "_refresh_legend"):
+                    if not defer_draw and hasattr(tab, "_refresh_legend"):
                         tab._refresh_legend()
             except Exception:
                 pass

@@ -21,7 +21,7 @@ class MainWindowPlotStyleMixin:
     """
 
     def bind_graph_dblclick(self, *_):
-        """Bind double-click on the current graph canvas → Plot Details (Origin).
+        """Bind graph double-click → Graph Data (Ctrl+double-click → Plot Details).
 
         Safe to call repeatedly (guards against re-binding the same canvas).
         """
@@ -37,7 +37,16 @@ class MainWindowPlotStyleMixin:
 
     def _on_canvas_click(self, event):
         if getattr(event, "dblclick", False):
-            self.open_plot_details_dialog()
+            # Plain double-click is the everyday data/axis workflow.
+            # Ctrl+double-click keeps direct access to the expert style dialog.
+            if "control" in str(getattr(event, "key", "") or "").casefold():
+                self.open_plot_details_dialog()
+                return
+            opener = getattr(self, "open_graph_data_panel", None)
+            if callable(opener):
+                opener()
+            else:
+                self.open_plot_details_dialog()
 
     def _active_graph_axes(self):
         """(ax, fig, lines) of the current graph tab, or (None, None, [])."""

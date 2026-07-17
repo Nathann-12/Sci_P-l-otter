@@ -47,7 +47,7 @@
 | `main_window_materials_mixin` | Materials Science module (Modules Gallery + Modules menu): I-V conductivity/resistivity/sheet resistance, Arrhenius activation energy, TGA/DSC thermal metrics, sample ranking — logic in `analysis/materials.py` |
 | `main_window_physics_mixin` | Physics / General Lab module (Modules Gallery + Modules menu): Ohm's law, RC time constant, pendulum gravity, uncertainty propagation — logic in `analysis/physics_lab.py` |
 | `main_window_workflow_mixin` | Reproducibility (เมนู Tools): `_record_op` + history/export/import/re-run/gen สคริปต์ — logic ใน `core/history.py` (ops ใหม่ต้องมี entry ใน `REPLAY_REGISTRY` + `_SCRIPT_TEMPLATES`) |
-| `main_window_plotstyle_mixin` | ตกแต่งกราฟแบบ Origin "Plot Details" (View→Format Graph / Ctrl+Shift+F / ดับเบิลคลิกกราฟ): เปิด `dialogs/plot_details_dialog.py` แก้ style ผ่าน `core/plot_style.py` (axes/grid/legend/figure + per-curve) |
+| `main_window_plotstyle_mixin` | ตกแต่งกราฟแบบ Origin "Plot Details" (View→Format Graph / Ctrl+Shift+F / Ctrl+ดับเบิลคลิกกราฟ): เปิด `dialogs/plot_details_dialog.py` แก้ style ผ่าน `core/plot_style.py` (axes/grid/legend/figure + per-curve); ดับเบิลคลิกธรรมดาเปิด Graph Data ใน Inspector |
 
 **ชั้น UI (โมเดล OriginPro เต็มรูปแบบ — สำคัญ)**
 - **UX ทั้งแอปยึด loop แบบ Origin** (ดู [docs/UX_FLOW.md](docs/UX_FLOW.md) — บังคับสำหรับฟีเจอร์ใหม่): เปิดไฟล์/พิมพ์ใน Book → เลือกคอลัมน์บนชีต → คลิกไอคอนพล็อตใน function bar สองแถวด้านบนหรือปุ่มบนชีต → **Graph window ใหม่เสมอ**; ไม่มีแผง workflow ซ้ายแบบถาวร — Worksheet + two-row function toolbar + Project Explorer แบบ parked side tab + เมนู เท่านั้น; **ห้ามซ่อนความสามารถหลักไว้ใน dock/panel ที่ปิดอยู่**

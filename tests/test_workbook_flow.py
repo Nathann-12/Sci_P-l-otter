@@ -204,6 +204,65 @@ def test_multiseries_workbook_plot_uses_explicit_requests(win):
         [10.0, 20.0, 30.0],
     ]
     assert win.cbY.currentText() == "signal_a"
+    assert {
+        layer["meta"]["source"] for layer in win.tabs.currentWidget().layers.values()
+    } == {"multi_column_batch"}
+
+
+def test_graph_double_click_panel_maps_row_x_and_multiple_y_columns(
+    win, tmp_path, monkeypatch
+):
+    p = tmp_path / "graph_data_panel.csv"
+    p.write_text(
+        "time,response_a,response_b\n10,1,10\n20,2,20\n30,3,30\n",
+        encoding="utf-8",
+    )
+    win.load_data(str(p))
+    win.tabs.add_tab("Graph Data Panel Test")
+
+    assert win.open_graph_data_panel() is True
+    assert win.cboGraphDataX.currentData() is None
+    win.lstGraphDataY.clearSelection()
+    for index in range(win.lstGraphDataY.count()):
+        item = win.lstGraphDataY.item(index)
+        item.setSelected(item.text() in {"response_a", "response_b"})
+
+    infos = []
+    monkeypatch.setattr(
+        type(win),
+        "inform",
+        lambda _self, title, message: infos.append((title, message)),
+        raising=False,
+    )
+    result = win._plot_graph_data_panel(add=False)
+    assert result is not None, infos
+
+    tab = win.tabs.currentWidget()
+    lines = tab.get_axes().get_lines()
+    assert len(lines) == 2
+    assert [list(line.get_xdata()) for line in lines] == [
+        [1.0, 2.0, 3.0],
+        [1.0, 2.0, 3.0],
+    ]
+    assert [list(line.get_ydata()) for line in lines] == [
+        [1.0, 2.0, 3.0],
+        [10.0, 20.0, 30.0],
+    ]
+    assert tab.get_axes().get_xlabel() == "Row"
+    assert len(tab.layers) == 2
+
+
+def test_canvas_double_click_opens_graph_data_and_ctrl_opens_style(win, monkeypatch):
+    opened = []
+    monkeypatch.setattr(win, "open_graph_data_panel", lambda: opened.append("data"))
+    monkeypatch.setattr(win, "open_plot_details_dialog", lambda: opened.append("style"))
+
+    from types import SimpleNamespace
+
+    win._on_canvas_click(SimpleNamespace(dblclick=True, key=None))
+    win._on_canvas_click(SimpleNamespace(dblclick=True, key="control"))
+
+    assert opened == ["data", "style"]
 
 
 def test_plot_toolbar_origin_bar_exists_and_plots(win):
