@@ -146,6 +146,12 @@
 - ✅ Kurtosis
 - ✅ Correlation (cross-correlation)
 - ✅ Covariance
+- ✅ One-sample / Welch / pooled / paired t-tests
+- ✅ One-way and Type II/III two-way ANOVA
+- ✅ Mann-Whitney / Wilcoxon / Kruskal-Wallis nonparametric tests
+- ✅ Shapiro-Wilk and Levene assumption checks
+- ✅ Effect sizes, confidence intervals, and multiple-testing correction
+- ✅ Multiple linear regression with influence and residual diagnostics
 - ✅ Linear regression
 - ✅ Polynomial regression
 - ✅ Exponential fit
@@ -157,9 +163,9 @@
 - 🟡 Damped sine fit
 - 🟡 Logistic fit
 - ✅ Custom equation fit
-- 🟡 Multi-peak fitting
-- ☐ Global fitting
-- 🟡 Fit constraints
+- ✅ Multi-peak fitting (Gaussian/Lorentzian/Voigt, simultaneous fit, bounds, CI, residuals)
+- ✅ Global fitting (shared/local/fixed/bounded parameters, weights, covariance, CI, residual diagnostics)
+- ✅ Fit constraints (shared, dataset-local, fixed, bounded, and initial values)
 - ✅ Fit bounds
 - ✅ Weighted fitting (absolute uncertainty σ or inverse-variance weight 1/σ²)
 - 🟡 Residual plot
@@ -217,6 +223,10 @@
 - ✅ Auto-generate Python script
 - ✅ Auto-generate report
 - ✅ Save project file (*.sciproj — File → Save/Open Project, ฝังข้อมูลในตัว)
+- ✅ Analysis Recipe dependency graph (Auto / Manual / Frozen recalculation)
+- ✅ Last-good result rollback + source/result checksum + node provenance
+- ✅ Recipe persistence in schema-v2 projects and Project Explorer
+- ✅ Batch Analysis (recipe → many files → CSV/JSON/XLSX/HTML summary)
 - ✅ Project snapshot
 - ✅ Undo/redo (annotations)
 - ✅ Compare versions
@@ -237,9 +247,10 @@
 - ✅ Peak/Cross-correlation ผ่าน AI (tools `peak_metrics` + `detect_peaks` + `cross_correlation`)
 - ✅ Graph decoration + advanced charts ผ่าน AI (tools `format_graph` + `list_charts` + `plot_chart` — 45 chart types)
 - ✅ Multi-book awareness (tool `list_books` — AI รู้จัก Books ที่เปิดอยู่ + ตัว active)
-- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) + ควบคุม Gas Live (tool `gas_live_control`) — รวม **44 AI tools**
+- ✅ เปิดไฟล์ผ่าน AI (tool `open_file`) + ควบคุม Gas Live (tool `gas_live_control`)
+- ✅ Scientific Suite ผ่าน AI (tools `run_statistics` [t-test/ANOVA/nonparametric/regression] + `global_fit` + `analyze_peaks` + `list_analysis_recipes` — logic ใน `ai/scientific_tools.py`, เรียก adapter เดียวกับ UI/recipe/batch) — รวม **48 AI tools**
 - ✅ Chat กับ dataset (หลาย tool ต่อเนื่องบน active Book ได้จริง)
-- ☐ "Fit peak นี้"
+- ✅ "Fit peak นี้" (tool `analyze_peaks` — baseline + multi-peak Gaussian/Lorentzian/Voigt, รายงาน peak count/R²/convergence)
 - ✅ "หา anomaly" (tool `find_anomalies` — deterministic z-score/IQR, รายงาน count + ตำแหน่ง/ค่า/z-score แบบ read-only ไม่แก้ข้อมูล; logic `analysis/cleaning.summarize_anomalies`)
 - ☐ "อธิบายกราฟนี้"
 - ☐ "เขียน caption"
@@ -354,7 +365,7 @@
 - ✅ Spectrum baseline correction
 - ☐ Spectrum smoothing
 - ✅ Peak detection
-- ☐ Peak fitting
+- ✅ Peak fitting workflow (baseline, detection, simultaneous fit, summary, curves, batch recipe)
 - ✅ Raman D/G ratio
 - ☐ Raman 2D peak analysis
 - ☐ FTIR functional group marker
@@ -513,6 +524,8 @@
 ---
 
 ## Latest verification
+- 2026-07-18: Scientific Suite exposed to the local AI assistant (CLAUDE.md rule 8). New `ai/scientific_tools.py` adds `run_statistics` (t-test / ANOVA / nonparametric / multiple regression), `global_fit`, `analyze_peaks` and `list_analysis_recipes`, each calling the same `analysis/scientific_operations` adapter the GUI/recipe/batch use — defensive, non-modal, opening result/curve Books and reporting significance or convergence. Registry now has **48 tools**; catalog routing gains a `science` group + Thai/English aliases. Because the tool registry changed, the local router's **sealed fine-tuning corpus was regenerated and re-sealed** end to end: curated seeds + release/router-v2 acceptance cases extended to cover the 4 new tools, the 11 committed JSONL artifacts regenerated, and the release-v3 (`190059aa…`), router-v2 acceptance-v4 (`59a716f8…`) and source-file hashes re-sealed (immutable consumed-v1/final-v2 gates preserved). New behavioral tests in `tests/test_ai_assistant.py`; `tests/test_training_pipeline.py` counts updated. Full suite: `1281 passed, 3 skipped` (only pre-existing broken-axis/peak-widths warnings).
+- 2026-07-18: Dependency-aware Scientific Suite completed as one system (Statistics / Global Fit / Peak Analyzer → versioned Analysis Recipe → result Books + fit Graph → Batch). Pure engine in `core/analysis_recipe.py`, numerical cores in `analysis/{statistics,global_fitting,peak_analysis}.py`, one shared adapter in `analysis/scientific_operations.py` (UI, recipe, batch, and future AI all call the same ABI), batch runner in `analysis/batch.py`, and `main_window_scientific_suite_mixin.py` wiring the Analysis menu, Recipe Manager, Recalculate, and Batch dialogs; recipes persist in schema-v2 `.sciproj` and show in Project Explorer. **Deep-review fixes over the happy path:** (1) the recipe commit path called an **undefined `_output_warning`**, so every stats/fit run raised `AttributeError` → a modal error dialog in the GUI and a headless test *hang* (modal `exec()` under offscreen); defined it so a non-converged optimiser is marked **Warning**, not silently Clean. (2) `global_fit_report` now persists an explicit **Convergence** (success/message/level) section. (3) fit-curve CI columns carry the **real** confidence level (`ci_90_*` … not a hardcoded `ci95_*`). (4) locked the peak physical-width (sigma/gamma/tau bounds) and detection-width non-negativity guards with tests. Full 100-file suite: `1274 passed, 3 skipped` (only the existing broken-axis `tight_layout` warnings).
 - 2026-07-15: UX pass — Origin-style action enablement + supporting fixes. Toolbar commands now **dim (disabled) instead of popping a reject dialog** when they can't run: data commands (plot/process/analysis/dataset) enable once the active Book has data — including data typed straight into the worksheet before "Use Active Data" (via `workbook.has_data_cells()` + `table.itemChanged` refresh) — and graph tools (format/crosshair/box-zoom/reset/export/annotate) enable once a Graph window exists; the shared QAction dims on every surface (top bar + docks) and keeps a "why" tooltip. State tracks live through `_wire_action_state_updates` (tab/book/itemChanged signals) and `_refresh_action_states` hooks. FFT/PSD now **auto-create a Graph on demand** (`_ensure_graph_canvas`) instead of rejecting when data is ready but no graph is open. Command Palette (Ctrl+K) is **deduplicated and menu-context tagged** (`FFT · Process › Frequency & Spectrum`, 407→349 entries), keeping a strong ref to every action so lifetime is unchanged. Worksheet columns **auto-size to their content** (bounded) so long names/values aren't clipped to `...`; the module context panel widened 200→320px so the Gas Sensor panel isn't truncated; and Set X/Y/Ignore/Delete with no selection now emit a **status-bar hint** instead of silently doing nothing. The Equation Plotter dialog was also reworked for usability: concise placeholder + **quick-insert example chips** + a function/variable reference line, grouped **Domain** (X min/max/Points on one row) and **Options** boxes, **Plot** as the primary/default button with **Ctrl+Enter** to plot, and Plot disabled until an expression is entered (`get_values()` contract unchanged). New `tests/test_action_enablement.py`, `tests/test_equation_dialog.py` + workbook tests. Full 92-file suite: `925 passed, 3 skipped` (only existing broken-axis `tight_layout` warnings).
 - 2026-07-15: Full multi-sensor Gas Live workflow completed without hardware access. Each Serial/NI-DAQ field can now be mapped to a unique sensor display name with independent voltage-divider topology/reference/supply and moving-average window; raw inputs remain intact and all named/derived values are appended to the Live Book. The Live monitor uses an 8-signal checklist and the dedicated rolling Graph keeps one stable line per selected sensor. NI channel discovery exposes the future Book field names to the Flow Designer before Connect, settings round-trip through QSettings, and AI `configure_flow` accepts `sensor_channels`. Focused multi-sensor/controller/UI/MainWindow/AI coverage: `103 passed`; full 90-file suite: `911 passed, 3 skipped` (only existing broken-axis `tight_layout` warnings).
 - 2026-07-14: Visual Acquisition Flow v2 free wiring + NI-DAQ multi-channel completed without hardware access. The canvas now creates wires by dragging an output port onto an input port, atomically replaces a target's existing wire, deletes wires on double-click, supports processor palette add/remove plus Auto Wire/Clear, and surfaces invalid wiring. Pure validation rejects unknown/self/multi-input/loop graphs and requires the source to reach both Book and Graph; acquisition is blocked while the visible canvas is invalid. Execution is topology-aware and runs only enabled processors on the productive source→Graph path, so bypassed/dead-end nodes do not alter records. Valid wiring persists and is controllable through AI `configure_wiring`. NI-DAQ UI now multi-selects discovered AI channels, persists comma-separated channel sets, and produces one voltage column per channel; controller multi-channel batching remains lossless. Windows visual QA and full 90-file suite: `906 passed, 3 skipped`.

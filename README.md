@@ -20,6 +20,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
+For the dependency-aware Statistics, Global Fit, Peak Analyzer, Analysis Recipe,
+and Batch Analysis workflows, see [Scientific Workflows](docs/SCIENTIFIC_WORKFLOWS.md).
+
 For NI USB DAQ live acquisition, install the NI-DAQmx driver, verify the device
 in NI MAX, and install the Python adapter (`pip install nidaqmx`). SciPlotter
 still starts normally when NI-DAQmx is unavailable; only the NI-DAQ source is disabled.
