@@ -382,6 +382,27 @@ def tool_seeds() -> list[ToolSeed]:
         ("แสดงรายการสูตรวิเคราะห์ที่บันทึกไว้พร้อมสถานะ", {}),
         ("ขอดูรายการสูตรวิเคราะห์ทั้งหมดในโปรเจกต์นี้", {}),
     )
+    seeds += _tool(
+        "grid_xyz", "matrix",
+        ("Grid xyz columns pos_x, pos_y and intensity into a 60x40 matrix.", {"x_column": "pos_x", "y_column": "pos_y", "z_column": "intensity", "nx": 60, "ny": 40, "method": "linear"}),
+        ("Convert xyz data east_m, north_m, elevation_m to a matrix with cubic gridding.", {"x_column": "east_m", "y_column": "north_m", "z_column": "elevation_m", "method": "cubic"}),
+        ("ทำกริดคอลัมน์ pos_x pos_y และ intensity เป็นเมทริกซ์ 60x40", {"x_column": "pos_x", "y_column": "pos_y", "z_column": "intensity", "nx": 60, "ny": 40, "method": "linear"}),
+        ("แปลง xyz เป็นเมทริกซ์จาก east_m north_m elevation_m แบบ cubic", {"x_column": "east_m", "y_column": "north_m", "z_column": "elevation_m", "method": "cubic"}),
+    )
+    seeds += _tool(
+        "matrix_transform", "matrix",
+        ("Smooth matrix data with a Gaussian of sigma 2.", {"op": "smooth_gaussian", "sigma": 2}),
+        ("Subtract background from the matrix using a plane fit.", {"op": "subtract_background", "mode": "plane"}),
+        ("ปรับเมทริกซ์ให้เรียบด้วย Gaussian sigma 2", {"op": "smooth_gaussian", "sigma": 2}),
+        ("ลบพื้นหลังเมทริกซ์ด้วยการฟิตระนาบ", {"op": "subtract_background", "mode": "plane"}),
+    )
+    seeds += _tool(
+        "plot_matrix", "matrix",
+        ("Plot matrix data as a heatmap with real coordinates.", {"kind": "heatmap"}),
+        ("Draw a 3D surface from matrix Book values.", {"kind": "surface"}),
+        ("พล็อตเมทริกซ์เป็น heatmap ตามพิกัดจริง", {"kind": "heatmap"}),
+        ("วาดพื้นผิวจากเมทริกซ์แบบสามมิติ", {"kind": "surface"}),
+    )
     return seeds
 
 

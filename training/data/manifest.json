@@ -5,34 +5,34 @@
     "hard_negative_groups": 14,
     "kinds": {
       "answer": 24,
-      "tool_call": 576
+      "tool_call": 612
     },
     "languages": {
-      "en": 300,
-      "th": 300
+      "en": 318,
+      "th": 318
     },
-    "release_acceptance_v3_sealed": 60,
-    "repair_train": 122,
+    "release_acceptance_v3_sealed": 63,
+    "repair_train": 125,
     "risks": {
-      "create": 276,
+      "create": 312,
       "device": 12,
       "mutate": 132,
       "read": 180
     },
-    "tools": 48,
-    "train": 450,
-    "validation": 150
+    "tools": 51,
+    "train": 477,
+    "validation": 159
   },
   "dataset_version": "1.4",
   "privacy": "synthetic scientific prompts; no researcher data",
   "sha256": {
     "acceptance_test_v1_consumed.jsonl": "72209a4c318682463ef2636c992e3d83817f2d64b3f63bb68e52b8bfaea360b6",
     "final_acceptance_test.jsonl": "e2ef1f374b0fbe3318ca2d6e7c61aa4d1097f089a3feb3b27be9c4a229e6eeb1",
-    "release_acceptance_v3.jsonl": "190059aad67750ee6c9c16a534b69d7b7bde317ac91d8d669dedcaffb3717788",
-    "repair_train.jsonl": "d8822a892ae36f5b88d604d7442038aac4fcbc9711c4c7044a21f1593ae25707",
-    "train.jsonl": "53ce0c5c8d7ce918b2c161785cfc8b88286417996d1e58c20054ca0981267e34",
-    "validation.jsonl": "dc842a20f2a9f5df73785bb249c5fdfd0a3d8563afa7a9f1f2ed807bd3886eed"
+    "release_acceptance_v3.jsonl": "893424f042d61848beb6a9785c179391bc71f570ef55abd0ab03667bbb3e53b9",
+    "repair_train.jsonl": "ba4b38f80c8bd514fc4f471b38ff8c5f8962b81b79c9356fcfea4d662601ccef",
+    "train.jsonl": "bb07087b7a5798ab040fdfac5c9118f73e24367419b9d593762ff50a87a80a44",
+    "validation.jsonl": "0036ae29b2b18bbc50716cabefa84edaa2958c7f59ac436b94ebd5b4805f6ff7"
   },
-  "source_revision": "2c949db5fda47ca4e62063b31a9b9e3772f39a7f",
+  "source_revision": "9b6dd476c15518059406b161f3c969c5d5f99d5b",
   "tool_schema_version": "1.4"
 }

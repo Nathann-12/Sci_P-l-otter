@@ -106,6 +106,7 @@ from main_window_ai_mixin import MainWindowAIMixin
 from main_window_modules_mixin import MainWindowModulesMixin
 from main_window_gassensor_mixin import MainWindowGasSensorMixin
 from main_window_electrochemistry_mixin import MainWindowElectrochemistryMixin
+from main_window_matrix_mixin import MainWindowMatrixMixin
 from main_window_spectroscopy_mixin import MainWindowSpectroscopyMixin
 from main_window_materials_mixin import MainWindowMaterialsMixin
 from main_window_physics_mixin import MainWindowPhysicsMixin
@@ -420,6 +421,7 @@ class MainWindow(
     MainWindowMaterialsMixin,
     MainWindowPhysicsMixin,
     MainWindowWorkflowMixin,
+    MainWindowMatrixMixin,
     MainWindowPlotStyleMixin,
     MainWindowPlotExtraMixin,
     MainWindowGalleryMixin,
@@ -609,6 +611,12 @@ class MainWindow(
             self.init_physics_module()
         except Exception:
             logger.debug("physics module init skipped", exc_info=True)
+
+        # Matrix / Image / Surface: gridding, transforms, filters, surface views
+        try:
+            self.init_matrix_module()
+        except Exception:
+            logger.debug("matrix module init skipped", exc_info=True)
 
         # Reproducibility: ประวัติการวิเคราะห์ + workflow (เมนู Tools)
         try:

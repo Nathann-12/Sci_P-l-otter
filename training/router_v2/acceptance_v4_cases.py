@@ -55,6 +55,9 @@ TOOL_CASES = (
     ("global_fit", "th", "ฟิตร่วมแบบ Gaussian โดยแชร์ center ให้ dataset_x และ dataset_y"),
     ("analyze_peaks", "en", "Run the peak analyzer on the measured spectrum with a linear baseline."),
     ("list_analysis_recipes", "th", "มีสูตรวิเคราะห์อะไรถูกบันทึกไว้ในโปรเจกต์บ้าง"),
+    ("grid_xyz", "en", "Grid xyz columns beam_x, beam_y and counts into a matrix Book."),
+    ("matrix_transform", "th", "ลบพื้นหลังเมทริกซ์แบบระนาบก่อนวิเคราะห์"),
+    ("plot_matrix", "en", "Plot matrix data as a 3D surface with its coordinates."),
 )
 
 

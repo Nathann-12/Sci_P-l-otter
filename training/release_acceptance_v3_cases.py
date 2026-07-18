@@ -84,6 +84,9 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("global_fit", "th", "ฟิตร่วมแบบเกาส์เซียนโดยแชร์ center ระหว่าง scan_a และ scan_b", {"x_column": "wavelength_nm", "y_columns": ["scan_a", "scan_b"], "model": "gaussian", "shared": ["center"]}, "statistics"),
         ReleaseToolSeed("analyze_peaks", "en", "Run the peak analyzer with Gaussian profiles on intensity vs raman_shift.", {"x_column": "raman_shift", "y_column": "intensity", "model": "gaussian", "baseline": "linear"}, "spectroscopy"),
         ReleaseToolSeed("list_analysis_recipes", "th", "ในโปรเจกต์นี้มีสูตรวิเคราะห์ใดถูกบันทึกไว้แล้วบ้าง", {}, "statistics"),
+        ReleaseToolSeed("grid_xyz", "en", "Grid xyz columns stage_x, stage_y and photocurrent_nA into a 80x80 matrix.", {"x_column": "stage_x", "y_column": "stage_y", "z_column": "photocurrent_nA", "nx": 80, "ny": 80, "method": "linear"}, "matrix"),
+        ReleaseToolSeed("matrix_transform", "th", "หมุนเมทริกซ์ 90 องศาแล้วเปิดเป็นบุ๊กใหม่", {"op": "rotate90"}, "matrix"),
+        ReleaseToolSeed("plot_matrix", "en", "Plot matrix intensity data as a filled contour.", {"kind": "contour"}, "matrix"),
     ]
 
 

@@ -38,6 +38,7 @@ GROUPS: Dict[str, tuple[str, ...]] = {
     "science": (
         "run_statistics", "global_fit", "analyze_peaks", "list_analysis_recipes",
     ),
+    "matrix": ("grid_xyz", "matrix_transform", "plot_matrix"),
     "gas": ("gas_live_control", "gas_response"),
     "specialty": (
         "cv_peaks", "tafel_analysis", "raman_dg", "normalize_spectrum",
@@ -75,6 +76,10 @@ KEYWORDS: Dict[str, tuple[str, ...]] = {
         "global fit", "shared parameter", "peak fit", "peak analyzer",
         "analysis recipe",
         "ทดสอบสมมติฐาน", "ค่าพี", "ฟิตร่วม", "ฟิตพีค", "สูตรวิเคราะห์", "ที-เทสต์",
+    ),
+    "matrix": (
+        "matrix", "gridding", "grid xyz", "xyz to matrix", "surface plot",
+        "image matrix", "เมทริกซ์", "กริด", "พื้นผิวสามมิติ",
     ),
     "gas": ("gas", "sensor", "daq", "serial", "com", "ก๊าซ", "เซนเซอร์"),
     "specialty": (
@@ -123,6 +128,9 @@ TOOL_ALIASES: Dict[str, tuple[str, ...]] = {
     "plot_chart": ("advanced chart", "plot chart", "heatmap chart", "กราฟขั้นสูง", "สร้างแผนภูมิ", "surface_3d", "scatter_3d", "wireframe_3d", "matrix_heatmap", "contour_3d", "trisurface_3d", "bar_3d"),
     "list_books": ("list books", "open books", "บุ๊กทั้งหมด", "รายชื่อบุ๊ก"),
     "open_file": ("open file", "load csv", "load excel", "เปิดไฟล์", "โหลดไฟล์"),
+    "grid_xyz": ("grid xyz", "xyz to matrix", "gridding", "convert xyz", "ทำกริด", "แปลง xyz เป็นเมทริกซ์"),
+    "matrix_transform": ("matrix transform", "transpose matrix", "smooth matrix", "subtract background", "rotate matrix", "หมุนเมทริกซ์", "ลบพื้นหลังเมทริกซ์", "ปรับเมทริกซ์"),
+    "plot_matrix": ("plot matrix", "matrix heatmap", "matrix surface", "surface from matrix", "พล็อตเมทริกซ์", "ฮีตแมปเมทริกซ์", "พื้นผิวจากเมทริกซ์"),
     "run_statistics": ("t-test", "t test", "anova", "regression", "hypothesis test", "p-value", "mann-whitney", "wilcoxon", "kruskal", "ทดสอบสมมติฐาน", "ที-เทสต์", "การถดถอย", "หาค่าพี"),
     "global_fit": ("global fit", "shared parameter", "fit multiple datasets", "ฟิตร่วม", "พารามิเตอร์ร่วม", "ฟิตหลายชุด"),
     "analyze_peaks": ("peak analyzer", "fit peaks", "multi-peak fit", "baseline and peaks", "ฟิตพีค", "วิเคราะห์พีค", "ฟิตหลายพีค"),
@@ -152,6 +160,7 @@ CREATE_TOOLS = {
     "cv_peaks", "tafel_analysis", "raman_dg", "iv_conductivity",
     "arrhenius", "ohms_law", "rc_time_constant", "pendulum_gravity",
     "run_statistics", "global_fit", "analyze_peaks",
+    "grid_xyz", "matrix_transform", "plot_matrix",
 }
 
 

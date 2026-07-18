@@ -2038,4 +2038,11 @@ def build_app_registry(window) -> ToolRegistry:
         register_scientific_tools(registry, window)
     except Exception:
         logger.debug("scientific tools registration skipped", exc_info=True)
+    # Matrix / Image / Surface workflow (gridding, transforms, matrix plots).
+    try:
+        from ai.matrix_tools import register_matrix_tools
+
+        register_matrix_tools(registry, window)
+    except Exception:
+        logger.debug("matrix tools registration skipped", exc_info=True)
     return registry
