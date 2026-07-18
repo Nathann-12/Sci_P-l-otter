@@ -74,6 +74,51 @@ def _tool_matrix_transform(window, args: Dict[str, Any]) -> str:
         return f"Could not apply {op}: {exc}"
 
 
+def _tool_matrix_statistics(window, args: Dict[str, Any]) -> str:
+    try:
+        book, stats = window.matrix_statistics_core()
+        return (
+            f"Matrix statistics: min {stats['min']:.4g}, max {stats['max']:.4g} "
+            f"at ({stats['max_x']:.4g}, {stats['max_y']:.4g}), mean "
+            f"{stats['mean']:.4g}, std {stats['std']:.4g}. Table Book: {book}."
+        )
+    except Exception as exc:
+        logger.debug("matrix_statistics tool failed", exc_info=True)
+        return f"Could not compute matrix statistics: {exc}"
+
+
+def _tool_line_profile(window, args: Dict[str, Any]) -> str:
+    for key in ("x0", "y0", "x1", "y1"):
+        if args.get(key) is None:
+            return "Provide the line endpoints x0, y0, x1, y1 (data coordinates)."
+    try:
+        book, n = window.matrix_line_profile_core(
+            (float(args["x0"]), float(args["y0"])),
+            (float(args["x1"]), float(args["y1"])),
+            samples=int(args.get("samples", 200) or 200),
+        )
+        return (
+            f"Extracted a line profile with {n} finite samples; opened the "
+            f"profile Book ({book}) and plotted the curve."
+        )
+    except Exception as exc:
+        logger.debug("line_profile tool failed", exc_info=True)
+        return f"Could not extract the line profile: {exc}"
+
+
+def _tool_matrix_arithmetic(window, args: Dict[str, Any]) -> str:
+    other = args.get("other_book")
+    if not other:
+        return "Specify 'other_book' — the name of the second matrix Book to combine with."
+    op = str(args.get("op", "subtract") or "subtract")
+    try:
+        book, shape = window.matrix_arithmetic_core(str(other), op)
+        return f"Computed A {op} B → {shape[0]}x{shape[1]} matrix Book: {book}."
+    except Exception as exc:
+        logger.debug("matrix_arithmetic tool failed", exc_info=True)
+        return f"Could not combine the matrices: {exc}"
+
+
 def _tool_plot_matrix(window, args: Dict[str, Any]) -> str:
     kind = str(args.get("kind", "heatmap") or "heatmap").strip().lower()
     try:
@@ -110,7 +155,8 @@ def register_matrix_tools(registry, window) -> None:
         "transpose, flip_horizontal, flip_vertical, rotate90, crop "
         "(row0/row1/col0/col1), smooth_gaussian (sigma), smooth_median (size), "
         "subtract_background (mode: min/mean/median/plane), normalize "
-        "(mode: minmax/zscore) or clip (lower/upper).",
+        "(mode: minmax/zscore), clip (lower/upper), fft2 (2-D FFT magnitude), "
+        "or resize (ny/nx).",
         {
             "op": {"type": "string", "description": "operation name", "required": True},
             "sigma": {"type": "number", "description": "gaussian sigma", "required": False},
@@ -122,8 +168,44 @@ def register_matrix_tools(registry, window) -> None:
             "row1": {"type": "integer", "description": "crop last row (exclusive)", "required": False},
             "col0": {"type": "integer", "description": "crop first column", "required": False},
             "col1": {"type": "integer", "description": "crop last column (exclusive)", "required": False},
+            "ny": {"type": "integer", "description": "resize rows", "required": False},
+            "nx": {"type": "integer", "description": "resize columns", "required": False},
         },
         lambda args: _tool_matrix_transform(window, args),
+    )
+    registry.add(
+        "matrix_statistics",
+        "Summarise the active matrix Book (min/max/mean/median/std/sum and the "
+        "X/Y coordinates of the maximum and minimum) into a table Book.",
+        {},
+        lambda args: _tool_matrix_statistics(window, args),
+    )
+    registry.add(
+        "line_profile",
+        "Extract the Z profile along a straight line across the active matrix "
+        "Book (data coordinates x0,y0 -> x1,y1), open it as a Book and plot it.",
+        {
+            "x0": {"type": "number", "description": "start X", "required": True},
+            "y0": {"type": "number", "description": "start Y", "required": True},
+            "x1": {"type": "number", "description": "end X", "required": True},
+            "y1": {"type": "number", "description": "end Y", "required": True},
+            "samples": {"type": "integer", "description": "points along the line (default 200)", "required": False},
+        },
+        lambda args: _tool_line_profile(window, args),
+    )
+    registry.add(
+        "matrix_arithmetic",
+        "Combine the active matrix Book with another matrix Book element-wise "
+        "(subtract/add/multiply/divide) — e.g. a difference image A - B.",
+        {
+            "other_book": {"type": "string", "description": "name of the second matrix Book", "required": True},
+            "op": {
+                "type": "string", "required": False,
+                "description": "subtract | add | multiply | divide",
+                "enum": ["subtract", "add", "multiply", "divide"],
+            },
+        },
+        lambda args: _tool_matrix_arithmetic(window, args),
     )
     registry.add(
         "plot_matrix",

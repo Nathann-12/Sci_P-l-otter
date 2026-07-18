@@ -403,6 +403,27 @@ def tool_seeds() -> list[ToolSeed]:
         ("พล็อตเมทริกซ์เป็น heatmap ตามพิกัดจริง", {"kind": "heatmap"}),
         ("วาดพื้นผิวจากเมทริกซ์แบบสามมิติ", {"kind": "surface"}),
     )
+    seeds += _tool(
+        "matrix_statistics", "matrix",
+        ("Report matrix statistics like min, max and mean.", {}),
+        ("Give the matrix statistics summary for the active Book.", {}),
+        ("รายงานสถิติเมทริกซ์ ค่าต่ำสุดสูงสุดและค่าเฉลี่ย", {}),
+        ("ขอสรุปสถิติเมทริกซ์ของบุ๊กที่ใช้งานอยู่", {}),
+    )
+    seeds += _tool(
+        "line_profile", "matrix",
+        ("Extract a line profile across the matrix from 0,2 to 10,2.", {"x0": 0, "y0": 2, "x1": 10, "y1": 2, "samples": 200}),
+        ("Take a line scan from point 1,1 to 5,4 with 300 samples.", {"x0": 1, "y0": 1, "x1": 5, "y1": 4, "samples": 300}),
+        ("ดึงโปรไฟล์เส้นบนเมทริกซ์จากจุด 0,2 ถึง 10,2", {"x0": 0, "y0": 2, "x1": 10, "y1": 2, "samples": 200}),
+        ("สแกนตามเส้นจากจุด 1,1 ถึง 5,4 จำนวน 300 จุด", {"x0": 1, "y0": 1, "x1": 5, "y1": 4, "samples": 300}),
+    )
+    seeds += _tool(
+        "matrix_arithmetic", "matrix",
+        ("Subtract matrix Book Background from the active matrix.", {"other_book": "Background", "op": "subtract"}),
+        ("Combine matrices by dividing the active matrix by Reference.", {"other_book": "Reference", "op": "divide"}),
+        ("ลบเมทริกซ์ Background ออกจากเมทริกซ์ที่ใช้งาน", {"other_book": "Background", "op": "subtract"}),
+        ("หาผลต่างของภาพโดยลบเมทริกซ์ Dark ออก", {"other_book": "Dark", "op": "subtract"}),
+    )
     return seeds
 
 

@@ -140,6 +140,74 @@ def test_ai_matrix_tools_end_to_end(window):
     assert "heatmap" in out
 
 
+def test_matrix_analysis_cores_statistics_profile_arithmetic(window):
+    frame = _xyz_frame()
+    window._stage_insert("XYZ Analyze", frame, None)
+    book, _ = window.matrix_grid_core("xpos", "ypos", "height")
+    window._df = window._datasets[book]["df"]
+
+    stats_book, stats = window.matrix_statistics_core()
+    assert stats_book in window._datasets
+    assert {"min", "max", "mean", "max_x", "max_y"} <= set(stats)
+
+    window._df = window._datasets[book]["df"]
+    graphs_before = len(window.tabs.tabs)
+    profile_book, n = window.matrix_line_profile_core((0.0, 1.0), (4.0, 1.0), samples=30)
+    assert profile_book in window._datasets and n > 0
+    assert set(window._datasets[profile_book]["df"].columns) >= {"distance", "value"}
+    assert len(window.tabs.tabs) == graphs_before + 1  # profile is plotted
+
+    # arithmetic needs a second matrix Book; duplicate the first
+    window._datasets["Matrix Copy"] = {
+        "df": window._datasets[book]["df"].copy(), "path": None}
+    window._df = window._datasets[book]["df"]
+    diff_book, shape = window.matrix_arithmetic_core("Matrix Copy", "subtract")
+    assert diff_book in window._datasets
+    z, _x, _y = _matrix_of(window, diff_book)
+    assert np.allclose(np.nan_to_num(z), 0.0)  # A - A == 0
+
+
+def test_matrix_fft2_and_resize_via_transform(window):
+    frame = _xyz_frame()
+    window._stage_insert("XYZ FFT", frame, None)
+    book, _ = window.matrix_grid_core("xpos", "ypos", "height")
+    window._df = window._datasets[book]["df"]
+    fbook, shape = window.matrix_transform_core("fft2")
+    assert fbook in window._datasets and shape == (5, 9)
+    window._df = window._datasets[book]["df"]
+    rbook, rshape = window.matrix_transform_core("resize", ny=8, nx=12)
+    assert rshape == (8, 12)
+
+
+def test_ai_matrix_analysis_tools(window):
+    from ai.app_tools import build_app_registry
+
+    frame = _xyz_frame()
+    window._stage_insert("XYZ AI2", frame, None)
+    registry = build_app_registry(window)
+    registry.execute("grid_xyz", {
+        "x_column": "xpos", "y_column": "ypos", "z_column": "height"})
+    book = [n for n in window._datasets if n.startswith("Matrix height")][-1]
+
+    window._df = window._datasets[book]["df"]
+    assert "statistics" in registry.execute("matrix_statistics", {}).lower()
+    window._df = window._datasets[book]["df"]
+    assert "profile" in registry.execute(
+        "line_profile", {"x0": 0, "y0": 1, "x1": 4, "y1": 1, "samples": 25}).lower()
+    window._df = window._datasets[book]["df"]
+    assert "fft2" in registry.execute("matrix_transform", {"op": "fft2"}).lower() \
+        or "matrix" in registry.execute("matrix_transform", {"op": "fft2"}).lower()
+
+    out = registry.execute("matrix_arithmetic", {"other_book": "nope"})
+    assert "not available" in out or "Could not" in out
+
+
+def _matrix_of(window, book):
+    from analysis.gridding import dataframe_to_matrix
+
+    return dataframe_to_matrix(window._datasets[book]["df"])
+
+
 def test_ai_grid_xyz_defensive_without_data(window):
     from ai.app_tools import build_app_registry
 

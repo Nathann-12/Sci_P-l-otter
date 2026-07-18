@@ -137,6 +137,77 @@ def test_median_filter_window_validation():
         mo.smooth_median(np.ones((5, 5)), size=4)
 
 
+def test_statistics_reports_extrema_coordinates():
+    gx = np.array([0.0, 1.0, 2.0])
+    gy = np.array([10.0, 20.0])
+    z = np.array([[1.0, 5.0, 2.0], [0.0, 3.0, 9.0]])
+    stats = mo.statistics(z, gx, gy)
+    assert stats["max"] == 9.0 and stats["max_x"] == 2.0 and stats["max_y"] == 20.0
+    assert stats["min"] == 0.0 and stats["min_x"] == 0.0 and stats["min_y"] == 20.0
+    assert stats["finite_cells"] == 6
+    assert abs(stats["mean"] - z.mean()) < 1e-9
+
+
+def test_statistics_ignores_nan():
+    z = np.array([[1.0, np.nan], [3.0, 4.0]])
+    stats = mo.statistics(z)
+    assert stats["finite_cells"] == 3 and stats["empty_cells"] == 1
+    assert stats["max"] == 4.0 and stats["min"] == 1.0
+
+
+def test_fft2_magnitude_centres_dc_and_handles_nan():
+    z = np.ones((16, 16))
+    z[3, 3] = np.nan
+    mag = mo.fft2_magnitude(z)
+    peak = np.unravel_index(mag.argmax(), mag.shape)
+    assert peak == (8, 8)  # DC centred by fftshift
+    assert np.isfinite(mag).all()
+
+
+def test_combine_modes_and_shape_guard():
+    a = np.array([[4.0, 6.0], [8.0, 10.0]])
+    b = np.array([[1.0, 2.0], [4.0, 5.0]])
+    np.testing.assert_allclose(mo.combine(a, b, "subtract"), a - b)
+    np.testing.assert_allclose(mo.combine(a, b, "divide"), [[4, 3], [2, 2]])
+    # divide by zero becomes NaN, never inf
+    z = mo.combine(a, np.zeros_like(a), "divide")
+    assert np.isnan(z).all()
+    with pytest.raises(mo.MatrixOpsError, match="same shape"):
+        mo.combine(a, np.ones((3, 3)), "add")
+    with pytest.raises(mo.MatrixOpsError, match="Unknown combine"):
+        mo.combine(a, b, "magic")
+
+
+def test_line_profile_along_a_row_recovers_values():
+    gx = np.linspace(0.0, 10.0, 11)
+    gy = np.linspace(0.0, 4.0, 5)
+    mesh_x, _mesh_y = np.meshgrid(gx, gy)
+    z = mesh_x.copy()                     # value == x, independent of y
+    dist, values, px, py = mo.line_profile(z, gx, gy, (0.0, 2.0), (10.0, 2.0), samples=11)
+    assert dist[-1] == 10.0
+    np.testing.assert_allclose(values, px, atol=1e-9)   # profile equals x
+    np.testing.assert_allclose(py, 2.0)
+
+
+def test_line_profile_marks_nan_regions_and_validates():
+    gx = np.linspace(0.0, 10.0, 21)
+    gy = np.linspace(0.0, 4.0, 9)
+    z = np.ones((9, 21))
+    z[:, 8:12] = np.nan                   # a hole crossing the line
+    _dist, values, _px, _py = mo.line_profile(z, gx, gy, (0.0, 2.0), (10.0, 2.0), samples=60)
+    assert np.isnan(values).any() and np.isfinite(values).any()
+    with pytest.raises(mo.MatrixOpsError, match="must differ"):
+        mo.line_profile(z, gx, gy, (1.0, 1.0), (1.0, 1.0))
+
+
+def test_resize_changes_shape_and_carries_holes():
+    z = np.ones((10, 10))
+    z[0:3, 0:3] = np.nan
+    out = mo.resize(z, 20, 30)
+    assert out.shape == (20, 30)
+    assert np.isnan(out).any() and np.isfinite(out).any()
+
+
 def test_image_to_matrix_luminance(tmp_path):
     import matplotlib.image as mpimg
 

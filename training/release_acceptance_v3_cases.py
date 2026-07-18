@@ -87,6 +87,9 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("grid_xyz", "en", "Grid xyz columns stage_x, stage_y and photocurrent_nA into a 80x80 matrix.", {"x_column": "stage_x", "y_column": "stage_y", "z_column": "photocurrent_nA", "nx": 80, "ny": 80, "method": "linear"}, "matrix"),
         ReleaseToolSeed("matrix_transform", "th", "หมุนเมทริกซ์ 90 องศาแล้วเปิดเป็นบุ๊กใหม่", {"op": "rotate90"}, "matrix"),
         ReleaseToolSeed("plot_matrix", "en", "Plot matrix intensity data as a filled contour.", {"kind": "contour"}, "matrix"),
+        ReleaseToolSeed("matrix_statistics", "th", "รายงานค่าสถิติของเมทริกซ์ที่กำลังใช้งานอยู่", {}, "matrix"),
+        ReleaseToolSeed("line_profile", "en", "Extract a line profile across the matrix from 2,3 to 18,3 with 250 samples.", {"x0": 2, "y0": 3, "x1": 18, "y1": 3, "samples": 250}, "matrix"),
+        ReleaseToolSeed("matrix_arithmetic", "th", "ลบเมทริกซ์ Baseline ออกจากเมทริกซ์ที่ใช้งานอยู่ตอนนี้", {"other_book": "Baseline", "op": "subtract"}, "matrix"),
     ]
 
 

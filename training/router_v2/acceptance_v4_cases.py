@@ -57,6 +57,9 @@ TOOL_CASES = (
     ("list_analysis_recipes", "th", "มีสูตรวิเคราะห์อะไรถูกบันทึกไว้ในโปรเจกต์บ้าง"),
     ("grid_xyz", "en", "Grid xyz columns beam_x, beam_y and counts into a matrix Book."),
     ("matrix_transform", "th", "ลบพื้นหลังเมทริกซ์แบบระนาบก่อนวิเคราะห์"),
+    ("matrix_statistics", "en", "Report the statistics of the active matrix Book."),
+    ("line_profile", "th", "ดึงโปรไฟล์เส้นบนเมทริกซ์จากจุด 3,5 ไป 20,5"),
+    ("matrix_arithmetic", "th", "ลบเมทริกซ์ Dark ออกจากเมทริกซ์หลักที่กำลังใช้อยู่"),
     ("plot_matrix", "en", "Plot matrix data as a 3D surface with its coordinates."),
 )
 
