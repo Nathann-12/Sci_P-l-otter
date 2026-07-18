@@ -252,7 +252,10 @@ def test_graph_double_click_panel_maps_row_x_and_multiple_y_columns(
     assert len(tab.layers) == 2
 
 
-def test_canvas_double_click_opens_graph_data_and_ctrl_opens_style(win, monkeypatch):
+def test_canvas_double_click_opens_plot_details_anywhere(win, monkeypatch):
+    """Origin behaviour: double-click anywhere on the graph opens Plot Details
+    (preselecting the curve when one is under the cursor); Ctrl/Shift+double-
+    click opens the Graph Data inspector instead."""
     opened = []
     monkeypatch.setattr(win, "open_graph_data_panel", lambda: opened.append("data"))
     monkeypatch.setattr(
@@ -262,16 +265,30 @@ def test_canvas_double_click_opens_graph_data_and_ctrl_opens_style(win, monkeypa
 
     from types import SimpleNamespace
 
-    # blank-canvas double-click -> Graph Data; Ctrl+double-click -> Plot Details
+    # blank canvas -> Plot Details (no curve preselected)
     win._on_canvas_click(SimpleNamespace(dblclick=True, key=None))
-    win._on_canvas_click(SimpleNamespace(dblclick=True, key="control"))
-    assert opened == ["data", ("style", None)]
-
-    # double-click ON a curve -> Plot Details focused on that curve
-    opened.clear()
+    # on a curve -> Plot Details focused on that curve
     monkeypatch.setattr(win, "_line_index_at_event", lambda event: 1)
     win._on_canvas_click(SimpleNamespace(dblclick=True, key=None))
-    assert opened == [("style", 1)]
+    # Ctrl -> Graph Data inspector
+    win._on_canvas_click(SimpleNamespace(dblclick=True, key="control"))
+    assert opened == [("style", None), ("style", 1), "data"]
+
+
+def test_graph_context_menu_has_format_graph_on_top(win):
+    """The right-click menu must lead with Format Graph even in MDI mode where
+    parent().parent() is not the MainWindow (regression: entries were silently
+    missing because ContextMenuManager.main resolved to an MDI viewport)."""
+    win.tabs.add_tab()
+    tab = win.tabs.currentWidget()
+    ax = tab.get_axes()
+    ax.plot([0, 1, 2], [0, 1, 4])
+    ctx = getattr(tab, "ctx_menu", None)
+    assert ctx is not None
+    menu = ctx._build_menu(None)
+    texts = [a.text() for a in menu.actions() if a.text()]
+    assert any("Format Graph" in t for t in texts), texts
+    assert texts and "Format Graph" in texts[0]  # first, bold entry
 
 
 def test_plot_toolbar_origin_bar_exists_and_plots(win):

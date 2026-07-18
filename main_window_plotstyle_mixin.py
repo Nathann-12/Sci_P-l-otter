@@ -37,21 +37,21 @@ class MainWindowPlotStyleMixin:
 
     def _on_canvas_click(self, event):
         if getattr(event, "dblclick", False):
-            # Double-click ON a curve opens Plot Details focused on that curve
-            # (Origin muscle memory: double-click the plot to style it).
-            # Double-click on empty canvas keeps the Graph Data inspector.
-            # Ctrl+double-click always opens Plot Details.
-            hit = self._line_index_at_event(event)
-            if hit is not None or (
-                "control" in str(getattr(event, "key", "") or "").casefold()
-            ):
-                self.open_plot_details_dialog(preselect_line=hit)
-                return
-            opener = getattr(self, "open_graph_data_panel", None)
-            if callable(opener):
-                opener()
-            else:
-                self.open_plot_details_dialog()
+            # Origin behaviour: double-click ANYWHERE on the graph opens Plot
+            # Details — no need to aim at a thin line. Landing near a curve
+            # (generous 12px radius) preselects it in the Lines tab.
+            # Ctrl/Shift+double-click opens the Graph Data inspector instead.
+            key = str(getattr(event, "key", "") or "").casefold()
+            if "control" in key or "shift" in key:
+                opener = getattr(self, "open_graph_data_panel", None)
+                if callable(opener):
+                    opener()
+                    return
+            self.open_plot_details_dialog(
+                preselect_line=self._line_index_at_event(event)
+            )
+
+    _PICK_RADIUS_PX = 12.0  # generous hit area — thin lines are hard targets
 
     def _line_index_at_event(self, event):
         """Index (among the user's curves) of the line under the cursor, or None."""
@@ -62,7 +62,12 @@ class MainWindowPlotStyleMixin:
             if ax is None:
                 return None
             for index, line in enumerate(list_line_artists(ax)):
-                hit, _detail = line.contains(event)
+                old_radius = line.get_pickradius()
+                try:
+                    line.set_pickradius(self._PICK_RADIUS_PX)
+                    hit, _detail = line.contains(event)
+                finally:
+                    line.set_pickradius(old_radius)
                 if hit:
                     return index
         except Exception:

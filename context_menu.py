@@ -136,21 +136,57 @@ class ContextMenuManager(QObject):
             self._press = None
 
     # ---------- menu build ----------
+    def _resolve_main(self):
+        """The MainWindow, resolved lazily and robustly.
+
+        The constructor-supplied ``main`` came from ``parent().parent()`` which
+        stopped being the MainWindow when graphs moved into MDI subwindows —
+        walk up from the canvas instead so the styling entries always appear.
+        """
+        if callable(getattr(self.main, "open_plot_details_dialog", None)):
+            return self.main
+        widget = self.canvas
+        seen = 0
+        while widget is not None and seen < 30:
+            if callable(getattr(widget, "open_plot_details_dialog", None)):
+                self.main = widget
+                return widget
+            parent = getattr(widget, "parent", None)
+            widget = parent() if callable(parent) else None
+            seen += 1
+        try:
+            window = self.canvas.window()
+            if callable(getattr(window, "open_plot_details_dialog", None)):
+                self.main = window
+                return window
+        except Exception:
+            pass
+        return self.main
+
     def _show_menu(self, global_pos: QPoint, ev) -> None:
+        menu = self._build_menu(ev)
+        menu.exec(global_pos)
+
+    def _build_menu(self, ev) -> QMenu:
         menu = QMenu()
         self._refresh_axis_state()
 
-        # Top-level styling/data entries so decorating a graph is one
-        # right-click away (double-click a curve does the same).
-        if callable(getattr(self.main, "open_plot_details_dialog", None)):
-            menu.addAction(
-                "Format Graph… (Plot Details)",
-                lambda: self.main.open_plot_details_dialog(),
+        # Styling first: decorating the graph is the most common intent, so it
+        # sits on top, bold, one click away (double-click the graph does the
+        # same). Data inspection is right below it.
+        main = self._resolve_main()
+        if callable(getattr(main, "open_plot_details_dialog", None)):
+            act_format = menu.addAction(
+                "Format Graph…  (double-click)",
+                lambda: main.open_plot_details_dialog(),
             )
-        if callable(getattr(self.main, "open_graph_data_panel", None)):
+            font = act_format.font()
+            font.setBold(True)
+            act_format.setFont(font)
+        if callable(getattr(main, "open_graph_data_panel", None)):
             menu.addAction(
                 "Graph Data (Inspector)",
-                lambda: self.main.open_graph_data_panel(),
+                lambda: main.open_graph_data_panel(),
             )
         menu.addSeparator()
 
@@ -244,8 +280,7 @@ class ContextMenuManager(QObject):
         for idx, st in enumerate(self._zoom_hist[-5:]):
             recall.addAction(f"#{idx+1} x={st.xlim} y={st.ylim}", lambda s=st: self._apply_state(s))
         utm.addAction("Clear Temporary Overlays", self._clear_overlays)
-
-        menu.exec(global_pos)
+        return menu
 
     # ---------- view handlers ----------
     def _push_state(self):
