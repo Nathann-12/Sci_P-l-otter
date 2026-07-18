@@ -92,6 +92,7 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("matrix_arithmetic", "th", "ลบเมทริกซ์ Baseline ออกจากเมทริกซ์ที่ใช้งานอยู่ตอนนี้", {"other_book": "Baseline", "op": "subtract"}, "matrix"),
         ReleaseToolSeed("surface_metrics", "en", "Compute surface roughness Ra and Rq for the active matrix Book.", {}, "matrix"),
         ReleaseToolSeed("matrix_stack", "th", "รวมสแต็กเมทริกซ์แบบแม็กซ์จาก Layer1 และ Layer2", {"books": ["Layer1", "Layer2"], "mode": "max"}, "matrix"),
+        ReleaseToolSeed("generate_report", "en", "Generate an HTML report of everything currently open.", {"format": "html"}, "general"),
     ]
 
 

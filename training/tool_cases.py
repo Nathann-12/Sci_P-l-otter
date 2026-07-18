@@ -438,6 +438,13 @@ def tool_seeds() -> list[ToolSeed]:
         ("รวมสแต็กแบบแม็กซ์โปรเจกชันจาก Frame1 และ Frame2", {"books": ["Frame1", "Frame2"], "mode": "max"}),
         ("ทำ z สแต็กเฉลี่ยจากเมทริกซ์ Slice_a กับ Slice_b", {"books": ["Slice_a", "Slice_b"], "mode": "mean"}),
     )
+    seeds += _tool(
+        "generate_report", "general",
+        ("Generate a PDF report of the figures and results.", {"format": "pdf"}),
+        ("Make an HTML report titled Sensor Study by our lab.", {"format": "html", "title": "Sensor Study", "author": "Our Lab"}),
+        ("สร้างรายงาน PDF ของกราฟและผลลัพธ์ทั้งหมด", {"format": "pdf"}),
+        ("ทำรายงาน HTML ชื่อ การศึกษาเซนเซอร์", {"format": "html", "title": "การศึกษาเซนเซอร์"}),
+    )
     return seeds
 
 

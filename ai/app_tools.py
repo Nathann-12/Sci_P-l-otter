@@ -2045,4 +2045,11 @@ def build_app_registry(window) -> ToolRegistry:
         register_matrix_tools(registry, window)
     except Exception:
         logger.debug("matrix tools registration skipped", exc_info=True)
+    # Report / Publishing (one-click HTML/PDF/Markdown report).
+    try:
+        from ai.report_tools import register_report_tools
+
+        register_report_tools(registry, window)
+    except Exception:
+        logger.debug("report tools registration skipped", exc_info=True)
     return registry
