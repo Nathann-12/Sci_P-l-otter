@@ -25,7 +25,7 @@ from ai.tool_catalog import (
     select_high_confidence_tool,
     select_tool_names,
 )
-from ai.tool_registry import ToolRegistry
+from ai.tool_registry import CANCELLED_TOOL_PREFIX, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +139,12 @@ class LocalAssistant:
         self,
         user_text: str,
         on_tool_start: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        cancelled: Optional[Callable[[], bool]] = None,
     ) -> AssistantResult:
         user_text = str(user_text or "").strip()
+        is_cancelled = cancelled or (lambda: False)
+        if is_cancelled():
+            return _cancelled_result()
         if self._pending_request is not None and _CANCEL_RE.match(user_text):
             self._pending_request = None
             answer = "ยกเลิกคำสั่งที่รอข้อมูลแล้ว โดยยังไม่ได้เปลี่ยนแปลงข้อมูล" if _THAI_RE.search(user_text) else (
@@ -152,9 +156,22 @@ class LocalAssistant:
         if direct_call is not None and self.registry.has(direct_call[0]):
             self._pending_request = None
             tool_name, arguments = direct_call
+            if is_cancelled():
+                return _cancelled_result()
             if on_tool_start is not None:
                 on_tool_start(tool_name, arguments)
-            observation = self.registry.execute(tool_name, arguments)
+            observation = self.registry.execute(
+                tool_name,
+                arguments,
+                cancelled=is_cancelled,
+            )
+            if observation.startswith(CANCELLED_TOOL_PREFIX):
+                return _cancelled_result()
+            if is_cancelled():
+                return _cancelled_result(
+                    trace=[(tool_name, arguments, observation)],
+                    steps=1,
+                )
             error = ""
             if observation.casefold().startswith(
                 ("error", "could not", "no active", "unknown", "provide ", "ไม่มีข้อมูล")
@@ -172,6 +189,7 @@ class LocalAssistant:
             user_text,
             turn_context,
             on_tool_start,
+            is_cancelled,
         )
         if pending_result is not None:
             return pending_result
@@ -198,6 +216,8 @@ class LocalAssistant:
                     needs_input=True,
                 )
             arguments = resolution.arguments
+            if is_cancelled():
+                return _cancelled_result(steps=1)
             if on_tool_start is not None:
                 on_tool_start(trusted_tool_name, arguments)
             observation = self.registry.execute(
@@ -205,7 +225,15 @@ class LocalAssistant:
                 arguments,
                 validate=True,
                 expected_context_token=context_token,
+                cancelled=is_cancelled,
             )
+            if observation.startswith(CANCELLED_TOOL_PREFIX):
+                return _cancelled_result(steps=1)
+            if is_cancelled():
+                return _cancelled_result(
+                    trace=[(trusted_tool_name, arguments, observation)],
+                    steps=1,
+                )
             error = observation if _observation_is_error(observation) else ""
             return AssistantResult(
                 answer=observation,
@@ -221,6 +249,8 @@ class LocalAssistant:
         trace: List[Tuple[str, Dict[str, Any], str]] = []
 
         for step in range(1, self.max_steps + 1):
+            if is_cancelled():
+                return _cancelled_result(trace=trace, steps=step - 1)
             try:
                 chat_options: Dict[str, Any] = {"format_json": True}
                 if getattr(self.client, "supports_json_schema", False):
@@ -234,6 +264,9 @@ class LocalAssistant:
                     steps=step - 1,
                     error=str(exc),
                 )
+
+            if is_cancelled():
+                return _cancelled_result(trace=trace, steps=step)
 
             data = _parse_reply(content)
 
@@ -274,6 +307,8 @@ class LocalAssistant:
                             needs_input=True,
                         )
                     arguments = resolution.arguments
+                if is_cancelled():
+                    return _cancelled_result(trace=trace, steps=step)
                 if on_tool_start is not None:
                     on_tool_start(tool_name, arguments)
                 # The model only selected the tool. Arguments came from trusted,
@@ -283,8 +318,13 @@ class LocalAssistant:
                     arguments,
                     validate=True,
                     expected_context_token=context_token,
+                    cancelled=is_cancelled,
                 )
+                if observation.startswith(CANCELLED_TOOL_PREFIX):
+                    return _cancelled_result(trace=trace, steps=step)
                 trace.append((tool_name, arguments, observation))
+                if is_cancelled():
+                    return _cancelled_result(trace=trace, steps=step)
                 if observation.startswith("Active Book changed"):
                     self._pending_request = None
                     return AssistantResult(
@@ -318,6 +358,7 @@ class LocalAssistant:
         user_text: str,
         context: Dict[str, Any],
         on_tool_start: Optional[Callable[[str, Dict[str, Any]], None]],
+        cancelled: Callable[[], bool],
     ) -> AssistantResult | None:
         pending = self._pending_request
         if pending is None:
@@ -355,6 +396,8 @@ class LocalAssistant:
 
         self._pending_request = None
         arguments = resolution.arguments
+        if cancelled():
+            return _cancelled_result(steps=1)
         if on_tool_start is not None:
             on_tool_start(tool.name, arguments)
         observation = self.registry.execute(
@@ -362,7 +405,15 @@ class LocalAssistant:
             arguments,
             validate=True,
             expected_context_token=current_token,
+            cancelled=cancelled,
         )
+        if observation.startswith(CANCELLED_TOOL_PREFIX):
+            return _cancelled_result(steps=1)
+        if cancelled():
+            return _cancelled_result(
+                trace=[(tool.name, arguments, observation)],
+                steps=1,
+            )
         if observation.startswith("Active Book changed"):
             return AssistantResult(
                 answer=_book_changed_answer(user_text),
@@ -404,6 +455,19 @@ def _parse_reply(content: str) -> Dict[str, Any]:
 def _observation_is_error(observation: str) -> bool:
     return str(observation or "").casefold().startswith(
         ("error", "could not", "no active", "unknown", "provide ", "ไม่มีข้อมูล")
+    )
+
+
+def _cancelled_result(
+    *,
+    trace: List[Tuple[str, Dict[str, Any], str]] | None = None,
+    steps: int = 0,
+) -> AssistantResult:
+    return AssistantResult(
+        answer="Cancellation requested; no new tool was started after cancellation.",
+        trace=list(trace or []),
+        steps=steps,
+        cancelled=True,
     )
 
 

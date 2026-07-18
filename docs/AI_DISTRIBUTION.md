@@ -19,13 +19,33 @@ the **Models** screen installs only what the customer selects. This keeps the
 Core download small and prevents model bandwidth from being paid for by every
 customer.
 
+## Current release status
+
+The managed installer and Safe Router are product foundations, but the
+fine-tuned **SciPlotter Mini** model is not yet a release model. The current
+Router v2 candidate stays development-only until it passes the unchanged
+overall and per-language gates and then the sealed acceptance set. Public Qwen
+catalogue packs remain fallback/preview packs; never advertise the development
+adapter as released or silently replace an existing catalogue hash.
+
+On a clean installation the AI dock shows **Set up local AI**, never **Ready**.
+Ready means the selected model, runtime, and minimum-memory checks all pass.
+It is a technical readiness state, not a model-quality release claim; current
+fallback packs are visibly labelled **Preview**. Catalogue metadata also binds
+each pack to a router protocol and tool-schema version.
+The Models screen's primary setup action installs the pinned runtime first,
+then the selected model, and activates it only when the complete stack exists.
+Separate component downloads and `.scimodel` import/export remain available for
+administrators and air-gapped workflows.
+
 ## Release contract
 
 1. Pin every URL, byte size, SHA-256, version, source, and license in
    `ai/model_catalog.py` or `ai/runtime_manager.py`.
 2. Ship `llama-server` and all DLLs from the pinned runtime archive beside the
-   application under `runtime/llama/`. The app also recognises a verified
-   per-user runtime installed by the Models screen.
+   application under `runtime/llama/<runtime-id>/`, together with the same
+   verified `manifest.json` used by the per-user installer. The app also
+   recognises a verified per-user runtime installed by the Models screen.
    A full installer may stage a verified model under
    `models/<pack-id>/` beside the executable; the same `manifest.json` and GGUF
    layout used by the per-user model directory is recognised automatically.
@@ -54,9 +74,24 @@ Install offline pack** without internet access.
 
 - `llama-server` binds to `127.0.0.1` on a temporary port and its web UI is
   disabled.
+- Local inference uses a dedicated no-proxy, no-redirect HTTP opener, so an
+  operating-system or environment proxy cannot receive loopback prompts. Model
+  and runtime downloads continue to follow the customer's normal proxy policy.
 - Model and runtime downloads use HTTPS and are installed only after SHA-256
   verification.
-- Archives reject traversal paths and suspiciously large extraction sizes.
+- Ollama-compatible endpoints are accepted only on literal loopback hosts
+  (`localhost`, `127.0.0.0/8`, or `::1`). Credentials, LAN/cloud hosts, and
+  ambiguous URLs are rejected again at the network-client boundary.
+- Archives reject POSIX and Windows traversal, drive/UNC paths, NTFS alternate
+  streams, case-insensitive destination collisions, suspicious compression
+  ratios, and unexpectedly large extraction sizes.
+- Installed manifests must match the complete built-in catalogue record and
+  catalogue version. Runtime executables must also be non-empty. A future deep
+  verification command should re-hash installed files without blocking app
+  startup.
+- A custom executable or a same-named program found on `PATH` is not sufficient
+  for the managed backend's Ready state. The runtime must come from the pinned,
+  manifest-verified SciPlotter runtime installation.
 - The model sees at most eight relevant tool descriptions per turn, not all app
   tools.
 - Safe Router v2 gives current llama.cpp runtimes a strict, per-turn JSON Schema
@@ -71,6 +106,9 @@ Install offline pack** without internet access.
   m²); incompatible units are rejected before execution.
 - Data mutation and device control still require a native confirmation dialog
   after deterministic resolution and before execution.
+- Cancellation is checked again after model inference and before a newly
+  selected tool starts. An operation already executing may still finish, and
+  the UI says so instead of claiming that no action ran.
 - Statistics and scientific calculations remain deterministic SciPlotter code;
   the model is only an intent router and short-language explainer.
 

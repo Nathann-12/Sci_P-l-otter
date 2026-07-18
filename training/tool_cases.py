@@ -354,6 +354,34 @@ def tool_seeds() -> list[ToolSeed]:
         ("หาค่า g จากความยาวลูกตุ้ม length_m และคาบ period_s", {"length_column": "length_m", "period_column": "period_s"}),
         ("คำนวณความเร่งโน้มถ่วงด้วยข้อมูล L กับ T", {"length_column": "L", "period_column": "T"}),
     )
+    seeds += _tool(
+        "run_statistics", "statistics",
+        ("Run a Welch t-test comparing control_uV and treated_uV.", {"test": "independent_t_test", "columns": ["control_uV", "treated_uV"]}),
+        ("Do a one-way ANOVA across batch_a, batch_b and batch_c.", {"test": "one_way_anova", "columns": ["batch_a", "batch_b", "batch_c"]}),
+        ("ทดสอบ t-test เปรียบเทียบ control_uV กับ treated_uV", {"test": "independent_t_test", "columns": ["control_uV", "treated_uV"]}),
+        ("ทำ ANOVA ทางเดียวระหว่าง batch_a batch_b และ batch_c", {"test": "one_way_anova", "columns": ["batch_a", "batch_b", "batch_c"]}),
+    )
+    seeds += _tool(
+        "global_fit", "statistics",
+        ("Global fit a Gaussian with shared center and sigma across run1 and run2.", {"x_column": "wavelength_nm", "y_columns": ["run1", "run2"], "model": "gaussian", "shared": ["center", "sigma"]}),
+        ("Global fit trial_a and trial_b at once, sharing the peak center.", {"x_column": "energy_eV", "y_columns": ["trial_a", "trial_b"], "model": "gaussian", "shared": ["center"]}),
+        ("ฟิตร่วมแบบเกาส์เซียนโดยแชร์ center และ sigma ระหว่าง run1 กับ run2", {"x_column": "wavelength_nm", "y_columns": ["run1", "run2"], "model": "gaussian", "shared": ["center", "sigma"]}),
+        ("ฟิตร่วม trial_a และ trial_b พร้อมกันโดยแชร์ตำแหน่งพีค", {"x_column": "energy_eV", "y_columns": ["trial_a", "trial_b"], "model": "gaussian", "shared": ["center"]}),
+    )
+    seeds += _tool(
+        "analyze_peaks", "spectroscopy",
+        ("Fit peaks in intensity vs raman_shift after baseline correction.", {"x_column": "raman_shift", "y_column": "intensity", "model": "gaussian", "baseline": "linear"}),
+        ("Run the peak analyzer with Voigt profiles on counts vs two_theta, prominence 50.", {"x_column": "two_theta", "y_column": "counts", "model": "voigt", "prominence": 50.0}),
+        ("ฟิตพีคใน intensity เทียบ raman_shift หลังแก้เบสไลน์", {"x_column": "raman_shift", "y_column": "intensity", "model": "gaussian", "baseline": "linear"}),
+        ("ฟิตพีคแบบ Voigt ใน counts เทียบ two_theta โดยตั้ง prominence 50", {"x_column": "two_theta", "y_column": "counts", "model": "voigt", "prominence": 50.0}),
+    )
+    seeds += _tool(
+        "list_analysis_recipes", "statistics",
+        ("List the saved analysis recipes and their status.", {}),
+        ("Show all saved analysis recipes and their recalculation mode.", {}),
+        ("แสดงรายการสูตรวิเคราะห์ที่บันทึกไว้พร้อมสถานะ", {}),
+        ("ขอดูรายการสูตรวิเคราะห์ทั้งหมดในโปรเจกต์นี้", {}),
+    )
     return seeds
 
 

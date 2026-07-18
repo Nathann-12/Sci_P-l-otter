@@ -11,6 +11,12 @@ from dataclasses import dataclass, asdict
 import logging
 import re
 
+from ai.local_endpoint import (
+    DEFAULT_LOCAL_AI_BASE_URL,
+    LocalEndpointError,
+    normalize_local_http_base_url,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,7 +142,27 @@ class AIConfig:
     # Lightest broadly-capable tool router. Swap for a stronger local model
     # (e.g. qwen2.5:7b) on machines with a GPU for more reliable tool use.
     model: str = "gemma2:2b"
-    base_url: str = "http://127.0.0.1:11434"
+    base_url: str = DEFAULT_LOCAL_AI_BASE_URL
+
+    def __post_init__(self) -> None:
+        self.normalize()
+
+    def normalize(self) -> None:
+        """Normalize settings and fail closed to a known loopback endpoint."""
+        self.enabled = bool(self.enabled)
+        backend = str(self.backend or "auto").strip().casefold()
+        self.backend = backend if backend in {"auto", "bundled", "ollama"} else "auto"
+        self.pack_id = str(self.pack_id or "qwen3-0.6b-q8").strip()
+        self.runtime_path = str(self.runtime_path or "")
+        self.context_size = _bounded_int(self.context_size, 4096, 2048, 32768)
+        self.model = str(self.model or "gemma2:2b").strip()
+        try:
+            self.base_url = normalize_local_http_base_url(str(self.base_url or ""))
+        except LocalEndpointError:
+            # Do not include the rejected value in logs: a malformed URL could
+            # contain credentials even though credentials are never accepted.
+            logger.warning("Rejected non-loopback local AI base URL; using the safe default")
+            self.base_url = DEFAULT_LOCAL_AI_BASE_URL
 
 @dataclass
 class AppConfig:
@@ -234,16 +260,10 @@ class SettingsManager:
             # Load AI assistant settings
             if 'ai' in data and isinstance(data['ai'], dict):
                 ai_data = data['ai']
-                self.config.ai.enabled = bool(ai_data.get('enabled', self.config.ai.enabled))
-                backend = str(ai_data.get('backend', self.config.ai.backend) or "auto").casefold()
-                self.config.ai.backend = backend if backend in {"auto", "bundled", "ollama"} else "auto"
-                self.config.ai.pack_id = str(ai_data.get('pack_id', self.config.ai.pack_id) or self.config.ai.pack_id)
-                self.config.ai.runtime_path = str(ai_data.get('runtime_path', self.config.ai.runtime_path) or "")
-                self.config.ai.context_size = _bounded_int(
-                    ai_data.get('context_size', self.config.ai.context_size), 4096, 2048, 32768
-                )
-                self.config.ai.model = str(ai_data.get('model', self.config.ai.model) or self.config.ai.model)
-                self.config.ai.base_url = str(ai_data.get('base_url', self.config.ai.base_url) or self.config.ai.base_url)
+                for key in vars(self.config.ai):
+                    if key in ai_data:
+                        setattr(self.config.ai, key, ai_data[key])
+                self.config.ai.normalize()
         except Exception as e:
             logger.error(f"Error parsing config data: {e}")
             self._create_default_config()
@@ -256,6 +276,7 @@ class SettingsManager:
     def save(self) -> None:
         """Save configuration to file"""
         try:
+            self.config.ai.normalize()
             # Ensure directory exists
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             
@@ -298,6 +319,7 @@ class SettingsManager:
         for key, value in kwargs.items():
             if hasattr(self.config.ai, key):
                 setattr(self.config.ai, key, value)
+        self.config.ai.normalize()
     
     def validate_paths(self) -> Dict[str, bool]:
         """Validate that all configured paths exist"""

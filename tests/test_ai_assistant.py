@@ -131,6 +131,97 @@ def test_agent_handles_client_failure_gracefully():
     assert result.error == "no server"
 
 
+def test_agent_never_starts_model_selected_tool_after_cancellation():
+    cancelled = []
+    tool_calls = []
+    registry = ToolRegistry()
+    registry.add(
+        "list_columns",
+        "list",
+        {},
+        lambda _arguments: tool_calls.append(True) or "columns",
+    )
+
+    class _CancellingClient:
+        def chat(self, _messages, **_kwargs):
+            cancelled.append(True)
+            return json.dumps({"tool": "list_columns"})
+
+    result = LocalAssistant(registry, _CancellingClient()).ask(
+        "please help with this dataset",
+        cancelled=lambda: bool(cancelled),
+    )
+
+    assert result.cancelled is True
+    assert tool_calls == []
+    assert result.trace == []
+
+
+@pytest.mark.parametrize("cancel_stage", ("approval", "executor"))
+def test_cancellation_guard_closes_approval_and_gui_execution_race(cancel_stage):
+    cancelled = []
+    mutations = []
+
+    def approval(_tool, _arguments):
+        if cancel_stage == "approval":
+            cancelled.append(True)
+        return True
+
+    def executor(handler, arguments):
+        if cancel_stage == "executor":
+            cancelled.append(True)
+        return handler(arguments)
+
+    registry = ToolRegistry(
+        executor=executor,
+        approval_callback=approval,
+    )
+    registry.add(
+        "mutate_fixture",
+        "mutate fixture",
+        {},
+        lambda _arguments: mutations.append(True) or "changed",
+        risk="mutate",
+    )
+    client = ScriptedClient([json.dumps({"tool": "mutate_fixture"})])
+
+    result = LocalAssistant(registry, client).ask(
+        "perform the requested fixture action",
+        cancelled=lambda: bool(cancelled),
+    )
+
+    assert result.cancelled is True
+    assert mutations == []
+
+
+def test_cancellation_during_started_tool_never_restarts_model_loop():
+    cancelled = []
+    registry = ToolRegistry()
+
+    def handler(_arguments):
+        cancelled.append(True)
+        return "completed before cancellation was observed"
+
+    registry.add("slow_fixture", "slow fixture", {}, handler)
+    client = ScriptedClient(
+        [
+            json.dumps({"tool": "slow_fixture"}),
+            json.dumps({"answer": "must not be requested"}),
+        ]
+    )
+
+    result = LocalAssistant(registry, client).ask(
+        "perform the slow fixture action",
+        cancelled=lambda: bool(cancelled),
+    )
+
+    assert result.cancelled is True
+    assert len(client.calls) == 1
+    assert result.trace == [
+        ("slow_fixture", {}, "completed before cancellation was observed")
+    ]
+
+
 def test_parse_reply_extracts_json_from_noise():
     assert _parse_reply('```json\n{"answer": "hi"}\n```') == {"answer": "hi"}
     assert _parse_reply("") == {"answer": ""}
@@ -1040,3 +1131,87 @@ def test_ai_worker_cancel_interrupts_client_and_unlocks_dock(qapp):
     assert host._ai_busy is False
     assert dock.send_button.text() == "Run"
     assert "Cancelled" in dock.transcript_text()
+
+
+class _RecipeWindow(_FakeWindow):
+    def analysis_recipe_summaries(self):
+        return [{"name": "One-sample t-test", "status": "Clean", "mode": "Auto"}]
+
+
+def test_scientific_tools_are_registered():
+    reg = build_app_registry(_FakeWindow(pd.DataFrame({"a": [1.0, 2.0, 3.0]})))
+    for name in ("run_statistics", "global_fit", "analyze_peaks", "list_analysis_recipes"):
+        assert reg.has(name), name
+
+
+def test_run_statistics_reports_significance_and_opens_book():
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "control": rng.normal(0.0, 1.0, 40),
+        "treated": rng.normal(3.0, 1.0, 40),
+    })
+    window = _FakeWindow(df)
+    out = build_app_registry(window).execute(
+        "run_statistics",
+        {"test": "independent_t_test", "columns": ["control", "treated"]},
+    )
+    assert "independent_t_test" in out
+    assert "significant" in out
+    assert any(name.startswith("Stats_") for name, _ in window.result_books)
+
+
+def test_run_statistics_rejects_unknown_test():
+    reg = build_app_registry(_FakeWindow(pd.DataFrame({"a": [1.0, 2.0, 3.0]})))
+    out = reg.execute("run_statistics", {"test": "made_up_test"})
+    assert "Unknown test" in out
+
+
+def test_global_fit_tool_reports_convergence_and_opens_books():
+    import numpy as np
+
+    x = np.linspace(-4, 4, 120)
+    df = pd.DataFrame({
+        "x": x,
+        "run1": 1 + 3 * np.exp(-0.5 * ((x - 0.3) / 0.8) ** 2),
+        "run2": 2 + 5 * np.exp(-0.5 * ((x - 0.3) / 0.8) ** 2),
+    })
+    window = _FakeWindow(df)
+    out = build_app_registry(window).execute(
+        "global_fit",
+        {"x_column": "x", "y_columns": ["run1", "run2"], "model": "gaussian",
+         "shared": ["center", "sigma"]},
+    )
+    assert "converged" in out
+    names = [name for name, _ in window.result_books]
+    assert any(n.startswith("GlobalFit_") for n in names)
+    assert any(n.endswith("_curves") for n in names)
+
+
+def test_analyze_peaks_tool_fits_single_peak():
+    import numpy as np
+
+    x = np.linspace(0, 10, 300)
+    y = 0.1 * x + 2 * np.exp(-0.5 * ((x - 4) / 0.35) ** 2)
+    window = _FakeWindow(pd.DataFrame({"x": x, "y": y}))
+    out = build_app_registry(window).execute(
+        "analyze_peaks",
+        {"x_column": "x", "y_column": "y", "prominence": 0.5},
+    )
+    assert "1 peak" in out
+    assert "converged" in out
+
+
+def test_scientific_tools_handle_no_active_data():
+    reg = build_app_registry(_FakeWindow(None))
+    assert "No active data" in reg.execute("run_statistics", {"test": "one_sample_t_test"})
+    assert "No active data" in reg.execute("global_fit", {})
+    assert "No active data" in reg.execute("analyze_peaks", {})
+
+
+def test_list_analysis_recipes_enumerates_saved_recipes():
+    reg = build_app_registry(_RecipeWindow(pd.DataFrame({"a": [1.0, 2.0, 3.0]})))
+    out = reg.execute("list_analysis_recipes", {})
+    assert "One-sample t-test" in out
+    assert "Clean" in out

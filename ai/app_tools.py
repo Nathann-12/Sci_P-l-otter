@@ -1827,4 +1827,13 @@ def build_app_registry(window) -> ToolRegistry:
         register_module_tools(registry, window)
     except Exception:
         logger.debug("module tools registration skipped", exc_info=True)
+    # Dependency-aware Scientific Suite (statistics / global fit / peaks / recipes).
+    # Registered last so its tools append to the end of registry order, keeping
+    # the sealed acceptance-set tool ordering append-only.
+    try:
+        from ai.scientific_tools import register_scientific_tools
+
+        register_scientific_tools(registry, window)
+    except Exception:
+        logger.debug("scientific tools registration skipped", exc_info=True)
     return registry

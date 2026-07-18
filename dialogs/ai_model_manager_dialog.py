@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from threading import Event
+from typing import Callable
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QHeaderView,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from ai.llama_cpp_client import resolve_llama_server
 from ai.model_manager import ModelManager, system_ram_gb
+from ai.readiness import AIReadiness, inspect_bundled_ai
 from ai.runtime_manager import RuntimeManager
 
 
@@ -143,15 +146,21 @@ class AiModelManagerDialog(QDialog):
         manager: ModelManager | None = None,
         active_pack_id: str = "",
         runtime_path: str = "",
+        runtime_manager: RuntimeManager | None = None,
+        ram_gb: float | None = None,
+        runtime_resolver: Callable | None = None,
     ) -> None:
         super().__init__(parent)
         self.manager = manager or ModelManager()
         self.active_pack_id = str(active_pack_id or "")
         self.runtime_path = str(runtime_path or "")
         self._worker: QThread | None = None
-        self.runtime_manager = RuntimeManager()
+        self._setup_target_pack_id = ""
+        self.runtime_manager = runtime_manager or RuntimeManager()
+        self.runtime_resolver = runtime_resolver or resolve_llama_server
+        self.ram_gb = system_ram_gb() if ram_gb is None else max(0.0, float(ram_gb))
         self.setWindowTitle("Local AI Models")
-        self.resize(760, 430)
+        self.resize(820, 480)
 
         layout = QVBoxLayout(self)
         title = QLabel("Private local AI", self)
@@ -165,14 +174,7 @@ class AiModelManagerDialog(QDialog):
         privacy.setWordWrap(True)
         layout.addWidget(privacy)
 
-        ram = system_ram_gb()
-        recommended = self.manager.recommended_pack(ram)
-        runtime = resolve_llama_server(self.runtime_path)
-        runtime_text = "runtime ready" if runtime else "llama.cpp runtime not found"
-        self.hardware_label = QLabel(
-            f"System RAM: {ram:.1f} GB  ·  Recommended: {recommended.display_name}  ·  {runtime_text}",
-            self,
-        )
+        self.hardware_label = QLabel(self)
         self.hardware_label.setWordWrap(True)
         layout.addWidget(self.hardware_label)
 
@@ -183,12 +185,16 @@ class AiModelManagerDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().hide()
-        self.table.horizontalHeader().setStretchLastSection(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for column in (1, 2, 3):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         layout.addWidget(self.table, 1)
 
         self.license_label = QLabel(self)
         self.license_label.setOpenExternalLinks(True)
         self.license_label.setTextFormat(Qt.RichText)
+        self.license_label.setWordWrap(True)
         layout.addWidget(self.license_label)
 
         self.progress = QProgressBar(self)
@@ -197,6 +203,7 @@ class AiModelManagerDialog(QDialog):
         layout.addWidget(self.progress)
 
         primary_actions = QHBoxLayout()
+        self.setup_button = QPushButton("Install & use selected", self)
         self.download_button = QPushButton("Download & verify", self)
         self.runtime_button = QPushButton("Install AI runtime", self)
         self.import_button = QPushButton("Install offline pack…", self)
@@ -204,18 +211,18 @@ class AiModelManagerDialog(QDialog):
         self.folder_button = QPushButton("Open model folder", self)
         self.use_button = QPushButton("Use selected model", self)
         self.close_button = QPushButton("Close", self)
-        for button in (
-            self.download_button,
-            self.runtime_button,
-            self.import_button,
-            self.export_button,
-            self.folder_button,
-            self.use_button,
-        ):
-            if button not in {self.export_button, self.folder_button}:
-                primary_actions.addWidget(button)
+        primary_actions.addWidget(self.setup_button)
+        primary_actions.addWidget(self.use_button)
         primary_actions.addStretch(1)
         layout.addLayout(primary_actions)
+
+        component_actions = QHBoxLayout()
+        component_actions.addWidget(self.download_button)
+        component_actions.addWidget(self.runtime_button)
+        component_actions.addWidget(self.import_button)
+        component_actions.addStretch(1)
+        layout.addLayout(component_actions)
+
         secondary_actions = QHBoxLayout()
         secondary_actions.addWidget(self.export_button)
         secondary_actions.addWidget(self.folder_button)
@@ -224,6 +231,7 @@ class AiModelManagerDialog(QDialog):
         layout.addLayout(secondary_actions)
 
         self.table.itemSelectionChanged.connect(self._sync_selection)
+        self.setup_button.clicked.connect(self._install_and_use_selected)
         self.download_button.clicked.connect(self._download_selected)
         self.runtime_button.clicked.connect(self._download_runtime)
         self.import_button.clicked.connect(self._import_offline)
@@ -240,9 +248,35 @@ class AiModelManagerDialog(QDialog):
         item = self.table.item(row, 0)
         return str(item.data(Qt.UserRole) or "") if item else ""
 
+    def _readiness(self, pack_id: str) -> AIReadiness:
+        return inspect_bundled_ai(
+            pack_id,
+            self.runtime_path,
+            manager=self.manager,
+            runtime_manager=self.runtime_manager,
+            ram_gb=self.ram_gb,
+            runtime_resolver=self.runtime_resolver,
+        )
+
+    def _refresh_hardware_status(self) -> None:
+        recommended = self.manager.recommended_pack(self.ram_gb)
+        runtime_ready = self.runtime_manager.is_installed()
+        runtime_text = "runtime ready" if runtime_ready else "runtime needs setup"
+        self.hardware_label.setText(
+            f"System RAM: {self.ram_gb:.1f} GB  ·  "
+            f"Recommended: {recommended.display_name}  ·  {runtime_text}"
+        )
+
     def _refresh_table(self) -> None:
         packs = self.manager.packs()
+        current_id = self._setup_target_pack_id or self.selected_pack_id()
         self.table.setRowCount(len(packs))
+        recommended_id = self.manager.recommended_pack(self.ram_gb).pack_id
+        preferred_id = (
+            self.active_pack_id
+            if self.active_pack_id and self.manager.is_installed(self.active_pack_id)
+            else current_id or recommended_id
+        )
         selected_row = 0
         for row, pack in enumerate(packs):
             name = QTableWidgetItem(pack.display_name)
@@ -251,17 +285,21 @@ class AiModelManagerDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(f"{pack.size_bytes / 1024**2:.0f} MB"))
             self.table.setItem(row, 2, QTableWidgetItem(f"{pack.recommended_ram_gb:g} GB"))
             installed = self.manager.is_installed(pack.pack_id)
-            status = "Installed"
-            if pack.pack_id == self.active_pack_id and installed:
-                status = "Active"
+            preview = str(getattr(pack, "release_status", "preview")) != "release"
+            status = "Installed · Preview" if preview else "Installed"
+            readiness = self._readiness(pack.pack_id)
+            if pack.pack_id == self.active_pack_id and readiness.ready:
+                status = "Active · Preview" if preview else "Active"
+            elif installed and readiness.state in {"runtime_missing", "unverified_runtime"}:
+                status = "Installed · runtime needed"
             elif not installed:
                 status = "Not installed"
             self.table.setItem(row, 3, QTableWidgetItem(status))
-            if pack.pack_id == self.active_pack_id:
+            if pack.pack_id == preferred_id:
                 selected_row = row
-        self.table.resizeColumnsToContents()
         if packs:
             self.table.selectRow(selected_row)
+        self._refresh_hardware_status()
         self._sync_selection()
 
     def _sync_selection(self) -> None:
@@ -270,15 +308,34 @@ class AiModelManagerDialog(QDialog):
             return
         pack = next(pack for pack in self.manager.packs() if pack.pack_id == pack_id)
         installed = self.manager.is_installed(pack_id)
+        readiness = self._readiness(pack_id)
+        idle = self._worker is None
         self.download_button.setEnabled(not installed and self._worker is None)
         self.export_button.setEnabled(installed and self._worker is None)
-        self.use_button.setEnabled(installed and self._worker is None)
-        runtime = resolve_llama_server(self.runtime_path)
-        self.runtime_button.setEnabled(runtime is None and self._worker is None)
-        self.runtime_button.setText("Runtime ready" if runtime else "Install AI runtime")
+        self.use_button.setEnabled(readiness.ready and idle)
+        self.setup_button.setEnabled(
+            idle
+            and readiness.state
+            not in {"ready", "insufficient_memory", "unknown_model", "incompatible_model"}
+        )
+        if readiness.ready:
+            self.setup_button.setText("Ready to use")
+        elif readiness.state == "model_missing":
+            self.setup_button.setText("Install model & use")
+        elif readiness.state == "runtime_missing":
+            self.setup_button.setText("Install runtime & use")
+        elif readiness.state == "unverified_runtime":
+            self.setup_button.setText("Replace runtime & use")
+        else:
+            self.setup_button.setText("Install & use selected")
+        runtime_ready = self.runtime_manager.is_installed()
+        self.runtime_button.setEnabled(not runtime_ready and idle)
+        self.runtime_button.setText("Runtime ready" if runtime_ready else "Install AI runtime")
         self.license_label.setText(
             f'{pack.description} · License: <a href="{pack.license_url}">{pack.license_name}</a> · '
-            f'<a href="{pack.source_url}">model card</a>'
+            f'<a href="{pack.source_url}">model card</a> · '
+            f'Channel: {str(getattr(pack, "release_status", "preview")).title()}'
+            f'<br>{readiness.detail}'
         )
 
     def _download_selected(self) -> None:
@@ -290,6 +347,7 @@ class AiModelManagerDialog(QDialog):
             self,
             "Download local AI model",
             f"Download {pack.display_name} ({pack.size_bytes / 1024**2:.0f} MB)?\n\n"
+            f"Channel: {str(getattr(pack, 'release_status', 'preview')).title()}\n"
             f"License: {pack.license_name}\nSource: {pack.source_url}\n\n"
             "The model is allowed for commercial use under its own license. "
             "SciPlotter will verify its SHA-256 before installation.",
@@ -298,6 +356,9 @@ class AiModelManagerDialog(QDialog):
         )
         if answer != QMessageBox.Yes:
             return
+        self._start_model_download(pack_id)
+
+    def _start_model_download(self, pack_id: str) -> None:
         worker = _ModelDownloadThread(self.manager, pack_id, self)
         worker.progress_changed.connect(self._on_progress)
         worker.installed.connect(self._on_installed)
@@ -321,6 +382,9 @@ class AiModelManagerDialog(QDialog):
         )
         if answer != QMessageBox.Yes:
             return
+        self._start_runtime_download()
+
+    def _start_runtime_download(self) -> None:
         worker = _RuntimeDownloadThread(self.runtime_manager, self)
         worker.progress_changed.connect(self._on_progress)
         worker.installed.connect(self._on_runtime_installed)
@@ -329,6 +393,66 @@ class AiModelManagerDialog(QDialog):
         self._worker = worker
         self._set_working(True)
         worker.start()
+
+    def _install_and_use_selected(self) -> None:
+        """Install every missing component in dependency order, then activate."""
+        pack_id = self.selected_pack_id()
+        if not pack_id or self._worker is not None:
+            return
+        readiness = self._readiness(pack_id)
+        if readiness.ready:
+            self.active_pack_id = pack_id
+            self.accept()
+            return
+        if readiness.state in {"insufficient_memory", "incompatible_model", "unknown_model"}:
+            QMessageBox.warning(self, "AI setup unavailable", readiness.detail)
+            return
+
+        pack = next(pack for pack in self.manager.packs() if pack.pack_id == pack_id)
+        missing_size = 0
+        components: list[str] = []
+        if "runtime" in readiness.missing:
+            missing_size += self.runtime_manager.package.size_bytes
+            components.append(f"llama.cpp {self.runtime_manager.package.version}")
+        if "model" in readiness.missing:
+            missing_size += pack.size_bytes
+            components.append(pack.display_name)
+        answer = QMessageBox.question(
+            self,
+            "Set up private local AI",
+            f"Install {' and '.join(components)} "
+            f"({missing_size / 1024**2:.0f} MB total)?\n\n"
+            f"Model channel: {readiness.release_status.title()}\n\n"
+            "SciPlotter downloads only public AI components, verifies their "
+            "pinned SHA-256 values, and runs inference on this computer.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self._setup_target_pack_id = pack_id
+        self._continue_setup()
+
+    def _continue_setup(self) -> None:
+        if self._worker is not None or not self._setup_target_pack_id:
+            return
+        readiness = self._readiness(self._setup_target_pack_id)
+        if readiness.ready:
+            self.active_pack_id = self._setup_target_pack_id
+            self._setup_target_pack_id = ""
+            self._refresh_table()
+            self.accept()
+        elif readiness.state in {
+            "model_and_runtime_missing",
+            "runtime_missing",
+            "unverified_runtime",
+        }:
+            self._start_runtime_download()
+        elif readiness.state == "model_missing":
+            self._start_model_download(self._setup_target_pack_id)
+        else:
+            self._setup_target_pack_id = ""
+            QMessageBox.critical(self, "AI setup could not continue", readiness.detail)
 
     def _import_offline(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -369,7 +493,7 @@ class AiModelManagerDialog(QDialog):
 
     def _use_selected(self) -> None:
         pack_id = self.selected_pack_id()
-        if self.manager.is_installed(pack_id):
+        if self._readiness(pack_id).ready:
             self.active_pack_id = pack_id
             self._refresh_table()
             self.accept()
@@ -389,6 +513,7 @@ class AiModelManagerDialog(QDialog):
         self._sync_selection()
 
     def _cancel_download(self) -> None:
+        self._setup_target_pack_id = ""
         if self._worker is not None:
             self._worker.cancel()
 
@@ -397,21 +522,19 @@ class AiModelManagerDialog(QDialog):
         self.progress.setFormat(f"{done / 1024**2:.0f} / {total / 1024**2:.0f} MB")
 
     def _on_installed(self, pack_id: str) -> None:
-        self.active_pack_id = pack_id
         self._refresh_table()
 
     def _on_runtime_installed(self, path: str) -> None:
         self.runtime_path = path
-        self.hardware_label.setText(
-            self.hardware_label.text().replace("llama.cpp runtime not found", "runtime ready")
-        )
+        self._refresh_hardware_status()
 
     def _on_exported(self, path: str) -> None:
         QMessageBox.information(self, "Offline pack created", path)
 
     def _on_failed(self, message: str) -> None:
+        self._setup_target_pack_id = ""
         if "cancel" not in message.casefold():
-            QMessageBox.critical(self, "Model download failed", message)
+            QMessageBox.critical(self, "Local AI setup failed", message)
 
     def _worker_finished(self) -> None:
         worker = self._worker
@@ -420,9 +543,13 @@ class AiModelManagerDialog(QDialog):
             worker.deleteLater()
         self._set_working(False)
         self._refresh_table()
+        if self._setup_target_pack_id:
+            QTimer.singleShot(0, self._continue_setup)
 
     def reject(self) -> None:
         if self._worker is not None:
+            self._setup_target_pack_id = ""
             self._worker.cancel()
             return
+        self._setup_target_pack_id = ""
         super().reject()

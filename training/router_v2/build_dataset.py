@@ -31,21 +31,21 @@ DATASET_VERSION = "2.0"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 LEGACY_DIR = REPO_ROOT / "training" / "data"
 SEALED_ACCEPTANCE_V4_SHA256 = (
-    "5b48cb06b28e582bb2dc49417a9cec0158dd7a7b9685d1a103c91be648cc4361"
+    "59a716f8e721ee4a07824edebfd8dd50d79ab294897e068623e8f383571dc6f9"
 )
 
 SOURCE_FILES = {
     "train": (
         LEGACY_DIR / "train.jsonl",
-        "cdb78b052e58d666a137ebd7c2785b2c6df7a1e13af7646424e058e9e1bbea0f",
+        "53ce0c5c8d7ce918b2c161785cfc8b88286417996d1e58c20054ca0981267e34",
     ),
     "validation": (
         LEGACY_DIR / "validation.jsonl",
-        "616ec06278199c246f41a500ae3fd3110687c143c3639c22c9dc2bc6a6886019",
+        "dc842a20f2a9f5df73785bb249c5fdfd0a3d8563afa7a9f1f2ed807bd3886eed",
     ),
     "repair": (
         LEGACY_DIR / "repair_train.jsonl",
-        "9b7a627e247bff17405f269ceb6db373f595ecd22527d55c22ca20fdca8012a2",
+        "d8822a892ae36f5b88d604d7442038aac4fcbc9711c4c7044a21f1593ae25707",
     ),
 }
 
@@ -251,10 +251,10 @@ def build_acceptance_v4_records(
 def _audit_acceptance_disjoint(
     acceptance: list[dict], train: list[dict], validation: list[dict]
 ) -> None:
-    if len(acceptance) != 56:
-        raise RouterDatasetError("Acceptance v4 must contain 44 tools and 12 answers")
-    if Counter(record["language"] for record in acceptance) != {"en": 28, "th": 28}:
-        raise RouterDatasetError("Acceptance v4 must be balanced 28 English / 28 Thai")
+    if len(acceptance) != 60:
+        raise RouterDatasetError("Acceptance v4 must contain 48 tools and 12 answers")
+    if Counter(record["language"] for record in acceptance) != {"en": 30, "th": 30}:
+        raise RouterDatasetError("Acceptance v4 must be balanced 30 English / 30 Thai")
     acceptance_prompts = {
         " ".join(record["user"].casefold().split()) for record in acceptance
     }

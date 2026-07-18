@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ai.local_endpoint import local_http_urlopen
+
 
 def resolve_llama_server(configured: str | Path | None = None) -> Path | None:
     """Find the release-bundled runtime or an explicitly installed one."""
@@ -118,7 +120,9 @@ class LlamaCppClient:
             if self._process.poll() is not None:
                 raise RuntimeError("The local AI runtime stopped during startup.")
             try:
-                with urllib.request.urlopen(self.base_url + "/health", timeout=1.0) as response:
+                with local_http_urlopen(
+                    self.base_url + "/health", timeout=1.0
+                ) as response:
                     if response.status == 200:
                         return
             except Exception:
@@ -179,7 +183,7 @@ class LlamaCppClient:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with local_http_urlopen(request, timeout=self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
 
         try:

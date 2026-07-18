@@ -80,6 +80,10 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("ohms_law", "th", "ใช้กฎของโอห์มหาความต้านทานจาก source_current_A และ measured_voltage_V", {"current_column": "source_current_A", "voltage_column": "measured_voltage_V"}, "physics"),
         ReleaseToolSeed("rc_time_constant", "en", "Fit the discharging RC time constant from elapsed_s and capacitor_V.", {"time_column": "elapsed_s", "value_column": "capacitor_V", "mode": "discharge"}, "physics"),
         ReleaseToolSeed("pendulum_gravity", "th", "ใช้ลูกตุ้มหาค่า g จาก string_length_m และ oscillation_period_s", {"length_column": "string_length_m", "period_column": "oscillation_period_s"}, "physics"),
+        ReleaseToolSeed("run_statistics", "en", "Run a Welch t-test comparing baseline_signal and dosed_signal.", {"test": "independent_t_test", "columns": ["baseline_signal", "dosed_signal"]}, "statistics"),
+        ReleaseToolSeed("global_fit", "th", "ฟิตร่วมแบบเกาส์เซียนโดยแชร์ center ระหว่าง scan_a และ scan_b", {"x_column": "wavelength_nm", "y_columns": ["scan_a", "scan_b"], "model": "gaussian", "shared": ["center"]}, "statistics"),
+        ReleaseToolSeed("analyze_peaks", "en", "Run the peak analyzer with Gaussian profiles on intensity vs raman_shift.", {"x_column": "raman_shift", "y_column": "intensity", "model": "gaussian", "baseline": "linear"}, "spectroscopy"),
+        ReleaseToolSeed("list_analysis_recipes", "th", "ในโปรเจกต์นี้มีสูตรวิเคราะห์ใดถูกบันทึกไว้แล้วบ้าง", {}, "statistics"),
     ]
 
 

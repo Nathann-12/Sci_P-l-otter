@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+CANCELLED_TOOL_PREFIX = "Cancellation requested before"
 
 
 @dataclass(frozen=True)
@@ -207,8 +208,26 @@ class ToolRegistry:
         *,
         validate: bool = False,
         expected_context_token: str = "",
+        cancelled: Optional[Callable[[], bool]] = None,
     ) -> str:
         """Run a tool by name; always returns a string observation."""
+        def cancellation_requested() -> bool:
+            if cancelled is None:
+                return False
+            try:
+                return bool(cancelled())
+            except Exception:
+                logger.debug("AI cancellation guard failed", exc_info=True)
+                return True
+
+        def cancelled_observation() -> str:
+            return (
+                f"{CANCELLED_TOOL_PREFIX} '{name}' started; "
+                "no changes were made by this tool."
+            )
+
+        if cancellation_requested():
+            return cancelled_observation()
         tool = self._tools.get(name)
         if tool is None:
             available = ", ".join(self._tools) or "(none)"
@@ -224,6 +243,8 @@ class ToolRegistry:
                     "Active Book changed before the action could run; "
                     "no changes were made. Please repeat the request."
                 )
+        if cancellation_requested():
+            return cancelled_observation()
         try:
             resolved_arguments = dict(arguments or {})
             if (
@@ -232,10 +253,21 @@ class ToolRegistry:
                 and not self._approval_callback(tool, resolved_arguments)
             ):
                 return f"Confirmation declined for '{name}'; no changes were made."
+            if cancellation_requested():
+                return cancelled_observation()
+
+            def guarded_handler(values: Dict[str, Any]) -> Any:
+                # With a GUI executor this check runs on the GUI thread,
+                # immediately before the handler. It closes the gap between a
+                # worker-side check, a modal approval, and queued execution.
+                if cancellation_requested():
+                    return cancelled_observation()
+                return tool.handler(values)
+
             if self._executor is None:
-                result = tool.handler(resolved_arguments)
+                result = guarded_handler(resolved_arguments)
             else:
-                result = self._executor(tool.handler, resolved_arguments)
+                result = self._executor(guarded_handler, resolved_arguments)
         except Exception as exc:  # defensive: a tool must never crash the loop
             logger.debug("AI tool %r failed", name, exc_info=True)
             return f"Error running '{name}': {exc}"

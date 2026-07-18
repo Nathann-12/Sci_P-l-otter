@@ -147,6 +147,11 @@ class AiAssistantDock(QWidget):
         self.status_label = QLabel("Ready", self)
         self.status_label.setObjectName("AiStatusLabel")
         status_row.addWidget(self.status_label, 1)
+        self.setup_button = QPushButton("Set up local AI", self)
+        self.setup_button.setObjectName("AiSetupButton")
+        self.setup_button.setToolTip("Install and verify the private on-device AI components")
+        self.setup_button.hide()
+        status_row.addWidget(self.setup_button)
         self.retry_button = QToolButton(self)
         self.retry_button.setObjectName("AiRetryButton")
         self.retry_button.setText("Retry")
@@ -171,6 +176,7 @@ class AiAssistantDock(QWidget):
         self.input_edit.returnPressed.connect(self._submit)
         self.clear_button.clicked.connect(self.clear)
         self.retry_button.clicked.connect(self._retry)
+        self.setup_button.clicked.connect(self.manage_models_requested)
         self.models_button.clicked.connect(self.manage_models_requested)
         self._sync_enabled_state()
 
@@ -264,6 +270,7 @@ class AiAssistantDock(QWidget):
 
     def set_available(self, available: bool, detail: str = "") -> None:
         self._available = bool(available)
+        self.setup_button.setVisible(not self._available)
         if self._available:
             self.status_label.setText("Ready")
         else:
@@ -340,5 +347,6 @@ class AiAssistantDock(QWidget):
         self.send_button.setEnabled(self._available)
         self.clear_button.setEnabled(not self._busy)
         self.models_button.setEnabled(not self._busy)
+        self.setup_button.setEnabled(not self._busy)
         for button in self.quick_buttons:
             button.setEnabled(can_submit and self._has_data)

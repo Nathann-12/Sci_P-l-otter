@@ -13,9 +13,15 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+from ai.local_endpoint import (
+    DEFAULT_LOCAL_AI_BASE_URL,
+    local_http_urlopen,
+    normalize_local_http_base_url,
+)
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "http://127.0.0.1:11434"
+DEFAULT_BASE_URL = DEFAULT_LOCAL_AI_BASE_URL
 # Lightest broadly-available tool-router. Configurable per install.
 DEFAULT_MODEL = "gemma2:2b"
 
@@ -28,7 +34,7 @@ class OllamaClient:
         timeout: float = 120.0,
     ) -> None:
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = normalize_local_http_base_url(base_url)
         self.timeout = float(timeout)
 
     # ----------------------------------------------------------------- probing
@@ -41,9 +47,10 @@ class OllamaClient:
             logger.debug("Ollama not reachable at %s", self.base_url, exc_info=True)
             return False
 
-    def list_models(self) -> List[str]:
+    def list_models(self, timeout: float = 5.0) -> List[str]:
+        """Return locally installed models, using a caller-bounded probe timeout."""
         try:
-            data = self._get("/api/tags", timeout=5.0)
+            data = self._get("/api/tags", timeout=max(0.05, float(timeout)))
             return [str(m.get("name", "")) for m in data.get("models", []) if m.get("name")]
         except Exception:
             logger.debug("Ollama list_models failed", exc_info=True)
@@ -73,7 +80,7 @@ class OllamaClient:
     # ----------------------------------------------------------------- private
     def _get(self, path: str, timeout: float) -> Dict[str, Any]:
         request = urllib.request.Request(self.base_url + path, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with local_http_urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -84,5 +91,5 @@ class OllamaClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with local_http_urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))

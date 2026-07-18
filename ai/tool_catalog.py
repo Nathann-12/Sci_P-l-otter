@@ -11,6 +11,7 @@ import re
 from typing import Dict, Iterable, List
 
 TOOL_SCHEMA_VERSION = "1.4"
+ROUTER_PROTOCOL_VERSION = "2.0"
 MAX_PROMPT_TOOLS = 8
 
 GROUPS: Dict[str, tuple[str, ...]] = {
@@ -33,6 +34,9 @@ GROUPS: Dict[str, tuple[str, ...]] = {
     "signal": (
         "run_fft", "envelope", "signal_quality", "power_spectrum",
         "autocorrelation", "instantaneous_frequency", "harmonic_analysis",
+    ),
+    "science": (
+        "run_statistics", "global_fit", "analyze_peaks", "list_analysis_recipes",
     ),
     "gas": ("gas_live_control", "gas_response"),
     "specialty": (
@@ -64,6 +68,13 @@ KEYWORDS: Dict[str, tuple[str, ...]] = {
     "signal": (
         "fft", "frequency", "spectrum", "spectral", "harmonic", "envelope",
         "snr", "autocorrelation", "ความถี่", "สเปกตรัม", "ฮาร์มอนิก",
+    ),
+    "science": (
+        "t-test", "t test", "anova", "hypothesis", "p-value",
+        "p value", "nonparametric", "mann-whitney", "wilcoxon", "kruskal",
+        "global fit", "shared parameter", "peak fit", "peak analyzer",
+        "analysis recipe",
+        "ทดสอบสมมติฐาน", "ค่าพี", "ฟิตร่วม", "ฟิตพีค", "สูตรวิเคราะห์", "ที-เทสต์",
     ),
     "gas": ("gas", "sensor", "daq", "serial", "com", "ก๊าซ", "เซนเซอร์"),
     "specialty": (
@@ -112,6 +123,10 @@ TOOL_ALIASES: Dict[str, tuple[str, ...]] = {
     "plot_chart": ("advanced chart", "plot chart", "heatmap chart", "กราฟขั้นสูง", "สร้างแผนภูมิ", "surface_3d", "scatter_3d", "wireframe_3d", "matrix_heatmap", "contour_3d", "trisurface_3d", "bar_3d"),
     "list_books": ("list books", "open books", "บุ๊กทั้งหมด", "รายชื่อบุ๊ก"),
     "open_file": ("open file", "load csv", "load excel", "เปิดไฟล์", "โหลดไฟล์"),
+    "run_statistics": ("t-test", "t test", "anova", "regression", "hypothesis test", "p-value", "mann-whitney", "wilcoxon", "kruskal", "ทดสอบสมมติฐาน", "ที-เทสต์", "การถดถอย", "หาค่าพี"),
+    "global_fit": ("global fit", "shared parameter", "fit multiple datasets", "ฟิตร่วม", "พารามิเตอร์ร่วม", "ฟิตหลายชุด"),
+    "analyze_peaks": ("peak analyzer", "fit peaks", "multi-peak fit", "baseline and peaks", "ฟิตพีค", "วิเคราะห์พีค", "ฟิตหลายพีค"),
+    "list_analysis_recipes": ("list recipes", "analysis recipe", "analysis recipes", "รายการสูตรวิเคราะห์", "สูตรวิเคราะห์ที่มี", "สูตรวิเคราะห์ใด", "มีสูตรวิเคราะห์"),
     "gas_response": ("gas response", "response time", "recovery time", "การตอบสนองก๊าซ", "เวลาฟื้นตัว", "t_on", "t_off", "รอบตอบสนอง"),
     "cv_peaks": ("cv peaks", "cyclic voltammetry", "cyclic-voltammetry", "oxidation peak", "δep", "peak-current ratio", "พีค cv", "ไซคลิกโวลแทมเมทรี", "อัตราส่วนกระแสพีค"),
     "tafel_analysis": ("tafel", "exchange current", "ทาเฟล", "กระแสแลกเปลี่ยน"),
@@ -136,6 +151,7 @@ CREATE_TOOLS = {
     "harmonic_analysis", "detect_peaks", "cross_correlation", "open_file",
     "cv_peaks", "tafel_analysis", "raman_dg", "iv_conductivity",
     "arrhenius", "ohms_law", "rc_time_constant", "pendulum_gravity",
+    "run_statistics", "global_fit", "analyze_peaks",
 }
 
 

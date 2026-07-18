@@ -51,6 +51,10 @@ TOOL_CASES = (
     ("ohms_law", "th", "ใช้กฎของโอห์มหาความต้านทานจากแรงดันและกระแส"),
     ("rc_time_constant", "en", "Estimate the RC discharge time constant from time and voltage."),
     ("pendulum_gravity", "th", "คำนวณค่า g จากความยาวลูกตุ้มและคาบการแกว่ง"),
+    ("run_statistics", "en", "Compare group_a and group_b with an independent t-test."),
+    ("global_fit", "th", "ฟิตร่วมแบบ Gaussian โดยแชร์ center ให้ dataset_x และ dataset_y"),
+    ("analyze_peaks", "en", "Run the peak analyzer on the measured spectrum with a linear baseline."),
+    ("list_analysis_recipes", "th", "มีสูตรวิเคราะห์อะไรถูกบันทึกไว้ในโปรเจกต์บ้าง"),
 )
 
 

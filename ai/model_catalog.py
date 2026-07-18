@@ -31,6 +31,11 @@ class ModelPack:
     description: str
     commercial_use: bool = True
     backend: str = "llama.cpp"
+    # Fail closed for ad-hoc/new entries: every distributable artifact must pin
+    # these values explicitly and must not auto-adopt a future app protocol.
+    release_status: str = ""
+    router_protocol: str = ""
+    tool_schema_version: str = ""
 
     def to_dict(self) -> Dict[str, object]:
         return asdict(self)
@@ -61,6 +66,9 @@ BUILTIN_MODEL_PACKS = (
         license_url="https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE",
         source_url="https://huggingface.co/Qwen/Qwen3-0.6B-GGUF",
         description="Smallest pack; best for routing plots and common analyses.",
+        release_status="preview",
+        router_protocol="2.0",
+        tool_schema_version="1.4",
     ),
     ModelPack(
         pack_id="qwen3-1.7b-q4",
@@ -81,6 +89,9 @@ BUILTIN_MODEL_PACKS = (
         license_url="https://huggingface.co/Qwen/Qwen3-1.7B/blob/main/LICENSE",
         source_url="https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF",
         description="Higher-capacity optional pack for local scientific assistance.",
+        release_status="preview",
+        router_protocol="2.0",
+        tool_schema_version="1.4",
     ),
 )
 

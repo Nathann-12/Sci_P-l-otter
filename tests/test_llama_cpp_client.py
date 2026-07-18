@@ -63,7 +63,7 @@ def test_client_binds_loopback_and_requests_json(monkeypatch, tmp_path):
             return _Response()
         return _Response({"choices": [{"message": {"content": '{"answer":"ok"}'}}]})
 
-    monkeypatch.setattr(client_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(client_module, "local_http_urlopen", fake_urlopen)
     client = LlamaCppClient(model, runtime_path=runtime)
 
     reply = client.chat([{"role": "user", "content": "hi"}], format_json=True)
@@ -91,7 +91,7 @@ def test_client_requests_strict_schema_and_falls_back_for_old_runtime(
             raise urllib.error.HTTPError(request.full_url, 400, "unsupported", None, None)
         return _Response({"choices": [{"message": {"content": '{"answer":"ok"}'}}]})
 
-    monkeypatch.setattr(client_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(client_module, "local_http_urlopen", fake_urlopen)
     client = LlamaCppClient(model)
     monkeypatch.setattr(client, "start", lambda: None)
     schema = {

@@ -6,13 +6,19 @@ import json
 import os
 import platform
 import shutil
+import sys
 import tempfile
 import urllib.request
 import zipfile
 from dataclasses import asdict, dataclass
-from pathlib import Path, PurePosixPath
-from typing import Callable
+from pathlib import Path
+from typing import Callable, Iterable
 
+from ai.archive_safety import (
+    UnsafeArchiveMemberError,
+    safe_zip_destination,
+    zip_destination_key,
+)
 from ai.model_manager import ModelInstallError
 
 RUNTIME_CATALOG_VERSION = "1.0"
@@ -82,14 +88,42 @@ def default_runtime_root() -> Path:
     return Path.home() / ".sciplotter" / "runtime" / "llama"
 
 
+def bundled_runtime_roots() -> tuple[Path, ...]:
+    """Read-only roots used by an AI Starter/Plus full installer."""
+
+    bases: list[Path] = [Path(sys.executable).resolve().parent]
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root:
+        bases.append(Path(frozen_root))
+    roots: list[Path] = []
+    for base in bases:
+        candidate = base / "runtime" / "llama"
+        if candidate not in roots:
+            roots.append(candidate)
+    return tuple(roots)
+
+
 class RuntimeManager:
     def __init__(
         self,
         root: str | Path | None = None,
         package: RuntimePackage | None = None,
+        *,
+        read_roots: Iterable[str | Path] | None = None,
     ) -> None:
         self.root = Path(root) if root is not None else default_runtime_root()
         self.package = package or WINDOWS_X64_RUNTIME
+        if read_roots is not None:
+            extras = tuple(Path(path) for path in read_roots)
+        elif root is None:
+            extras = bundled_runtime_roots()
+        else:
+            extras = ()
+        roots: list[Path] = []
+        for path in (self.root, *extras):
+            if path not in roots:
+                roots.append(path)
+        self.read_roots = tuple(roots)
 
     @property
     def install_dir(self) -> Path:
@@ -97,6 +131,10 @@ class RuntimeManager:
 
     @property
     def runtime_path(self) -> Path:
+        for root in self.read_roots:
+            directory = root / self.package.runtime_id
+            if self._valid_install_dir(directory):
+                return directory / self.package.server_filename
         return self.install_dir / self.package.server_filename
 
     def supported(self) -> bool:
@@ -104,12 +142,23 @@ class RuntimeManager:
         return os.name == "nt" and machine in {"amd64", "x86_64"}
 
     def is_installed(self) -> bool:
-        manifest = self.install_dir / "manifest.json"
-        if not self.runtime_path.is_file() or not manifest.is_file():
+        return any(
+            self._valid_install_dir(root / self.package.runtime_id)
+            for root in self.read_roots
+        )
+
+    def _valid_install_dir(self, directory: Path) -> bool:
+        runtime = directory / self.package.server_filename
+        manifest = directory / "manifest.json"
+        if not runtime.is_file() or not manifest.is_file():
             return False
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
-            return data.get("package", {}).get("sha256") == self.package.sha256
+            return (
+                data.get("catalog_version") == RUNTIME_CATALOG_VERSION
+                and data.get("package") == asdict(self.package)
+                and runtime.stat().st_size > 0
+            )
         except Exception:
             return False
 
@@ -153,11 +202,16 @@ class RuntimeManager:
                         progress(received, total)
             if received != self.package.size_bytes or digest.hexdigest() != self.package.sha256:
                 raise ModelInstallError("Runtime SHA-256 verification failed.")
-            return self._install_archive(archive_path)
+            return self._install_archive(archive_path, cancelled=cancelled)
         finally:
             archive_path.unlink(missing_ok=True)
 
-    def _install_archive(self, archive_path: Path) -> Path:
+    def _install_archive(
+        self,
+        archive_path: Path,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> Path:
         staging = self.root / f".{self.package.runtime_id}.installing"
         self._remove_inside_root(staging)
         staging.mkdir(parents=True)
@@ -166,16 +220,32 @@ class RuntimeManager:
                 infos = archive.infolist()
                 if sum(info.file_size for info in infos) > 1024**3:
                     raise ModelInstallError("Runtime archive is unexpectedly large.")
+                destinations: set[str] = set()
                 for info in infos:
-                    path = PurePosixPath(info.filename)
-                    if path.is_absolute() or ".." in path.parts:
-                        raise ModelInstallError("Unsafe path in runtime archive.")
+                    if cancelled is not None and cancelled():
+                        raise ModelInstallError("Runtime installation cancelled.")
+                    try:
+                        destination = safe_zip_destination(staging, info.filename)
+                    except UnsafeArchiveMemberError as exc:
+                        raise ModelInstallError("Unsafe path in runtime archive.") from exc
+                    key = zip_destination_key(destination)
+                    if key in destinations:
+                        raise ModelInstallError("Duplicate path in runtime archive.")
+                    destinations.add(key)
                     if info.is_dir():
+                        destination.mkdir(parents=True, exist_ok=True)
                         continue
-                    destination = staging.joinpath(*path.parts)
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(info) as source, open(destination, "wb") as target:
-                        shutil.copyfileobj(source, target)
+                        while True:
+                            if cancelled is not None and cancelled():
+                                raise ModelInstallError("Runtime installation cancelled.")
+                            chunk = source.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            target.write(chunk)
+            if cancelled is not None and cancelled():
+                raise ModelInstallError("Runtime installation cancelled.")
             server_matches = list(staging.rglob(self.package.server_filename))
             if len(server_matches) != 1:
                 raise ModelInstallError("Runtime archive does not contain llama-server.")

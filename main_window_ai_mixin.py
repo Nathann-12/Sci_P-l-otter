@@ -129,6 +129,7 @@ class _AiWorker(QObject):
             result = self._assistant.ask(
                 self._text,
                 on_tool_start=lambda name, _arguments: self.progress.emit(name),
+                cancelled=self._cancelled.is_set,
             )
         except Exception as exc:  # never let a worker crash take down the app
             logger.debug("AI worker failed", exc_info=True)
@@ -189,10 +190,12 @@ class MainWindowAIMixin:
             self._ai_registry.set_executor(self._ai_tool_executor)
             self._ai_registry.set_approval_callback(self._approve_ai_tool)
             self._ai_assistant = LocalAssistant(self._ai_registry, client)
-        except Exception:
+        except Exception as exc:
             logger.debug("AI assistant init skipped", exc_info=True)
             if dock is not None and hasattr(dock, "set_available"):
-                dock.set_available(False, "Assistant unavailable")
+                readiness = getattr(exc, "readiness", None)
+                detail = str(getattr(readiness, "detail", "") or "Assistant unavailable")
+                dock.set_available(False, detail)
             return False
 
         if dock is not None and hasattr(dock, "message_submitted"):
@@ -219,31 +222,67 @@ class MainWindowAIMixin:
         return True
 
     def _build_ai_client(self, ai_cfg):
-        """Prefer an installed verified pack, with Ollama as legacy fallback."""
+        """Return a usable local client or raise a setup error.
+
+        ``auto`` keeps the legacy Ollama fallback, but only when the configured
+        model is actually present.  This prevents a clean install from showing
+        a misleading Ready state and failing on the first prompt.
+        """
         backend = str(getattr(ai_cfg, "backend", "auto") or "auto").casefold()
         pack_id = str(getattr(ai_cfg, "pack_id", "qwen3-0.6b-q8") or "")
+        bundled_readiness = None
         if backend in {"auto", "bundled"}:
-            from ai.llama_cpp_client import LlamaCppClient, resolve_llama_server
+            from ai.llama_cpp_client import LlamaCppClient
             from ai.model_catalog import get_model_pack
             from ai.model_manager import ModelManager
+            from ai.readiness import AISetupRequired, inspect_bundled_ai
 
             manager = ModelManager()
-            runtime = resolve_llama_server(getattr(ai_cfg, "runtime_path", ""))
-            if pack_id and manager.is_installed(pack_id) and runtime is not None:
+            bundled_readiness = inspect_bundled_ai(
+                pack_id,
+                getattr(ai_cfg, "runtime_path", ""),
+                manager=manager,
+            )
+            if bundled_readiness.ready:
                 pack = get_model_pack(pack_id)
                 return LlamaCppClient(
-                    manager.model_path(pack_id),
-                    runtime_path=runtime,
-                    model=pack.display_name,
+                    bundled_readiness.model_path,
+                    runtime_path=bundled_readiness.runtime_path,
+                    model=(
+                        pack.display_name
+                        if getattr(pack, "release_status", "preview") == "release"
+                        else f"{pack.display_name} · Preview"
+                    ),
                     context_size=getattr(ai_cfg, "context_size", pack.context_size),
                 )
             if backend == "bundled":
-                missing = "model" if not manager.is_installed(pack_id) else "llama.cpp runtime"
-                raise RuntimeError(f"Selected local AI {missing} is not installed")
+                raise AISetupRequired(bundled_readiness)
 
         from ai.ollama_client import OllamaClient
+        from ai.readiness import AIReadiness, AISetupRequired
 
-        return OllamaClient(model=ai_cfg.model, base_url=ai_cfg.base_url)
+        client = OllamaClient(model=ai_cfg.model, base_url=ai_cfg.base_url)
+        installed = client.list_models(timeout=1.0)
+        wanted = str(ai_cfg.model or "").strip().casefold()
+        aliases = {str(name).strip().casefold() for name in installed}
+        if wanted in aliases or (":" not in wanted and f"{wanted}:latest" in aliases):
+            return client
+
+        if backend == "auto" and bundled_readiness is not None:
+            raise AISetupRequired(bundled_readiness)
+        detail = (
+            f"Install the local Ollama model '{ai_cfg.model}' before using SciPlotter AI."
+            if installed
+            else "Start Ollama and install the selected local model before using SciPlotter AI."
+        )
+        raise AISetupRequired(
+            AIReadiness(
+                state="ollama_unavailable",
+                ready=False,
+                detail=detail,
+                pack_id="",
+            )
+        )
 
     def _approve_ai_tool(self, tool, arguments: Dict[str, Any]) -> bool:
         """Ask on the GUI thread before the model mutates data or hardware."""
@@ -314,7 +353,12 @@ class MainWindowAIMixin:
             selected = dialog.active_pack_id
             if not accepted or not selected:
                 return
-            settings_manager.update_ai(backend="bundled", pack_id=selected, enabled=True)
+            settings_manager.update_ai(
+                backend="bundled",
+                pack_id=selected,
+                runtime_path=dialog.runtime_path,
+                enabled=True,
+            )
             settings_manager.save()
             assistant = getattr(self, "_ai_assistant", None)
             old_client = getattr(assistant, "client", None)
@@ -421,7 +465,11 @@ class MainWindowAIMixin:
                 if hasattr(dock, "set_busy"):
                     dock.set_busy(False, "Cancelled")
                 if hasattr(dock, "append_message"):
-                    dock.append_message("AI", "Cancelled; no pending action was run.")
+                    dock.append_message(
+                        "AI",
+                        "Cancelled. An action that already started may have "
+                        "completed; check the active Book or Operation Log.",
+                    )
 
     def closeEvent(self, event) -> None:
         worker = getattr(self, "_ai_worker", None)

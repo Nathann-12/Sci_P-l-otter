@@ -11,9 +11,14 @@ import urllib.request
 import zipfile
 from dataclasses import asdict
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Callable, Iterable
 
+from ai.archive_safety import (
+    UnsafeArchiveMemberError,
+    safe_zip_destination,
+    zip_destination_key,
+)
 from ai.model_catalog import MODEL_CATALOG_VERSION, ModelPack, get_model_pack, model_packs
 from ai.license_texts import APACHE_2_LICENSE
 
@@ -129,8 +134,17 @@ class ModelManager:
             return False
         try:
             saved = json.loads(manifest.read_text(encoding="utf-8"))
+            saved_pack = dict(saved.get("pack") or {})
+            # Packs installed before the commercial-readiness contract did not
+            # persist these three fields. Their catalogue defaults were the
+            # same values, so migrate only those exact omissions in memory;
+            # all other metadata must still match byte-for-byte.
+            saved_pack.setdefault("release_status", "preview")
+            saved_pack.setdefault("router_protocol", "2.0")
+            saved_pack.setdefault("tool_schema_version", "1.4")
             return (
-                saved.get("pack", {}).get("sha256") == pack.sha256
+                saved.get("catalog_version") == MODEL_CATALOG_VERSION
+                and saved_pack == asdict(pack)
                 and model.stat().st_size == pack.size_bytes
             )
         except Exception:
@@ -183,27 +197,44 @@ class ModelManager:
                         raise ModelInstallError("Download is larger than the signed catalogue entry.")
                     if progress is not None:
                         progress(received, total)
-            return self.install_model_file(pack.pack_id, part, move=True)
+            return self.install_model_file(
+                pack.pack_id,
+                part,
+                move=True,
+                cancelled=cancelled,
+            )
         finally:
             part.unlink(missing_ok=True)
 
     def install_model_file(
-        self, pack_id: str, source: str | Path, *, move: bool = False
+        self,
+        pack_id: str,
+        source: str | Path,
+        *,
+        move: bool = False,
+        cancelled: CancelCallback | None = None,
     ) -> Path:
         pack = get_model_pack(pack_id)
         source_path = Path(source)
-        self._verify_model_file(pack, source_path)
+        self._verify_model_file(pack, source_path, cancelled=cancelled)
+        if cancelled is not None and cancelled():
+            raise ModelInstallError("Installation cancelled.")
         destination_dir = self.pack_dir(pack_id)
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / pack.filename
         temporary = destination.with_suffix(destination.suffix + ".installing")
         temporary.unlink(missing_ok=True)
-        if move:
-            os.replace(source_path, temporary)
-        else:
-            shutil.copyfile(source_path, temporary)
-        os.replace(temporary, destination)
-        self._write_manifest(pack)
+        try:
+            if move:
+                os.replace(source_path, temporary)
+            else:
+                shutil.copyfile(source_path, temporary)
+            if cancelled is not None and cancelled():
+                raise ModelInstallError("Installation cancelled.")
+            os.replace(temporary, destination)
+            self._write_manifest(pack)
+        finally:
+            temporary.unlink(missing_ok=True)
         return destination
 
     def install_offline_bundle(
@@ -223,10 +254,17 @@ class ModelManager:
             infos = archive.infolist()
             if sum(info.file_size for info in infos) > _MAX_OFFLINE_PACK_BYTES:
                 raise ModelInstallError("Offline model pack is too large.")
+            validation_root = self.root / ".offline-pack-validation"
+            destinations: set[str] = set()
             for info in infos:
-                path = PurePosixPath(info.filename)
-                if path.is_absolute() or ".." in path.parts:
-                    raise ModelInstallError("Unsafe path in offline model pack.")
+                try:
+                    destination = safe_zip_destination(validation_root, info.filename)
+                except UnsafeArchiveMemberError as exc:
+                    raise ModelInstallError("Unsafe path in offline model pack.") from exc
+                key = zip_destination_key(destination)
+                if key in destinations:
+                    raise ModelInstallError("Duplicate path in offline model pack.")
+                destinations.add(key)
                 if info.compress_size and info.file_size / info.compress_size > 250:
                     raise ModelInstallError("Unsafe compression ratio in offline model pack.")
             try:
@@ -259,7 +297,12 @@ class ModelManager:
                         received += len(chunk)
                         if progress is not None:
                             progress(received, info.file_size)
-                return self.install_model_file(pack.pack_id, temporary, move=True)
+                return self.install_model_file(
+                    pack.pack_id,
+                    temporary,
+                    move=True,
+                    cancelled=cancelled,
+                )
             finally:
                 temporary.unlink(missing_ok=True)
 
@@ -320,14 +363,25 @@ class ModelManager:
                 raise ModelInstallError("Refusing to remove a path outside the model directory.")
             shutil.rmtree(resolved)
 
-    def _verify_model_file(self, pack: ModelPack, path: Path) -> None:
+    def _verify_model_file(
+        self,
+        pack: ModelPack,
+        path: Path,
+        *,
+        cancelled: CancelCallback | None = None,
+    ) -> None:
         if not path.is_file():
             raise ModelInstallError("Model file was not found.")
         if path.stat().st_size != pack.size_bytes:
             raise ModelInstallError("Model size does not match the signed catalogue.")
         digest = hashlib.sha256()
         with open(path, "rb") as source:
-            for chunk in iter(lambda: source.read(_CHUNK), b""):
+            while True:
+                if cancelled is not None and cancelled():
+                    raise ModelInstallError("Installation cancelled.")
+                chunk = source.read(_CHUNK)
+                if not chunk:
+                    break
                 digest.update(chunk)
         if digest.hexdigest().casefold() != pack.sha256.casefold():
             raise ModelInstallError("SHA-256 verification failed; the file was not installed.")
