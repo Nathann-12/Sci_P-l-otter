@@ -208,6 +208,89 @@ def test_resize_changes_shape_and_carries_holes():
     assert np.isnan(out).any() and np.isfinite(out).any()
 
 
+def test_threshold_modes():
+    z = np.array([[0.0, 1.0], [2.0, 3.0]])
+    np.testing.assert_allclose(mo.threshold(z, 1.5, "binary"), [[0, 0], [1, 1]])
+    masked = mo.threshold(z, 1.5, "mask")
+    assert np.isnan(masked[0, 0]) and masked[1, 1] == 3.0
+    np.testing.assert_allclose(mo.threshold(z, 1.5, "to_zero"), [[0, 0], [2, 3]])
+    with pytest.raises(mo.MatrixOpsError, match="Unknown threshold"):
+        mo.threshold(z, 1.0, "magic")
+
+
+def test_edge_detect_highlights_a_step():
+    z = np.zeros((10, 10))
+    z[:, 5:] = 1.0                       # a vertical step edge
+    edges = mo.edge_detect(z, "sobel")
+    assert edges[:, 4:6].max() > edges[:, 0].max()  # response at the boundary
+    assert mo.edge_detect(z, "laplace").shape == z.shape
+    with pytest.raises(mo.MatrixOpsError, match="Unknown edge"):
+        mo.edge_detect(z, "magic")
+
+
+def test_contrast_scales_about_the_mean():
+    z = np.array([[0.0, 2.0], [4.0, 6.0]])
+    out = mo.contrast(z, brightness=0.0, contrast=2.0)
+    assert abs(out.mean() - z.mean()) < 1e-9          # mean preserved
+    assert (out.max() - out.min()) == pytest.approx(2 * (z.max() - z.min()))
+
+
+def test_morphology_dilate_and_erode_bound_the_signal():
+    z = np.zeros((7, 7))
+    z[3, 3] = 5.0
+    dil = mo.morphology(z, "dilate", 3)
+    ero = mo.morphology(z, "erode", 3)
+    assert dil[3, 2] == 5.0 and ero[3, 3] == 0.0       # dilation spreads, erosion shrinks
+    with pytest.raises(mo.MatrixOpsError, match="Unknown morphology"):
+        mo.morphology(z, "magic")
+
+
+def test_extract_roi_by_data_coordinates():
+    gx = np.linspace(0.0, 10.0, 11)
+    gy = np.linspace(0.0, 5.0, 6)
+    mesh_x, _ = np.meshgrid(gx, gy)
+    z = mesh_x.copy()
+    zr, xr, yr = mo.extract_roi(z, gx, gy, 3.0, 6.0, 1.0, 4.0)
+    assert xr.min() >= 3.0 and xr.max() <= 6.0
+    assert yr.min() >= 1.0 and yr.max() <= 4.0
+    with pytest.raises(mo.MatrixOpsError, match="2x2"):
+        mo.extract_roi(z, gx, gy, 3.0, 3.05, 1.0, 1.05)
+
+
+def test_surface_metrics_flat_vs_rough():
+    flat = np.ones((10, 10))
+    m = mo.surface_metrics(flat)
+    assert m["Ra"] == 0.0 and m["Rq"] == 0.0 and m["peak_to_valley"] == 0.0
+    rough = np.random.default_rng(0).normal(0, 1, (20, 20))
+    mr = mo.surface_metrics(rough)
+    assert mr["Rq"] >= mr["Ra"] > 0.0                 # RMS >= arithmetic roughness
+    assert mr["peak_to_valley"] > 0.0 and mr["mean_slope"] > 0.0
+
+
+def test_gradient_magnitude_respects_spacing():
+    gx = np.linspace(0.0, 10.0, 11)   # dx = 1
+    gy = np.linspace(0.0, 5.0, 6)
+    mesh_x, _ = np.meshgrid(gx, gy)
+    z = 2.0 * mesh_x                  # slope 2 in x, 0 in y
+    g = mo.gradient_magnitude(z, gx, gy)
+    np.testing.assert_allclose(g, 2.0, atol=1e-9)
+
+
+def test_stack_projection_modes_and_guard():
+    a = np.array([[1.0, 2.0], [3.0, 4.0]])
+    b = a + 10.0
+    np.testing.assert_allclose(mo.stack_project([a, b], "max"), b)
+    np.testing.assert_allclose(mo.stack_project([a, b], "mean"), a + 5.0)
+    np.testing.assert_allclose(mo.stack_project([a, b], "sum"), a + b)
+    with pytest.raises(mo.MatrixOpsError, match="at least two"):
+        mo.stack_project([a], "max")
+    with pytest.raises(mo.MatrixOpsError, match="same shape"):
+        mo.stack_project([a, np.ones((3, 3))], "max")
+    # per-pixel NaN handling: a hole in one frame is ignored, not propagated
+    c = a.copy(); c[0, 0] = np.nan
+    assert mo.stack_project([c, b], "mean")[0, 0] == b[0, 0]
+
+
 def test_image_to_matrix_luminance(tmp_path):
     import matplotlib.image as mpimg
 

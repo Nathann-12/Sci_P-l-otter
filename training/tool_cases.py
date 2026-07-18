@@ -424,6 +424,20 @@ def tool_seeds() -> list[ToolSeed]:
         ("ลบเมทริกซ์ Background ออกจากเมทริกซ์ที่ใช้งาน", {"other_book": "Background", "op": "subtract"}),
         ("หาผลต่างของภาพโดยลบเมทริกซ์ Dark ออก", {"other_book": "Dark", "op": "subtract"}),
     )
+    seeds += _tool(
+        "surface_metrics", "matrix",
+        ("Compute surface metrics like roughness Ra and Rq for the matrix.", {}),
+        ("Report the surface roughness and volume of the active matrix.", {}),
+        ("คำนวณความหยาบผิว Ra และ Rq ของเมทริกซ์", {}),
+        ("รายงานความหยาบผิวและปริมาตรใต้ผิวของเมทริกซ์ที่ใช้งาน", {}),
+    )
+    seeds += _tool(
+        "matrix_stack", "matrix",
+        ("Stack projection maximum intensity across Frame1 and Frame2.", {"books": ["Frame1", "Frame2"], "mode": "max"}),
+        ("Project matrix stack Slice_a and Slice_b by mean.", {"books": ["Slice_a", "Slice_b"], "mode": "mean"}),
+        ("รวมสแต็กแบบแม็กซ์โปรเจกชันจาก Frame1 และ Frame2", {"books": ["Frame1", "Frame2"], "mode": "max"}),
+        ("ทำ z สแต็กเฉลี่ยจากเมทริกซ์ Slice_a กับ Slice_b", {"books": ["Slice_a", "Slice_b"], "mode": "mean"}),
+    )
     return seeds
 
 

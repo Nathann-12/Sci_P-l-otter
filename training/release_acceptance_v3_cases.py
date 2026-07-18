@@ -90,6 +90,8 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("matrix_statistics", "th", "รายงานค่าสถิติของเมทริกซ์ที่กำลังใช้งานอยู่", {}, "matrix"),
         ReleaseToolSeed("line_profile", "en", "Extract a line profile across the matrix from 2,3 to 18,3 with 250 samples.", {"x0": 2, "y0": 3, "x1": 18, "y1": 3, "samples": 250}, "matrix"),
         ReleaseToolSeed("matrix_arithmetic", "th", "ลบเมทริกซ์ Baseline ออกจากเมทริกซ์ที่ใช้งานอยู่ตอนนี้", {"other_book": "Baseline", "op": "subtract"}, "matrix"),
+        ReleaseToolSeed("surface_metrics", "en", "Compute surface roughness Ra and Rq for the active matrix Book.", {}, "matrix"),
+        ReleaseToolSeed("matrix_stack", "th", "รวมสแต็กเมทริกซ์แบบแม็กซ์จาก Layer1 และ Layer2", {"books": ["Layer1", "Layer2"], "mode": "max"}, "matrix"),
     ]
 
 

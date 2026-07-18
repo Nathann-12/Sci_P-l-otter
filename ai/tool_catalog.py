@@ -38,7 +38,7 @@ GROUPS: Dict[str, tuple[str, ...]] = {
     "science": (
         "run_statistics", "global_fit", "analyze_peaks", "list_analysis_recipes",
     ),
-    "matrix": ("grid_xyz", "matrix_transform", "plot_matrix", "matrix_statistics", "line_profile", "matrix_arithmetic"),
+    "matrix": ("grid_xyz", "matrix_transform", "plot_matrix", "matrix_statistics", "line_profile", "matrix_arithmetic", "surface_metrics", "matrix_stack"),
     "gas": ("gas_live_control", "gas_response"),
     "specialty": (
         "cv_peaks", "tafel_analysis", "raman_dg", "normalize_spectrum",
@@ -134,6 +134,8 @@ TOOL_ALIASES: Dict[str, tuple[str, ...]] = {
     "matrix_statistics": ("matrix statistics", "matrix stats", "matrix min max mean", "สถิติเมทริกซ์", "ค่าสูงสุดต่ำสุดเมทริกซ์"),
     "line_profile": ("line profile", "profile along line", "extract profile", "line scan", "โปรไฟล์เส้น", "สแกนตามเส้น", "ดึงโปรไฟล์"),
     "matrix_arithmetic": ("matrix arithmetic", "subtract matrix", "difference image", "matrix a minus b", "combine matrices", "ลบเมทริกซ์", "หักลบภาพ", "ผลต่างเมทริกซ์"),
+    "surface_metrics": ("surface metrics", "surface roughness", "roughness ra rq", "peak to valley", "ความหยาบผิว", "roughness ผิว", "ปริมาตรใต้ผิว"),
+    "matrix_stack": ("matrix stack", "stack projection", "maximum intensity projection", "z-stack", "project stack", "รวมสแต็ก", "z สแต็ก", "แม็กซ์โปรเจกชัน"),
     "run_statistics": ("t-test", "t test", "anova", "regression", "hypothesis test", "p-value", "mann-whitney", "wilcoxon", "kruskal", "ทดสอบสมมติฐาน", "ที-เทสต์", "การถดถอย", "หาค่าพี"),
     "global_fit": ("global fit", "shared parameter", "fit multiple datasets", "ฟิตร่วม", "พารามิเตอร์ร่วม", "ฟิตหลายชุด"),
     "analyze_peaks": ("peak analyzer", "fit peaks", "multi-peak fit", "baseline and peaks", "ฟิตพีค", "วิเคราะห์พีค", "ฟิตหลายพีค"),
@@ -165,6 +167,7 @@ CREATE_TOOLS = {
     "run_statistics", "global_fit", "analyze_peaks",
     "grid_xyz", "matrix_transform", "plot_matrix",
     "matrix_statistics", "line_profile", "matrix_arithmetic",
+    "surface_metrics", "matrix_stack",
 }
 
 

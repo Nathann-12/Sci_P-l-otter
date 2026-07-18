@@ -6,6 +6,8 @@ smearing them across the matrix).
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 
@@ -16,6 +18,9 @@ class MatrixOpsError(ValueError):
 BACKGROUND_MODES = ("min", "mean", "median", "plane")
 NORMALIZE_MODES = ("minmax", "zscore")
 COMBINE_OPS = ("subtract", "add", "multiply", "divide")
+THRESHOLD_MODES = ("binary", "mask", "to_zero")
+EDGE_METHODS = ("sobel", "prewitt", "laplace")
+MORPHOLOGY_OPS = ("erode", "dilate", "open", "close")
 
 
 def _as_matrix(z) -> np.ndarray:
@@ -267,6 +272,183 @@ def line_profile(z, x, y, p0, p1, samples: int = 200):
     values = np.where(coverage > 0.5, values, np.nan)
     distance = np.hypot(px - x0, py - y0)
     return distance, values, px, py
+
+
+def threshold(z, level: float, mode: str = "binary") -> np.ndarray:
+    """Threshold at ``level``: binary 0/1, keep-above mask (NaN below), or to-zero."""
+    zz = _as_matrix(z)
+    mode = str(mode).strip().lower()
+    if mode not in THRESHOLD_MODES:
+        raise MatrixOpsError(
+            f"Unknown threshold mode '{mode}'. Choose one of: {', '.join(THRESHOLD_MODES)}")
+    level = float(level)
+    above = zz >= level
+    if mode == "binary":
+        out = np.where(above, 1.0, 0.0)
+    elif mode == "mask":
+        out = np.where(above, zz, np.nan)
+    else:  # to_zero
+        out = np.where(above, zz, 0.0)
+    out[~np.isfinite(zz)] = np.nan
+    return out
+
+
+def edge_detect(z, method: str = "sobel") -> np.ndarray:
+    """Gradient-magnitude edge map (NaN cells filled with the finite mean)."""
+    zz = _as_matrix(z)
+    method = str(method).strip().lower()
+    if method not in EDGE_METHODS:
+        raise MatrixOpsError(
+            f"Unknown edge method '{method}'. Choose one of: {', '.join(EDGE_METHODS)}")
+    from scipy import ndimage
+
+    finite = np.isfinite(zz)
+    if not finite.any():
+        raise MatrixOpsError("Matrix has no finite values")
+    filled = np.where(finite, zz, np.nanmean(zz))
+    if method == "laplace":
+        return np.abs(ndimage.laplace(filled))
+    op = ndimage.sobel if method == "sobel" else ndimage.prewitt
+    gx = op(filled, axis=1)
+    gy = op(filled, axis=0)
+    return np.hypot(gx, gy)
+
+
+def contrast(z, brightness: float = 0.0, contrast: float = 1.0) -> np.ndarray:
+    """Linear brightness/contrast about the mean: ``mean + c*(z-mean) + b``."""
+    zz = _as_matrix(z)
+    c = float(contrast)
+    b = float(brightness)
+    if not 0.0 < c <= 50.0:
+        raise MatrixOpsError("contrast must be between 0 and 50")
+    mean = np.nanmean(zz)
+    return mean + c * (zz - mean) + b
+
+
+def morphology(z, op: str = "dilate", size: int = 3) -> np.ndarray:
+    """Grayscale morphology (erode/dilate/open/close) with a square structuring element."""
+    zz = _as_matrix(z)
+    op = str(op).strip().lower()
+    if op not in MORPHOLOGY_OPS:
+        raise MatrixOpsError(
+            f"Unknown morphology op '{op}'. Choose one of: {', '.join(MORPHOLOGY_OPS)}")
+    size = int(size)
+    if not (2 <= size <= 99):
+        raise MatrixOpsError("Structuring element size must be between 2 and 99")
+    from scipy import ndimage
+
+    finite = np.isfinite(zz)
+    fill = np.nanmin(zz) if op in ("dilate", "close") else np.nanmax(zz)
+    filled = np.where(finite, zz, fill)
+    funcs = {
+        "erode": ndimage.grey_erosion, "dilate": ndimage.grey_dilation,
+        "open": ndimage.grey_opening, "close": ndimage.grey_closing,
+    }
+    out = funcs[op](filled, size=(size, size))
+    out[~finite] = np.nan
+    return out
+
+
+def extract_roi(z, x, y, x0, x1, y0, y1):
+    """Crop to a rectangle given in DATA coordinates. Returns ``(z, x, y)``."""
+    zz = _as_matrix(z)
+    gx = np.asarray(x, dtype=float).ravel()
+    gy = np.asarray(y, dtype=float).ravel()
+    if gx.size != zz.shape[1] or gy.size != zz.shape[0]:
+        raise MatrixOpsError("Coordinate vectors do not match the matrix shape")
+    xlo, xhi = sorted((float(x0), float(x1)))
+    ylo, yhi = sorted((float(y0), float(y1)))
+    col_mask = (gx >= xlo) & (gx <= xhi)
+    row_mask = (gy >= ylo) & (gy <= yhi)
+    if col_mask.sum() < 2 or row_mask.sum() < 2:
+        raise MatrixOpsError("The selected region contains fewer than 2x2 cells")
+    return (zz[np.ix_(row_mask, col_mask)].copy(),
+            gx[col_mask].copy(), gy[row_mask].copy())
+
+
+def surface_metrics(z, x=None, y=None) -> dict:
+    """Roughness (Ra/Rq), peak-to-valley, volume and gradient stats of a surface."""
+    zz = _as_matrix(z)
+    finite = np.isfinite(zz)
+    if finite.sum() < 4:
+        raise MatrixOpsError("Need at least 4 finite cells for surface metrics")
+    ny, nx = zz.shape
+    gx = np.asarray(x, dtype=float) if x is not None else np.arange(nx, dtype=float)
+    gy = np.asarray(y, dtype=float) if y is not None else np.arange(ny, dtype=float)
+    values = zz[finite]
+    mean = float(np.mean(values))
+    ra = float(np.mean(np.abs(values - mean)))          # arithmetic roughness
+    rq = float(np.sqrt(np.mean((values - mean) ** 2)))  # RMS roughness
+    dx = float(np.mean(np.diff(gx))) if gx.size > 1 else 1.0
+    dy = float(np.mean(np.diff(gy))) if gy.size > 1 else 1.0
+    filled = np.where(finite, zz, mean)
+    gyv, gxv = np.gradient(filled, dy, dx)
+    slope = np.hypot(gxv, gyv)
+    # trapezoid volume of (z - min) over the finite grid
+    base = float(np.nanmin(zz))
+    trapezoid = getattr(np, "trapezoid", None) or np.trapz  # numpy 2.x rename
+    volume = float(trapezoid(trapezoid(filled - base, gx, axis=1), gy))
+    return {
+        "Ra": ra,
+        "Rq": rq,
+        "peak_to_valley": float(np.max(values) - np.min(values)),
+        "mean_height": mean,
+        "volume_above_min": volume,
+        "max_slope": float(np.max(slope)),
+        "mean_slope": float(np.mean(slope)),
+        "projected_area": float((gx[-1] - gx[0]) * (gy[-1] - gy[0]))
+        if gx.size > 1 and gy.size > 1 else float(nx * ny),
+    }
+
+
+STACK_PROJECTIONS = ("mean", "max", "min", "sum", "std")
+
+
+def stack_project(frames, mode: str = "max") -> np.ndarray:
+    """Project a stack of equally-shaped matrices to a single matrix.
+
+    ``max`` is the classic microscopy maximum-intensity projection; ``mean``
+    averages a z-stack for noise reduction; ``std`` highlights what changes
+    across frames. NaN cells are ignored per pixel.
+    """
+    mode = str(mode).strip().lower()
+    if mode not in STACK_PROJECTIONS:
+        raise MatrixOpsError(
+            f"Unknown projection '{mode}'. Choose one of: {', '.join(STACK_PROJECTIONS)}")
+    mats = [_as_matrix(f) for f in frames]
+    if len(mats) < 2:
+        raise MatrixOpsError("A stack needs at least two matrix frames")
+    shape = mats[0].shape
+    if any(m.shape != shape for m in mats):
+        raise MatrixOpsError("All stack frames must have the same shape")
+    cube = np.stack(mats, axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns
+        func = {
+            "mean": np.nanmean, "max": np.nanmax, "min": np.nanmin,
+            "sum": np.nansum, "std": np.nanstd,
+        }[mode]
+        out = func(cube, axis=0)
+    all_nan = np.all(~np.isfinite(cube), axis=0)
+    out = np.asarray(out, dtype=float)
+    out[all_nan] = np.nan
+    return out
+
+
+def gradient_magnitude(z, x=None, y=None) -> np.ndarray:
+    """Slope map |∇z| honouring the physical cell spacing."""
+    zz = _as_matrix(z)
+    ny, nx = zz.shape
+    gx = np.asarray(x, dtype=float) if x is not None else np.arange(nx, dtype=float)
+    gy = np.asarray(y, dtype=float) if y is not None else np.arange(ny, dtype=float)
+    dx = float(np.mean(np.diff(gx))) if gx.size > 1 else 1.0
+    dy = float(np.mean(np.diff(gy))) if gy.size > 1 else 1.0
+    finite = np.isfinite(zz)
+    filled = np.where(finite, zz, np.nanmean(zz))
+    gyv, gxv = np.gradient(filled, dy, dx)
+    out = np.hypot(gxv, gyv)
+    out[~finite] = np.nan
+    return out
 
 
 def image_to_matrix(path: str) -> np.ndarray:

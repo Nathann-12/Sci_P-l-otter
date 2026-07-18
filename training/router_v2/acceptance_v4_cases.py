@@ -61,6 +61,8 @@ TOOL_CASES = (
     ("line_profile", "th", "ดึงโปรไฟล์เส้นบนเมทริกซ์จากจุด 3,5 ไป 20,5"),
     ("matrix_arithmetic", "th", "ลบเมทริกซ์ Dark ออกจากเมทริกซ์หลักที่กำลังใช้อยู่"),
     ("plot_matrix", "en", "Plot matrix data as a 3D surface with its coordinates."),
+    ("surface_metrics", "en", "Compute the surface roughness metrics of the active matrix."),
+    ("matrix_stack", "th", "รวมสแต็กเมทริกซ์แบบแม็กซ์จาก Slice1 และ Slice2"),
 )
 
 

@@ -202,6 +202,67 @@ def test_ai_matrix_analysis_tools(window):
     assert "not available" in out or "Could not" in out
 
 
+def test_matrix_image_ops_and_surface_and_stack(window):
+    frame = _xyz_frame()
+    window._stage_insert("XYZ Img", frame, None)
+    book, _ = window.matrix_grid_core("xpos", "ypos", "height")
+
+    def use_matrix():
+        window._df = window._datasets[book]["df"]
+
+    for op, params in (
+        ("threshold", {"level": 0.0, "mode": "binary"}),
+        ("edge_detect", {"method": "sobel"}),
+        ("contrast", {"brightness": 0.1, "contrast": 2.0}),
+        ("morphology", {"mode": "dilate", "size": 3}),
+        ("gradient", {}),
+    ):
+        use_matrix()
+        out_book, shape = window.matrix_transform_core(op, **params)
+        assert out_book in window._datasets and shape == (5, 9)
+
+    use_matrix()
+    roi_book, roi_shape = window.matrix_transform_core(
+        "roi", x0=1.0, x1=3.0, y0=0.5, y1=2.5)
+    assert roi_shape[0] < 5 and roi_shape[1] < 9
+
+    use_matrix()
+    sbook, metrics = window.matrix_surface_metrics_core()
+    assert sbook in window._datasets
+    assert {"Ra", "Rq", "peak_to_valley", "volume_above_min"} <= set(metrics)
+
+    # a stack from two duplicated matrix Books
+    window._datasets["Frame A"] = {"df": window._datasets[book]["df"].copy(), "path": None}
+    window._datasets["Frame B"] = {"df": window._datasets[book]["df"].copy(), "path": None}
+    pbook, pshape = window.matrix_stack_core(["Frame A", "Frame B"], "max")
+    assert pbook in window._datasets and pshape == (5, 9)
+
+
+def test_ai_matrix_image_surface_stack_tools(window):
+    from ai.app_tools import build_app_registry
+
+    frame = _xyz_frame()
+    window._stage_insert("XYZ AI3", frame, None)
+    registry = build_app_registry(window)
+    registry.execute("grid_xyz", {
+        "x_column": "xpos", "y_column": "ypos", "z_column": "height"})
+    book = [n for n in window._datasets if n.startswith("Matrix height")][-1]
+
+    window._df = window._datasets[book]["df"]
+    assert "surface metrics" in registry.execute("surface_metrics", {}).lower()
+    window._df = window._datasets[book]["df"]
+    assert "threshold" in registry.execute(
+        "matrix_transform", {"op": "threshold", "level": 0.0}).lower()
+
+    window._datasets["FA"] = {"df": window._datasets[book]["df"].copy(), "path": None}
+    window._datasets["FB"] = {"df": window._datasets[book]["df"].copy(), "path": None}
+    window._df = window._datasets[book]["df"]
+    assert "projection" in registry.execute(
+        "matrix_stack", {"books": ["FA", "FB"], "mode": "mean"}).lower()
+    assert "at least two" in registry.execute(
+        "matrix_stack", {"books": ["FA"]}).lower()
+
+
 def _matrix_of(window, book):
     from analysis.gridding import dataframe_to_matrix
 

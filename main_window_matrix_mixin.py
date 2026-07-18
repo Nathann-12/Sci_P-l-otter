@@ -29,6 +29,7 @@ MATRIX_TRANSFORMS = (
     "transpose", "flip_horizontal", "flip_vertical", "rotate90", "crop",
     "smooth_gaussian", "smooth_median", "subtract_background", "normalize",
     "clip", "fft2", "resize",
+    "threshold", "edge_detect", "contrast", "morphology", "gradient", "roi",
 )
 
 
@@ -74,13 +75,31 @@ class MainWindowMatrixMixin:
         filters.addAction("Resize / Resample...").triggered.connect(
             lambda: self.matrix_transform_action("resize"))
 
+        image = menu.addMenu("Image")
+        image.addAction("Threshold...").triggered.connect(
+            lambda: self.matrix_transform_action("threshold"))
+        image.addAction("Edge Detection...").triggered.connect(
+            lambda: self.matrix_transform_action("edge_detect"))
+        image.addAction("Brightness / Contrast...").triggered.connect(
+            lambda: self.matrix_transform_action("contrast"))
+        image.addAction("Morphology...").triggered.connect(
+            lambda: self.matrix_transform_action("morphology"))
+        image.addAction("Extract Region (ROI)...").triggered.connect(
+            self.matrix_roi_dialog)
+
         analyze = menu.addMenu("Analyze")
         analyze.addAction("Statistics").triggered.connect(self.matrix_statistics_action)
+        analyze.addAction("Surface Metrics (roughness/volume)").triggered.connect(
+            self.matrix_surface_metrics_action)
         analyze.addAction("Line Profile...").triggered.connect(self.matrix_line_profile_dialog)
+        analyze.addAction("Gradient / Slope Map").triggered.connect(
+            lambda: self.matrix_transform_action("gradient"))
         analyze.addAction("Matrix Arithmetic (A ⊕ B)...").triggered.connect(
             self.matrix_arithmetic_dialog)
         analyze.addAction("2D FFT (magnitude)").triggered.connect(
             lambda: self.matrix_transform_action("fft2"))
+        analyze.addAction("Stack Projection...").triggered.connect(
+            self.matrix_stack_dialog)
 
         visual = menu.addMenu("Visualize")
         visual.addAction("Heatmap (Matrix)").triggered.connect(
@@ -253,6 +272,27 @@ class MainWindowMatrixMixin:
                               int(params.get("nx", z.shape[1])))
             oy = np.linspace(y[0], y[-1], out.shape[0])
             ox = np.linspace(x[0], x[-1], out.shape[1])
+        elif op == "threshold":
+            out = mops.threshold(z, float(params.get("level", 0.0)),
+                                 str(params.get("mode", "binary")))
+            ox, oy = x, y
+        elif op == "edge_detect":
+            out = mops.edge_detect(z, str(params.get("method", "sobel")))
+            ox, oy = x, y
+        elif op == "contrast":
+            out = mops.contrast(z, float(params.get("brightness", 0.0)),
+                                float(params.get("contrast", 1.0)))
+            ox, oy = x, y
+        elif op == "morphology":
+            out = mops.morphology(z, str(params.get("mode", "dilate")),
+                                  int(params.get("size", 3)))
+            ox, oy = x, y
+        elif op == "gradient":
+            out, ox, oy = mops.gradient_magnitude(z, x, y), x, y
+        elif op == "roi":
+            out, ox, oy = mops.extract_roi(
+                z, x, y, params.get("x0", x[0]), params.get("x1", x[-1]),
+                params.get("y0", y[0]), params.get("y1", y[-1]))
         elif op == "clip":
             out = mops.clip_range(z, params.get("lower"), params.get("upper"))
             ox, oy = x, y
@@ -337,7 +377,38 @@ class MainWindowMatrixMixin:
                  "default": z.shape[1], "minimum": 2, "maximum": 4000},
             ])
             return values
-        return {}  # fft2 and geometry ops need no parameters
+        if op == "threshold":
+            z, _x, _y = self._matrix_from_active()
+            mid = float(np.nanmedian(z))
+            values = self.ask_form("Threshold", [
+                {"name": "level", "label": "Level", "kind": "float", "default": mid},
+                {"name": "mode", "label": "Mode", "kind": "choice",
+                 "choices": list(mops.THRESHOLD_MODES), "default": "binary"},
+            ])
+            return values
+        if op == "edge_detect":
+            values = self.ask_form("Edge Detection", [
+                {"name": "method", "label": "Operator", "kind": "choice",
+                 "choices": list(mops.EDGE_METHODS), "default": "sobel"},
+            ])
+            return values
+        if op == "contrast":
+            values = self.ask_form("Brightness / Contrast", [
+                {"name": "brightness", "label": "Brightness (+/-)", "kind": "float",
+                 "default": 0.0},
+                {"name": "contrast", "label": "Contrast (x)", "kind": "float",
+                 "default": 1.0, "minimum": 0.01, "maximum": 50.0},
+            ])
+            return values
+        if op == "morphology":
+            values = self.ask_form("Morphology", [
+                {"name": "mode", "label": "Operation", "kind": "choice",
+                 "choices": list(mops.MORPHOLOGY_OPS), "default": "dilate"},
+                {"name": "size", "label": "Element size", "kind": "int",
+                 "default": 3, "minimum": 2, "maximum": 99},
+            ])
+            return values
+        return {}  # fft2 / gradient / geometry ops need no parameters
 
     # ----------------------------------------------------------- analyze cores
     def matrix_statistics_core(self):
@@ -454,6 +525,103 @@ class MainWindowMatrixMixin:
             self.error_box("Matrix arithmetic failed", str(exc))
             return
         self.notify(f"A {values['op']} B → {shape[0]}x{shape[1]} matrix; Book: {book}")
+
+    def matrix_surface_metrics_core(self):
+        z, x, y = self._matrix_from_active()
+        metrics = mops.surface_metrics(z, x, y)
+        rows = [{"metric": k, "value": v} for k, v in metrics.items()]
+        book = self._open_signal_result_book("Surface Metrics", pd.DataFrame(rows))
+        record = getattr(self, "_record_op", None)
+        if callable(record):
+            record("matrix_surface_metrics")
+        return book, metrics
+
+    def matrix_surface_metrics_action(self):
+        try:
+            book, metrics = self.matrix_surface_metrics_core()
+        except (mops.MatrixOpsError, GriddingError) as exc:
+            self.inform("Surface metrics", str(exc))
+            return
+        self.notify(
+            f"Surface: Ra {metrics['Ra']:.4g}, Rq {metrics['Rq']:.4g}, "
+            f"peak-to-valley {metrics['peak_to_valley']:.4g}; Book: {book}")
+
+    def matrix_roi_core(self, x0, x1, y0, y1):
+        z, x, y = self._matrix_from_active()
+        out, ox, oy = mops.extract_roi(z, x, y, x0, x1, y0, y1)
+        book = self._open_matrix_book("Matrix ROI", out, ox, oy)
+        record = getattr(self, "_record_op", None)
+        if callable(record):
+            record("matrix_roi", x0=x0, x1=x1, y0=y0, y1=y1)
+        return book, out.shape
+
+    def matrix_roi_dialog(self):
+        try:
+            z, x, y = self._matrix_from_active()
+        except GriddingError as exc:
+            self.inform("Not a matrix Book", str(exc))
+            return
+        values = self.ask_form("Extract Region (ROI)", [
+            {"name": "x0", "label": "X from", "kind": "float", "default": float(x[0])},
+            {"name": "x1", "label": "X to", "kind": "float", "default": float(x[-1])},
+            {"name": "y0", "label": "Y from", "kind": "float", "default": float(y[0])},
+            {"name": "y1", "label": "Y to", "kind": "float", "default": float(y[-1])},
+        ])
+        if not values:
+            return
+        try:
+            book, shape = self.matrix_roi_core(
+                values["x0"], values["x1"], values["y0"], values["y1"])
+        except (mops.MatrixOpsError, GriddingError) as exc:
+            self.error_box("ROI failed", str(exc))
+            return
+        self.notify(f"ROI → {shape[0]}x{shape[1]} matrix; Book: {book}")
+
+    def matrix_stack_core(self, books, mode="max"):
+        """Project several matrix Books (a stack) into one matrix Book."""
+        names = list(books)
+        if len(names) < 2:
+            raise mops.MatrixOpsError("Select at least two matrix Books for a stack")
+        frames, ref_x, ref_y = [], None, None
+        for name in names:
+            frame = self._dataset_frame(name)
+            if frame is None:
+                raise mops.MatrixOpsError(f"Book '{name}' is not available")
+            zi, xi, yi = dataframe_to_matrix(frame)
+            frames.append(zi)
+            if ref_x is None:
+                ref_x, ref_y = xi, yi
+        out = mops.stack_project(frames, mode)
+        book = self._open_matrix_book(f"Stack {mode.title()}", out, ref_x, ref_y)
+        record = getattr(self, "_record_op", None)
+        if callable(record):
+            record("matrix_stack", books=names, mode=mode)
+        return book, out.shape
+
+    def matrix_stack_dialog(self):
+        active = self._active_book_label()
+        candidates = self._dataset_names()
+        if len(candidates) < 2:
+            self.inform("Stack Projection",
+                        "Open at least two matrix Books to build a stack.")
+            return
+        values = self.ask_form("Stack Projection", [
+            {"name": "mode", "label": "Projection", "kind": "choice",
+             "choices": list(mops.STACK_PROJECTIONS), "default": "max"},
+            {"name": "books", "label": "Matrix Books (stack frames)",
+             "kind": "multi_choice", "choices": candidates,
+             "default": [c for c in candidates if c == active] or candidates[:1]},
+        ])
+        if not values:
+            return
+        books = values.get("books") or []
+        try:
+            book, shape = self.matrix_stack_core(books, str(values["mode"]))
+        except (mops.MatrixOpsError, GriddingError) as exc:
+            self.error_box("Stack projection failed", str(exc))
+            return
+        self.notify(f"{values['mode']} projection of {len(books)} frames "
+                    f"→ {shape[0]}x{shape[1]} matrix; Book: {book}")
 
     # -------------------------------------------------------------- visualize
     def matrix_plot_core(self, kind: str = "heatmap") -> str:

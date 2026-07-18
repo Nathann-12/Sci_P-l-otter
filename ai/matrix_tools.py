@@ -62,8 +62,9 @@ def _tool_matrix_transform(window, args: Dict[str, Any]) -> str:
             "normalize or clip."
         )
     params: Dict[str, Any] = {}
-    for key in ("sigma", "size", "mode", "lower", "upper",
-                "row0", "row1", "col0", "col1"):
+    for key in ("sigma", "size", "mode", "method", "level", "brightness",
+                "contrast", "lower", "upper", "row0", "row1", "col0", "col1",
+                "x0", "x1", "y0", "y1", "ny", "nx"):
         if args.get(key) is not None:
             params[key] = args[key]
     try:
@@ -119,6 +120,35 @@ def _tool_matrix_arithmetic(window, args: Dict[str, Any]) -> str:
         return f"Could not combine the matrices: {exc}"
 
 
+def _tool_surface_metrics(window, args: Dict[str, Any]) -> str:
+    try:
+        book, m = window.matrix_surface_metrics_core()
+        return (
+            f"Surface metrics: Ra {m['Ra']:.4g}, Rq {m['Rq']:.4g}, peak-to-valley "
+            f"{m['peak_to_valley']:.4g}, volume {m['volume_above_min']:.4g}, "
+            f"mean slope {m['mean_slope']:.4g}. Table Book: {book}."
+        )
+    except Exception as exc:
+        logger.debug("surface_metrics tool failed", exc_info=True)
+        return f"Could not compute surface metrics: {exc}"
+
+
+def _tool_matrix_stack(window, args: Dict[str, Any]) -> str:
+    books = args.get("books")
+    if not isinstance(books, list) or len(books) < 2:
+        return "Provide 'books' — a list of at least two matrix Book names to stack."
+    mode = str(args.get("mode", "max") or "max")
+    try:
+        book, shape = window.matrix_stack_core(books, mode)
+        return (
+            f"{mode} projection of {len(books)} frames -> {shape[0]}x{shape[1]} "
+            f"matrix Book: {book}."
+        )
+    except Exception as exc:
+        logger.debug("matrix_stack tool failed", exc_info=True)
+        return f"Could not project the stack: {exc}"
+
+
 def _tool_plot_matrix(window, args: Dict[str, Any]) -> str:
     kind = str(args.get("kind", "heatmap") or "heatmap").strip().lower()
     try:
@@ -151,23 +181,34 @@ def register_matrix_tools(registry, window) -> None:
     )
     registry.add(
         "matrix_transform",
-        "Transform or filter the active matrix Book into a new matrix Book: "
-        "transpose, flip_horizontal, flip_vertical, rotate90, crop "
-        "(row0/row1/col0/col1), smooth_gaussian (sigma), smooth_median (size), "
-        "subtract_background (mode: min/mean/median/plane), normalize "
-        "(mode: minmax/zscore), clip (lower/upper), fft2 (2-D FFT magnitude), "
-        "or resize (ny/nx).",
+        "Transform, filter or image-process the active matrix Book into a new "
+        "matrix Book. op: transpose, flip_horizontal, flip_vertical, rotate90, "
+        "crop (row0..col1) or roi (x0/x1/y0/y1 in data coords), smooth_gaussian "
+        "(sigma), smooth_median (size), subtract_background (mode: "
+        "min/mean/median/plane), normalize (mode: minmax/zscore), clip "
+        "(lower/upper), fft2, resize (ny/nx), threshold (level, mode: "
+        "binary/mask/to_zero), edge_detect (method: sobel/prewitt/laplace), "
+        "contrast (brightness, contrast), morphology (mode: "
+        "erode/dilate/open/close, size), or gradient.",
         {
             "op": {"type": "string", "description": "operation name", "required": True},
             "sigma": {"type": "number", "description": "gaussian sigma", "required": False},
-            "size": {"type": "integer", "description": "median window (odd)", "required": False},
-            "mode": {"type": "string", "description": "background/normalize mode", "required": False},
+            "size": {"type": "integer", "description": "median/morphology window", "required": False},
+            "mode": {"type": "string", "description": "background/normalize/threshold/morphology mode", "required": False},
+            "method": {"type": "string", "description": "edge operator", "required": False},
+            "level": {"type": "number", "description": "threshold level", "required": False},
+            "brightness": {"type": "number", "description": "contrast brightness offset", "required": False},
+            "contrast": {"type": "number", "description": "contrast multiplier", "required": False},
             "lower": {"type": "number", "description": "clip lower limit", "required": False},
             "upper": {"type": "number", "description": "clip upper limit", "required": False},
             "row0": {"type": "integer", "description": "crop first row", "required": False},
             "row1": {"type": "integer", "description": "crop last row (exclusive)", "required": False},
             "col0": {"type": "integer", "description": "crop first column", "required": False},
             "col1": {"type": "integer", "description": "crop last column (exclusive)", "required": False},
+            "x0": {"type": "number", "description": "roi X from (data coords)", "required": False},
+            "x1": {"type": "number", "description": "roi X to", "required": False},
+            "y0": {"type": "number", "description": "roi Y from", "required": False},
+            "y1": {"type": "number", "description": "roi Y to", "required": False},
             "ny": {"type": "integer", "description": "resize rows", "required": False},
             "nx": {"type": "integer", "description": "resize columns", "required": False},
         },
@@ -219,4 +260,26 @@ def register_matrix_tools(registry, window) -> None:
             },
         },
         lambda args: _tool_plot_matrix(window, args),
+    )
+    registry.add(
+        "surface_metrics",
+        "Compute surface metrics of the active matrix Book — roughness (Ra/Rq), "
+        "peak-to-valley, volume above the minimum, and slope statistics — into "
+        "a table Book.",
+        {},
+        lambda args: _tool_surface_metrics(window, args),
+    )
+    registry.add(
+        "matrix_stack",
+        "Project a stack of matrix Books (same shape) into one matrix Book — "
+        "max/mean/min/sum/std across frames (e.g. maximum-intensity projection).",
+        {
+            "books": {"type": "array", "description": "matrix Book names to stack", "required": True},
+            "mode": {
+                "type": "string", "required": False,
+                "description": "max | mean | min | sum | std",
+                "enum": ["max", "mean", "min", "sum", "std"],
+            },
+        },
+        lambda args: _tool_matrix_stack(window, args),
     )
