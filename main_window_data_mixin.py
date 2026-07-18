@@ -112,6 +112,9 @@ class MainWindowDataMixin:
             connect_state = getattr(self, "_connect_workbook_state_signal", None)
             if callable(connect_state):
                 connect_state(wb)
+            connect_recipes = getattr(self, "_connect_analysis_recipe_book", None)
+            if callable(connect_recipes):
+                connect_recipes(wb)
         except Exception:
             logging.getLogger(__name__).debug("book signal wiring failed", exc_info=True)
 

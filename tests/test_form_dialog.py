@@ -80,3 +80,15 @@ def test_show_if_accepts_multiple_values(qapp):
     assert not d._rows["x"][1].isVisibleTo(d)
     d._widgets["kind"].setCurrentText("c")
     assert d._rows["x"][1].isVisibleTo(d)
+
+
+def test_multi_choice_returns_selected_values(qapp):
+    d = FormDialog("t", [{
+        "name": "columns", "label": "Columns", "kind": "multi_choice",
+        "options": ["time", "signal A", "signal B"],
+        "default": ["signal A", "signal B"],
+    }])
+    assert d.values()["columns"] == ["signal A", "signal B"]
+    d._widgets["columns"].clearSelection()
+    d._widgets["columns"].item(0).setSelected(True)
+    assert d.values()["columns"] == ["time"]

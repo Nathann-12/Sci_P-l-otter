@@ -35,6 +35,14 @@ class _Host(QWidget):
         self.plot_mode = plot_mode
 
 
+class _RecipeHost(_Host):
+    def analysis_recipe_summaries(self):
+        return [{
+            "id": "r1", "name": "Welch comparison", "status": "Clean",
+            "mode": "Auto", "source": "Book1", "result": "Welch Results",
+        }]
+
+
 def _leaf_titles(explorer):
     """Return titles of every window (leaf) node mapped to a sub-window."""
     return sorted(item.text(0) for item in explorer._item_to_sub.keys())
@@ -240,3 +248,14 @@ def test_set_workspace_rebinds_and_refreshes(qapp):
     # Signals from the old workspace no longer touch the tree.
     ws1.add_tab("Ghost")
     assert "Ghost" not in _leaf_titles(explorer)
+
+
+def test_explorer_lists_analysis_recipes_without_counting_them_as_windows(qapp):
+    host = _RecipeHost()
+    workspace = MdiWorkspace(host)
+    explorer = ProjectExplorer(host, workspace=workspace)
+    assert len(explorer._recipe_items) == 1
+    item = next(iter(explorer._recipe_items))
+    assert item.text(0) == "Welch comparison [Clean]"
+    assert "Mode: Auto" in item.toolTip(0)
+    assert len(explorer._item_to_sub) == 1  # Graph only; recipe is not an MDI window.

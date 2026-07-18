@@ -612,6 +612,31 @@ class MainWindowMenuMixin:
         _analysis_action(statistics_menu, "Descriptive Statistics...", self.feature_show_statistics)
         _analysis_action(statistics_menu, "Covariance Matrix...", self.feature_show_covariance)
         _analysis_action(statistics_menu, "Correlation Matrix...", self.feature_show_covariance)
+        statistics_menu.addSeparator()
+        hypothesis_menu = statistics_menu.addMenu("Hypothesis Tests")
+        _analysis_action(hypothesis_menu, "One-Sample t-Test...",
+                         lambda: self.scientific_open_statistics("one_sample_t_test"))
+        _analysis_action(hypothesis_menu, "Independent t-Test (Welch)...",
+                         lambda: self.scientific_open_statistics("independent_t_test"))
+        _analysis_action(hypothesis_menu, "Paired t-Test...",
+                         lambda: self.scientific_open_statistics("paired_t_test"))
+        anova_menu = statistics_menu.addMenu("ANOVA")
+        _analysis_action(anova_menu, "One-Way ANOVA...",
+                         lambda: self.scientific_open_statistics("one_way_anova"))
+        _analysis_action(anova_menu, "Two-Way ANOVA...",
+                         lambda: self.scientific_open_statistics("two_way_anova"))
+        nonparametric_menu = statistics_menu.addMenu("Nonparametric Tests")
+        _analysis_action(nonparametric_menu, "Mann-Whitney U Test...",
+                         lambda: self.scientific_open_statistics("mann_whitney_test"))
+        _analysis_action(nonparametric_menu, "Wilcoxon Signed-Rank Test...",
+                         lambda: self.scientific_open_statistics("wilcoxon_signed_rank_test"))
+        _analysis_action(nonparametric_menu, "Kruskal-Wallis Test...",
+                         lambda: self.scientific_open_statistics("kruskal_wallis_test"))
+        statistics_menu.addSeparator()
+        _analysis_action(statistics_menu, "Multiple Linear Regression...",
+                         lambda: self.scientific_open_statistics("multiple_linear_regression"))
+        _analysis_action(statistics_menu, "Adjust Multiple P-Values...",
+                         lambda: self.scientific_open_statistics("adjust_p_values"))
 
         mathematics_menu = analysisMenu.addMenu("Mathematics")
         _analysis_action(mathematics_menu, "Create Column (Derived)...", self.open_derived_column_dialog)
@@ -643,6 +668,9 @@ class MainWindowMenuMixin:
         fit_icon = self._icon("fit", QStyle.SP_DialogApplyButton)
         self.actNonlinearFit = fitting_menu.addAction(fit_icon, "Nonlinear Curve Fit...")
         self.actNonlinearFit.triggered.connect(self.open_nonlinear_fit_dialog)
+        fitting_menu.addSeparator()
+        _analysis_action(fitting_menu, "Global Fit (Shared Parameters)...",
+                         self.scientific_open_global_fit)
 
         signal_processing_menu = analysisMenu.addMenu("Signal Processing")
         smooth_menu = signal_processing_menu.addMenu("Smooth")
@@ -674,6 +702,8 @@ class MainWindowMenuMixin:
         peaks_baseline_menu = analysisMenu.addMenu("Peaks and Baseline")
         self.pkMenu = peaks_baseline_menu
         _analysis_action(peaks_baseline_menu, "Peak Metrics (FWHM / Area)...", self.feature_peak_metrics)
+        _analysis_action(peaks_baseline_menu, "Peak Analyzer (Baseline + Multi-Peak Fit)...",
+                         self.scientific_open_peak_analyzer)
         _analysis_action(peaks_baseline_menu, "Signal Quality (SNR / Noise floor)...", self.feature_signal_quality)
         peaks_baseline_menu.addSeparator()
         self.actPkEnable = peaks_baseline_menu.addAction("Enable Peak Detection")
@@ -687,7 +717,17 @@ class MainWindowMenuMixin:
         self.actPkExport = peaks_baseline_menu.addAction("Export Peak Table (CSV/Excel)")
         self.actPkExport.setShortcut("Ctrl+E")
         self.actPkClear = peaks_baseline_menu.addAction("Clear Peaks")
+        peaks_baseline_menu.addSeparator()
+        _analysis_action(peaks_baseline_menu, "Batch Peak Analysis...",
+                         self.scientific_batch_analysis)
         analysisMenu.addSeparator()
+
+        recipes_menu = analysisMenu.addMenu("Analysis Recipes")
+        _analysis_action(recipes_menu, "Manage Recipes...", self.scientific_manage_recipes)
+        _analysis_action(recipes_menu, "Recalculate All", self.scientific_recalculate_all)
+        recipes_menu.addSeparator()
+        _analysis_action(recipes_menu, "Batch Analysis...", self.scientific_batch_analysis)
+        _analysis_action(recipes_menu, "Import Recipe...", self.scientific_import_recipe)
 
         # Cross-Correlation submenu
         ccMenu = QMenu("Cross-Correlation", self)

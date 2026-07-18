@@ -90,6 +90,7 @@ class ProjectExplorer(QDockWidget):
         # richer per-item metadata (kind, title, sub) used by the context menu.
         self._item_to_sub: Dict[QTreeWidgetItem, object] = {}
         self._item_meta: Dict[QTreeWidgetItem, Tuple[str, str, object]] = {}
+        self._recipe_items: Dict[QTreeWidgetItem, str] = {}
 
         self.tree = QTreeWidget(self)
         self.tree.setObjectName("ProjectExplorerTree")
@@ -136,6 +137,7 @@ class ProjectExplorer(QDockWidget):
         self.tree.clear()
         self._item_to_sub.clear()
         self._item_meta.clear()
+        self._recipe_items.clear()
 
         root = QTreeWidgetItem(self.tree)
         root.setText(0, self._project_name())
@@ -169,6 +171,28 @@ class ProjectExplorer(QDockWidget):
             graph_folder.setFlags(graph_folder.flags() & ~Qt.ItemIsSelectable)
             for title, sub in graphs:
                 self._add_window_node(graph_folder, "graph", title, sub)
+
+        # Analysis Recipes are project objects even though they are not MDI
+        # windows. Listing them here makes the dependency/recalculation system
+        # discoverable instead of hiding it solely in a menu.
+        recipes = self._recipe_summaries()
+        if recipes:
+            recipe_folder = QTreeWidgetItem(root)
+            recipe_folder.setText(0, "Analysis Recipes")
+            recipe_folder.setIcon(0, self._icon(QStyle.SP_DirIcon))
+            recipe_folder.setFlags(recipe_folder.flags() & ~Qt.ItemIsSelectable)
+            for recipe in recipes:
+                item = QTreeWidgetItem(recipe_folder)
+                name = str(recipe.get("name", "Untitled Recipe"))
+                status = str(recipe.get("status", ""))
+                item.setText(0, f"{name} [{status}]" if status else name)
+                item.setToolTip(
+                    0,
+                    f"Mode: {recipe.get('mode', '')} | Source: {recipe.get('source', '')} | "
+                    f"Result: {recipe.get('result', '')}\nDouble-click to manage recipes.",
+                )
+                item.setIcon(0, self._icon(QStyle.SP_FileDialogContentsView))
+                self._recipe_items[item] = str(recipe.get("id", ""))
 
         self.tree.expandAll()
 
@@ -211,6 +235,17 @@ class ProjectExplorer(QDockWidget):
     def _project_name(self) -> str:
         return "Project"
 
+    def _recipe_summaries(self) -> list[dict]:
+        owner = self.parent()
+        provider = getattr(owner, "analysis_recipe_summaries", None)
+        if not callable(provider):
+            return []
+        try:
+            return list(provider())
+        except Exception:
+            logger.debug("recipe summaries unavailable", exc_info=True)
+            return []
+
     def _icon(self, standard_pixmap):
         try:
             return self.style().standardIcon(standard_pixmap)
@@ -223,6 +258,9 @@ class ProjectExplorer(QDockWidget):
     # Activation + management
     # ------------------------------------------------------------------
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        if item in self._recipe_items:
+            self._manage_recipes()
+            return
         sub = self._item_to_sub.get(item)
         if sub is not None:
             self._activate_sub(sub)
@@ -241,6 +279,14 @@ class ProjectExplorer(QDockWidget):
         item = self.tree.itemAt(pos)
         meta = self._item_meta.get(item) if item is not None else None
         menu = QMenu(self.tree)
+        recipe_id = self._recipe_items.get(item) if item is not None else None
+        if recipe_id:
+            owner = self.parent()
+            runner = getattr(owner, "_start_recipe_recalculation", None)
+            if callable(runner):
+                menu.addAction("Run / Recalculate", lambda: runner(recipe_id, force=True))
+            menu.addAction("Manage Recipes...", self._manage_recipes)
+            menu.addSeparator()
         if meta is not None:
             kind, title, sub = meta
             menu.addAction("Activate", lambda: self._activate_sub(sub))
@@ -250,6 +296,11 @@ class ProjectExplorer(QDockWidget):
             menu.addSeparator()
         menu.addAction("Refresh", self.refresh)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _manage_recipes(self) -> None:
+        manager = getattr(self.parent(), "scientific_manage_recipes", None)
+        if callable(manager):
+            manager()
 
     def _close_item(self, sub) -> None:
         """Close a window from the Explorer — same effect as its title-bar X."""

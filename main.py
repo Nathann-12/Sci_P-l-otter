@@ -114,6 +114,7 @@ from main_window_plotstyle_mixin import MainWindowPlotStyleMixin
 from main_window_plotextra_mixin import MainWindowPlotExtraMixin
 from main_window_gallery_mixin import MainWindowGalleryMixin
 from main_window_view_access_mixin import MainWindowViewAccessMixin
+from main_window_scientific_suite_mixin import MainWindowScientificSuiteMixin
 from widgets.command_palette import CommandPalette
 from UI.shell.app_shell import AppShell
 from UI.welcome import WelcomeWidget
@@ -423,6 +424,7 @@ class MainWindow(
     MainWindowPlotExtraMixin,
     MainWindowGalleryMixin,
     MainWindowViewAccessMixin,
+    MainWindowScientificSuiteMixin,
     QMainWindow,
 ):
     def __init__(self):
@@ -613,6 +615,13 @@ class MainWindow(
             self.init_workflow_module()
         except Exception:
             logger.debug("workflow module init skipped", exc_info=True)
+
+        # Sale-facing scientific workflow: dependency-aware recipes, core
+        # statistics, global/peak fitting, and reusable batch analysis.
+        try:
+            self.init_scientific_suite()
+        except Exception:
+            logger.exception("scientific suite init failed")
 
         # Command palette (Ctrl+K) - searchable list of all menu/toolbar actions
         try:

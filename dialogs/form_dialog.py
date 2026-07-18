@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -104,6 +106,20 @@ class FormDialog(QDialog):
             if default is not None and str(default) in options:
                 w.setCurrentText(str(default))
             return w
+        if kind == "multi_choice":
+            w = QListWidget()
+            w.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            w.addItems([str(o) for o in spec.get("options", [])])
+            defaults = default if isinstance(default, (list, tuple, set)) else [default]
+            wanted = {str(value) for value in defaults if value is not None}
+            for index in range(w.count()):
+                item = w.item(index)
+                item.setSelected(item.text() in wanted)
+            w.setMinimumHeight(int(spec.get("height", 110)))
+            tooltip = spec.get("help") or spec.get("placeholder")
+            if tooltip:
+                w.setToolTip(str(tooltip))
+            return w
         if kind == "int":
             w = QSpinBox()
             w.setRange(int(spec.get("min", -1_000_000_000)),
@@ -153,6 +169,8 @@ class FormDialog(QDialog):
             return w.value()
         if isinstance(w, QCheckBox):
             return w.isChecked()
+        if isinstance(w, QListWidget):
+            return [item.text() for item in w.selectedItems()]
         if isinstance(w, QLineEdit):
             return w.text()
         return None

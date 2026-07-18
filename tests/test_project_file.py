@@ -47,9 +47,66 @@ def test_save_project_embeds_dataset_data(win, tmp_path):
     import json
     payload = json.loads(proj.read_text(encoding="utf-8"))
     assert payload["format"] == "sciplotter_project"
+    assert payload["version"] >= 2
     # dataset data is embedded (self-contained), not just a path
     ds = payload["staging"][0]
     assert ds["data"] and ds["data"][0]["y"] == 3.0
+
+
+def test_project_persists_recipe_hook_and_dataset_provenance(win, tmp_path):
+    df = pd.DataFrame({"x": [1.0], "y": [2.0]})
+    win._datasets["Result"] = {
+        "df": df,
+        "path": None,
+        "analysis_provenance": {"operation": "welch_t_test", "source_checksum": "sha256:abc"},
+    }
+    win.serialize_analysis_recipes = lambda: [{"id": "recipe-1", "name": "Welch"}]
+    project = tmp_path / "recipes.sciproj"
+    session_store.save_project(win, project)
+
+    import json
+    payload = json.loads(project.read_text(encoding="utf-8"))
+    assert payload["analysis_recipes"][0]["id"] == "recipe-1"
+    result_entry = next(item for item in payload["staging"] if item["name"] == "Result")
+    assert result_entry["metadata"]["analysis_provenance"]["operation"] == "welch_t_test"
+
+
+def test_load_project_calls_recipe_restore_hook(win, tmp_path):
+    project = tmp_path / "restore-recipes.sciproj"
+    project.write_text(
+        '{"format":"sciplotter_project","version":2,"staging":[],"tabs":[],"analysis_recipes":[{"id":"r1"}]}',
+        encoding="utf-8",
+    )
+    restored = []
+    win.restore_analysis_recipes = lambda recipes: restored.extend(recipes)
+    session_store.load_project(win, project)
+    assert restored == [{"id": "r1"}]
+
+
+def test_explicit_project_save_does_not_report_success_after_write_failure(
+    win, tmp_path, monkeypatch
+):
+    def fail_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(session_store, "_atomic_write_json", fail_write)
+    with pytest.raises(OSError, match="disk full"):
+        session_store.save_project(win, tmp_path / "cannot-save.sciproj")
+
+
+def test_explicit_project_load_rejects_corrupt_and_future_files(win, tmp_path):
+    corrupt = tmp_path / "corrupt.sciproj"
+    corrupt.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid session/project file"):
+        session_store.load_project(win, corrupt)
+
+    future = tmp_path / "future.sciproj"
+    future.write_text(
+        '{"format":"sciplotter_project","version":999,"staging":[],"tabs":[]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Unsupported project schema version"):
+        session_store.load_project(win, future)
 
 
 def test_open_project_restores_data_and_graph(win, tmp_path):

@@ -2,13 +2,16 @@
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QStandardPaths
 
 LOG = logging.getLogger(__name__)
+PROJECT_SCHEMA_VERSION = 2
 
 
 def _session_dir() -> Path:
@@ -38,7 +41,7 @@ def _serialize_float_list(values) -> List[float]:
             return []
 
 
-def _df_to_records(df):
+def _df_to_records(df, *, strict: bool = False):
     """DataFrame → JSON-safe list of row dicts (or None)."""
     try:
         import pandas as pd
@@ -46,16 +49,73 @@ def _df_to_records(df):
             return json.loads(df.to_json(orient="records", date_format="iso"))
     except Exception:
         LOG.debug("dataframe embed skipped", exc_info=True)
+        if strict:
+            raise
     return None
 
 
-def save_session(window: Any, path=None, embed_data: bool = False) -> None:
+def _json_safe(value):
+    """Return a strict JSON-safe copy, dropping unsupported runtime objects."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    try:
+        import numpy as np
+        if isinstance(value, np.generic):
+            return _json_safe(value.item())
+    except Exception:
+        pass
+    return str(value)
+
+
+def _atomic_write_json(path: Path, state: Dict[str, Any]) -> None:
+    """Commit a session/project in one replace so a crash cannot truncate it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False)
+    with tempfile.NamedTemporaryFile(
+        mode='w', encoding='utf-8', prefix=f'.{path.name}.', suffix='.tmp',
+        dir=path.parent, delete=False,
+    ) as stream:
+        temporary = Path(stream.name)
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def save_session(
+    window: Any,
+    path=None,
+    embed_data: bool = False,
+    *,
+    strict: bool = False,
+) -> None:
     """Persist the app state. ``path`` defaults to the auto-session file;
     ``embed_data=True`` stores each dataset's DataFrame inline (project file)."""
     try:
         tabs_widget = getattr(window, 'tabs', None)
         if tabs_widget is None:
+            if strict:
+                raise RuntimeError('Cannot save a project without a tab workspace')
             return
+
+        prepare_recipes = getattr(window, 'prepare_analysis_recipe_persistence', None)
+        if callable(prepare_recipes):
+            try:
+                prepare_recipes()
+            except Exception:
+                LOG.warning('Failed to prepare analysis recipes for persistence', exc_info=True)
+                if strict:
+                    raise
 
         # Multi-book model: the dataset registry is the source of truth
         # (the legacy lstFiles staging list no longer exists in the UI).
@@ -65,8 +125,18 @@ def save_session(window: Any, path=None, embed_data: bool = False) -> None:
             for name, info in datasets.items():
                 path_val = info.get('path') if isinstance(info, dict) else None
                 entry = {'name': name, 'path': path_val}
+                if isinstance(info, dict):
+                    metadata = {
+                        key: value for key, value in info.items()
+                        if key not in {'df', 'path'}
+                    }
+                    if metadata:
+                        entry['metadata'] = _json_safe(metadata)
                 if embed_data:
-                    entry['data'] = _df_to_records(info.get('df') if isinstance(info, dict) else None)
+                    entry['data'] = _df_to_records(
+                        info.get('df') if isinstance(info, dict) else None,
+                        strict=strict,
+                    )
                 staging.append(entry)
 
         tabs_state: List[Dict[str, Any]] = []
@@ -101,7 +171,7 @@ def save_session(window: Any, path=None, embed_data: bool = False) -> None:
 
         state: Dict[str, Any] = {
             'format': 'sciplotter_project' if embed_data else 'sciplotter_session',
-            'version': 1,
+            'version': PROJECT_SCHEMA_VERSION,
             'plot_mode': getattr(getattr(window, 'plot_mode', None), 'value', None),
             'current_tab': tabs_widget.get_current_tab_id() if hasattr(tabs_widget, 'get_current_tab_id') else None,
             'tabs': tabs_state,
@@ -112,6 +182,15 @@ def save_session(window: Any, path=None, embed_data: bool = False) -> None:
             'inspector_visible': getattr(getattr(window, '_panel_right', None), 'isVisible', lambda: False)(),
         }
 
+        serialize_recipes = getattr(window, 'serialize_analysis_recipes', None)
+        if callable(serialize_recipes):
+            try:
+                state['analysis_recipes'] = _json_safe(serialize_recipes())
+            except Exception:
+                LOG.warning('Failed to serialize analysis recipes', exc_info=True)
+                if strict:
+                    raise
+
         try:
             splitter = getattr(window, 'splitter', None)
             if splitter is not None:
@@ -120,29 +199,47 @@ def save_session(window: Any, path=None, embed_data: bool = False) -> None:
             pass
 
         session_path = Path(path) if path is not None else session_file()
-        session_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+        _atomic_write_json(session_path, state)
     except Exception:  # pragma: no cover - best effort persistence
         LOG.warning('Failed to save session', exc_info=True)
+        if strict:
+            raise
 
 
 def save_project(window: Any, path) -> None:
     """Save a self-contained project file (embeds dataset data)."""
-    save_session(window, path=path, embed_data=True)
+    save_session(window, path=path, embed_data=True, strict=True)
 
 
 def load_project(window: Any, path) -> None:
     """Open a project file saved with :func:`save_project`."""
-    load_session(window, path=path)
+    load_session(window, path=path, strict=True)
 
 
-def load_session(window: Any, path=None) -> None:
+def load_session(window: Any, path=None, *, strict: bool = False) -> None:
     src = Path(path) if path is not None else session_file()
     if not src.exists():
+        if strict:
+            raise FileNotFoundError(src)
         return
     try:
         data = json.loads(src.read_text(encoding='utf-8'))
-    except Exception:
+        if not isinstance(data, dict):
+            raise ValueError('The project root must be a JSON object')
+    except Exception as exc:
         LOG.error('Session/project file corrupted; skipping restore', exc_info=True)
+        if strict:
+            raise ValueError(f'Invalid session/project file: {src}') from exc
+        return
+
+    version = data.get('version', 1)
+    if not isinstance(version, int) or version < 1 or version > PROJECT_SCHEMA_VERSION:
+        LOG.error('Unsupported session/project schema version: %r', version)
+        if strict:
+            raise ValueError(
+                f'Unsupported project schema version {version!r}; '
+                f'this build supports versions 1-{PROJECT_SCHEMA_VERSION}'
+            )
         return
 
     try:
@@ -166,6 +263,7 @@ def load_session(window: Any, path=None) -> None:
             name = entry.get('name')
             path_val = entry.get('path')
             records = entry.get('data')
+            metadata = entry.get('metadata') if isinstance(entry.get('metadata'), dict) else {}
             if records:
                 try:
                     import pandas as pd
@@ -173,7 +271,7 @@ def load_session(window: Any, path=None) -> None:
                     opener = getattr(window, '_open_book_for_dataset', None)
                     if callable(opener):
                         if hasattr(window, '_datasets'):
-                            window._datasets[name] = {'df': df, 'path': path_val}
+                            window._datasets[name] = {'df': df, 'path': path_val, **metadata}
                         opener(name, df, path_val)
                     elif hasattr(window, '_stage_insert'):
                         window._stage_insert(name, df, path_val)
@@ -320,5 +418,14 @@ def load_session(window: Any, path=None) -> None:
             window._update_canvas_reference()
         except Exception:
             pass
+
+        restore_recipes = getattr(window, 'restore_analysis_recipes', None)
+        if callable(restore_recipes):
+            try:
+                restore_recipes(data.get('analysis_recipes', []))
+            except Exception:
+                LOG.warning('Failed to restore analysis recipes', exc_info=True)
     except Exception:  # pragma: no cover
         LOG.warning('Failed to restore session', exc_info=True)
+        if strict:
+            raise
