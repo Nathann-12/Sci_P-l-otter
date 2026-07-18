@@ -37,13 +37,15 @@ class MainWindowPlotStyleMixin:
 
     def _on_canvas_click(self, event):
         if getattr(event, "dblclick", False):
-            # Plain double-click is the everyday data/axis workflow.
-            # Ctrl+double-click opens Plot Details — and lands directly on the
-            # curve under the cursor when there is one (pick-to-edit).
-            if "control" in str(getattr(event, "key", "") or "").casefold():
-                self.open_plot_details_dialog(
-                    preselect_line=self._line_index_at_event(event)
-                )
+            # Double-click ON a curve opens Plot Details focused on that curve
+            # (Origin muscle memory: double-click the plot to style it).
+            # Double-click on empty canvas keeps the Graph Data inspector.
+            # Ctrl+double-click always opens Plot Details.
+            hit = self._line_index_at_event(event)
+            if hit is not None or (
+                "control" in str(getattr(event, "key", "") or "").casefold()
+            ):
+                self.open_plot_details_dialog(preselect_line=hit)
                 return
             opener = getattr(self, "open_graph_data_panel", None)
             if callable(opener):

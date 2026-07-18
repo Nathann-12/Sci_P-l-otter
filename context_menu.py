@@ -140,6 +140,20 @@ class ContextMenuManager(QObject):
         menu = QMenu()
         self._refresh_axis_state()
 
+        # Top-level styling/data entries so decorating a graph is one
+        # right-click away (double-click a curve does the same).
+        if callable(getattr(self.main, "open_plot_details_dialog", None)):
+            menu.addAction(
+                "Format Graph… (Plot Details)",
+                lambda: self.main.open_plot_details_dialog(),
+            )
+        if callable(getattr(self.main, "open_graph_data_panel", None)):
+            menu.addAction(
+                "Graph Data (Inspector)",
+                lambda: self.main.open_graph_data_panel(),
+            )
+        menu.addSeparator()
+
         # A) View
         view = menu.addMenu("View")
         view.addAction("Reset View	(Home)", self._on_reset_view)

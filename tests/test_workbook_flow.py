@@ -255,14 +255,23 @@ def test_graph_double_click_panel_maps_row_x_and_multiple_y_columns(
 def test_canvas_double_click_opens_graph_data_and_ctrl_opens_style(win, monkeypatch):
     opened = []
     monkeypatch.setattr(win, "open_graph_data_panel", lambda: opened.append("data"))
-    monkeypatch.setattr(win, "open_plot_details_dialog", lambda: opened.append("style"))
+    monkeypatch.setattr(
+        win, "open_plot_details_dialog",
+        lambda preselect_line=None: opened.append(("style", preselect_line)),
+    )
 
     from types import SimpleNamespace
 
+    # blank-canvas double-click -> Graph Data; Ctrl+double-click -> Plot Details
     win._on_canvas_click(SimpleNamespace(dblclick=True, key=None))
     win._on_canvas_click(SimpleNamespace(dblclick=True, key="control"))
+    assert opened == ["data", ("style", None)]
 
-    assert opened == ["data", "style"]
+    # double-click ON a curve -> Plot Details focused on that curve
+    opened.clear()
+    monkeypatch.setattr(win, "_line_index_at_event", lambda event: 1)
+    win._on_canvas_click(SimpleNamespace(dblclick=True, key=None))
+    assert opened == [("style", 1)]
 
 
 def test_plot_toolbar_origin_bar_exists_and_plots(win):

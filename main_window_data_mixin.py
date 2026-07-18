@@ -100,6 +100,25 @@ class MainWindowDataMixin:
             pass
         # activation signal may be suppressed while constructing — sync now
         self._on_book_activated(sub.windowTitle())
+        # On the real desktop a closing modal dialog restores focus to the
+        # previously active window right after this call, hiding a freshly
+        # opened result Book behind a maximized Graph. Re-assert activation on
+        # the next event-loop turn so the new Book always ends up on top.
+        try:
+            from PySide6.QtCore import QTimer
+
+            def _surface(sub_ref=sub):
+                try:
+                    if sub_ref is not None and sub_ref.isVisible():
+                        self.mdi.mdi.setActiveSubWindow(sub_ref)
+                        sub_ref.raise_()
+                except RuntimeError:
+                    pass  # subwindow already deleted
+
+            QTimer.singleShot(0, _surface)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "result book surfacing skipped", exc_info=True)
         return wb
 
     def _wire_book_signals(self, wb) -> None:

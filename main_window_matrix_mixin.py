@@ -352,6 +352,13 @@ class MainWindowMatrixMixin:
             show()
         return f"{kind} of a {z.shape[0]}x{z.shape[1]} matrix"
 
+    # no-arg wrappers so toolbar/dock buttons can bind directly
+    def matrix_plot_heatmap(self):
+        self._matrix_plot_guarded("heatmap")
+
+    def matrix_plot_surface(self):
+        self._matrix_plot_guarded("surface")
+
     def _matrix_plot_guarded(self, kind: str):
         try:
             note = self.matrix_plot_core(kind)

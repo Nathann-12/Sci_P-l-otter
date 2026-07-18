@@ -122,3 +122,47 @@ def test_top_bar_icon_key_uniqueness_still_holds(win):
     ]
     assert all(icon_keys)
     assert len(icon_keys) == len(set(icon_keys))
+
+
+def test_scientific_and_matrix_dock_buttons_registered_and_enable_with_data(win_factory=None):
+    import numpy as np
+    import pandas as pd
+    from PySide6.QtWidgets import QApplication
+    import main as main_module
+
+    app = QApplication.instance() or QApplication([])
+    win = main_module.MainWindow()
+    win.show()
+    try:
+        keys = (
+            "sci_statistics", "sci_global_fit", "sci_peak_analyzer",
+            "sci_recipes", "sci_recalculate", "sci_batch",
+            "matrix_gridding", "matrix_heatmap", "matrix_surface",
+        )
+        for key in keys:
+            assert key in win.toolbar_actions, key
+        # Origin enablement: data commands dim until the active Book has data
+        assert win.toolbar_actions["sci_statistics"].isEnabled() is False
+        assert win.toolbar_actions["matrix_gridding"].isEnabled() is False
+        assert win.toolbar_actions["sci_recipes"].isEnabled() is True
+
+        frame = pd.DataFrame({
+            "a": np.arange(20.0),
+            "b": np.linspace(0.0, 5.0, 20),
+        })
+        win._stage_insert("SciDock Data", frame, None)
+        win._refresh_action_states()
+        assert win.toolbar_actions["sci_statistics"].isEnabled() is True
+        assert win.toolbar_actions["sci_global_fit"].isEnabled() is True
+        assert win.toolbar_actions["matrix_heatmap"].isEnabled() is True
+
+        # the button drives the real handler (stubbed to observe the call)
+        calls = []
+        win.scientific_open_statistics = lambda *a, **k: calls.append("stats")
+        win.toolbar_actions["sci_statistics"].trigger()
+        assert calls == ["stats"]
+    finally:
+        try:
+            win.close()
+        except RuntimeError:
+            pass

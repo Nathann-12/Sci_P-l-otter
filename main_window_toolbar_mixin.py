@@ -44,6 +44,8 @@ class MainWindowToolbarMixin:
         "peak_export", "peak_clear",
         "dataset_duplicate", "dataset_rename", "dataset_group", "dataset_merge",
         "dataset_split", "dataset_filter", "dataset_search",
+        "sci_statistics", "sci_global_fit", "sci_peak_analyzer",
+        "matrix_gridding", "matrix_heatmap", "matrix_surface",
     })
     _ACTIONS_NEED_GRAPH = frozenset({
         "format_graph", "crosshair", "boxzoom", "reset_view",
@@ -564,6 +566,34 @@ class MainWindowToolbarMixin:
                 bottom, key, text, self._toolbar_slot(method), icon,
                 QStyle.StandardPixmap.SP_DialogApplyButton,
             )
+        # ---- BOTTOM: scientific suite (statistics / fits / recipes / batch) ----
+        self._add_separator(bottom)
+        self._add_group_label(bottom, "Scientific", "scientific")
+        for key, text, method, icon in (
+            ("sci_statistics", "Statistics", "scientific_open_statistics", "sci_statistics"),
+            ("sci_global_fit", "Global Fit", "scientific_open_global_fit", "sci_global_fit"),
+            ("sci_peak_analyzer", "Peak Analyzer", "scientific_open_peak_analyzer", "sci_peak_analyzer"),
+            ("sci_recipes", "Recipes", "scientific_manage_recipes", "sci_recipes"),
+            ("sci_recalculate", "Recalculate", "scientific_recalculate_all", "sci_recalculate"),
+            ("sci_batch", "Batch Analysis", "scientific_batch_analysis", "sci_batch"),
+        ):
+            self._add_toolbar_action(
+                bottom, key, text, self._toolbar_slot(method), icon,
+                QStyle.StandardPixmap.SP_FileDialogDetailedView,
+            )
+        # ---- BOTTOM: matrix workflow ----
+        self._add_separator(bottom)
+        self._add_group_label(bottom, "Matrix", "matrix")
+        for key, text, method, icon in (
+            ("matrix_gridding", "XYZ → Matrix", "matrix_grid_dialog", "matrix_gridding"),
+            ("matrix_heatmap", "Matrix Heatmap", "matrix_plot_heatmap", "matrix_heatmap"),
+            ("matrix_surface", "Matrix Surface", "matrix_plot_surface", "matrix_surface"),
+        ):
+            self._add_toolbar_action(
+                bottom, key, text, self._toolbar_slot(method), icon,
+                QStyle.StandardPixmap.SP_FileDialogDetailedView,
+            )
+        self._add_separator(bottom)
         self._add_toolbar_action(
             bottom, "cc_window", "CC Window", self._trigger_action_attr("actCCWindow"),
             "cc_window", QStyle.StandardPixmap.SP_FileDialogInfoView,
