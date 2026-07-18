@@ -64,6 +64,7 @@ TOOL_CASES = (
     ("surface_metrics", "en", "Compute the surface roughness metrics of the active matrix."),
     ("matrix_stack", "th", "รวมสแต็กเมทริกซ์แบบแม็กซ์จาก Slice1 และ Slice2"),
     ("generate_report", "th", "สร้างรายงานสรุปกราฟและผลลัพธ์เป็นไฟล์ PDF"),
+    ("arrange_layout", "en", "Arrange a layout page of the figures as a PDF poster."),
 )
 
 

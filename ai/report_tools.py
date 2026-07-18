@@ -54,6 +54,31 @@ def _tool_generate_report(window, args: Dict[str, Any]) -> str:
     )
 
 
+def _tool_arrange_layout(window, args: Dict[str, Any]) -> str:
+    builder = getattr(window, "layout_export_core", None)
+    if not callable(builder):
+        return "Layout pages are unavailable in this context."
+    fmt = str(args.get("format", "pdf") or "pdf").lower().lstrip(".")
+    if fmt not in ("pdf", "png"):
+        return "Layout format must be pdf or png."
+    path = args.get("path")
+    if not path:
+        title = str(args.get("title") or "layout")
+        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)[:50]
+        path = str(Path(tempfile.gettempdir()) / f"{safe.strip() or 'layout'}.{fmt}")
+    elif not Path(path).suffix:
+        path = f"{path}.{fmt}"
+    try:
+        out, n = builder(path, title=args.get("title"),
+                         page=str(args.get("page", "A4 Portrait") or "A4 Portrait"))
+    except Exception as exc:
+        logger.debug("arrange_layout failed", exc_info=True)
+        return f"Could not build the layout: {exc}"
+    if n == 0:
+        return "Nothing to lay out yet — plot something or run an analysis first."
+    return f"Arranged {n} item(s) on a layout page and saved {out}."
+
+
 def register_report_tools(registry, window) -> None:
     registry.add(
         "generate_report",
@@ -74,4 +99,22 @@ def register_report_tools(registry, window) -> None:
             "include_narrative": {"type": "boolean", "description": "include the auto summary", "required": False},
         },
         lambda args: _tool_generate_report(window, args),
+    )
+    registry.add(
+        "arrange_layout",
+        "Auto-arrange the open figures and result tables on a free-form layout "
+        "page (grid) and export it as a PDF or PNG poster/figure page.",
+        {
+            "title": {"type": "string", "description": "page title", "required": False},
+            "format": {
+                "type": "string", "required": False,
+                "description": "pdf | png", "enum": ["pdf", "png"],
+            },
+            "page": {
+                "type": "string", "required": False,
+                "description": "page size, e.g. A4 Portrait / A4 Landscape / Slide 16:9",
+            },
+            "path": {"type": "string", "description": "output file path (optional)", "required": False},
+        },
+        lambda args: _tool_arrange_layout(window, args),
     )

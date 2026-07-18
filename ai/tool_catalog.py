@@ -45,7 +45,7 @@ GROUPS: Dict[str, tuple[str, ...]] = {
         "iv_conductivity", "arrhenius", "ohms_law", "rc_time_constant",
         "pendulum_gravity",
     ),
-    "report": ("generate_report",),
+    "report": ("generate_report", "arrange_layout"),
     "file": ("open_file",),
 }
 
@@ -87,7 +87,7 @@ KEYWORDS: Dict[str, tuple[str, ...]] = {
         "cv", "cyclic volt", "tafel", "raman", "conductivity", "arrhenius",
         "ohm", "pendulum", "electrochem", "รามาน", "การนำไฟฟ้า", "ลูกตุ้ม",
     ),
-    "report": ("report", "generate report", "publish", "pdf report", "html report", "รายงาน", "สร้างรายงาน", "ออกรายงาน"),
+    "report": ("report", "generate report", "publish", "pdf report", "html report", "layout page", "poster", "รายงาน", "สร้างรายงาน", "ออกรายงาน", "จัดหน้า"),
     "file": ("open file", "load file", "csv", "xlsx", "เปิดไฟล์"),
 }
 
@@ -130,6 +130,7 @@ TOOL_ALIASES: Dict[str, tuple[str, ...]] = {
     "plot_chart": ("advanced chart", "plot chart", "heatmap chart", "กราฟขั้นสูง", "สร้างแผนภูมิ", "surface_3d", "scatter_3d", "wireframe_3d", "matrix_heatmap", "contour_3d", "trisurface_3d", "bar_3d"),
     "list_books": ("list books", "open books", "บุ๊กทั้งหมด", "รายชื่อบุ๊ก"),
     "generate_report": ("generate report", "make a report", "publish report", "export report", "pdf report", "html report", "สร้างรายงาน", "ทำรายงาน", "ออกรายงาน", "รายงานผล"),
+    "arrange_layout": ("layout page", "arrange layout", "poster", "figure page", "place figures on a page", "จัดหน้า", "จัดวางกราฟ", "โปสเตอร์", "เลย์เอาต์"),
     "open_file": ("open file", "load csv", "load excel", "เปิดไฟล์", "โหลดไฟล์"),
     "grid_xyz": ("grid xyz", "xyz to matrix", "gridding", "convert xyz", "ทำกริด", "แปลง xyz เป็นเมทริกซ์"),
     "matrix_transform": ("matrix transform", "transpose matrix", "smooth matrix", "subtract background", "rotate matrix", "หมุนเมทริกซ์", "ลบพื้นหลังเมทริกซ์", "ปรับเมทริกซ์"),
@@ -170,7 +171,7 @@ CREATE_TOOLS = {
     "run_statistics", "global_fit", "analyze_peaks",
     "grid_xyz", "matrix_transform", "plot_matrix",
     "matrix_statistics", "line_profile", "matrix_arithmetic",
-    "surface_metrics", "matrix_stack", "generate_report",
+    "surface_metrics", "matrix_stack", "generate_report", "arrange_layout",
 }
 
 

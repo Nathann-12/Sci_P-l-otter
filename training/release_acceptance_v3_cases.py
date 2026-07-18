@@ -93,6 +93,7 @@ def release_tool_seeds() -> list[ReleaseToolSeed]:
         ReleaseToolSeed("surface_metrics", "en", "Compute surface roughness Ra and Rq for the active matrix Book.", {}, "matrix"),
         ReleaseToolSeed("matrix_stack", "th", "รวมสแต็กเมทริกซ์แบบแม็กซ์จาก Layer1 และ Layer2", {"books": ["Layer1", "Layer2"], "mode": "max"}, "matrix"),
         ReleaseToolSeed("generate_report", "en", "Generate an HTML report of everything currently open.", {"format": "html"}, "general"),
+        ReleaseToolSeed("arrange_layout", "th", "จัดหน้ากราฟทั้งหมดเป็นโปสเตอร์ PDF แนวนอน", {"format": "pdf", "page": "A4 Landscape"}, "general"),
     ]
 
 

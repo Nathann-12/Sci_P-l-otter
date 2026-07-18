@@ -37,7 +37,50 @@ class MainWindowReportMixin:
             lambda: self._report_export_dialog("pdf"))
         menu.addAction("Export Report as Markdown...").triggered.connect(
             lambda: self._report_export_dialog("md"))
+        menu.addSeparator()
+        act_layout = menu.addAction("Layout Page (free arrange)...")
+        act_layout.setShortcut("Ctrl+Shift+L")
+        act_layout.triggered.connect(self.open_layout_page)
         self._report_menu = menu
+
+    # ------------------------------------------------------------ layout page
+    def open_layout_page(self):
+        from UI.layout_page import LayoutEditor
+
+        graphs = self._report_graphs()
+        tables = [(name, frame) for name, frame, _prov in self._report_tables()]
+        if not graphs and not tables:
+            self.inform("Layout Page",
+                        "Plot something or run an analysis first, then arrange it.")
+            return
+        editor = LayoutEditor(
+            graphs, tables, parent=self,
+            ask_save_path=self.ask_save_path,
+            default_title=self._report_default_title())
+        # pre-fill the canvas with a tidy auto-arrangement so it's never blank
+        try:
+            editor.prefill()
+        except Exception:
+            logger.debug("layout prefill skipped", exc_info=True)
+        editor.exec()
+
+    def layout_export_core(self, path: str, *, title=None, page="A4 Portrait"):
+        """Headless: auto-arrange the open figures/tables and export a layout file."""
+        from core import layout as L
+
+        doc = L.LayoutPage(page=page)
+        items = [L.FigureItem(0, 0, 0, 0, png) for _title, png in self._report_graphs()]
+        items += [L.TableItem(0, 0, 0, 0, frame)
+                  for _name, frame, _prov in self._report_tables()]
+        L.auto_grid(doc, items, title=title or self._report_default_title())
+        fmt = Path(path).suffix.lower().lstrip(".")
+        if fmt == "pdf":
+            L.render_pdf(doc, path)
+        elif fmt == "png":
+            L.render_png(doc, path)
+        else:
+            raise ValueError(f"Layout export supports pdf/png, not '{fmt}'")
+        return path, len(items)
 
     # --------------------------------------------------------------- collectors
     def _report_graphs(self):

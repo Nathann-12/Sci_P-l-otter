@@ -445,6 +445,13 @@ def tool_seeds() -> list[ToolSeed]:
         ("สร้างรายงาน PDF ของกราฟและผลลัพธ์ทั้งหมด", {"format": "pdf"}),
         ("ทำรายงาน HTML ชื่อ การศึกษาเซนเซอร์", {"format": "html", "title": "การศึกษาเซนเซอร์"}),
     )
+    seeds += _tool(
+        "arrange_layout", "general",
+        ("Arrange layout page of all figures as a PDF poster.", {"format": "pdf"}),
+        ("Make a layout page in A4 Landscape titled Results.", {"format": "pdf", "page": "A4 Landscape", "title": "Results"}),
+        ("จัดหน้ากราฟทั้งหมดเป็นโปสเตอร์ PDF", {"format": "pdf"}),
+        ("จัดวางกราฟเป็นเลย์เอาต์แนวนอน A4 ชื่อ ผลการทดลอง", {"format": "pdf", "page": "A4 Landscape", "title": "ผลการทดลอง"}),
+    )
     return seeds
 
 

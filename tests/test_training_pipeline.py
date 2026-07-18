@@ -53,11 +53,11 @@ def test_built_dataset_is_balanced_grouped_and_contract_valid():
     records = train + validation
     validate_records(records)
 
-    assert len(train) == 531
-    assert len(validation) == 177
-    assert sum(record["language"] == "en" for record in records) == 354
-    assert sum(record["language"] == "th" for record in records) == 354
-    assert len({record["tool"] for record in records if record["tool"]}) == 57
+    assert len(train) == 540
+    assert len(validation) == 180
+    assert sum(record["language"] == "en" for record in records) == 360
+    assert sum(record["language"] == "th" for record in records) == 360
+    assert len({record["tool"] for record in records if record["tool"]}) == 58
     assert {record["seed_id"] for record in train}.isdisjoint(
         {record["seed_id"] for record in validation}
     )
@@ -94,9 +94,9 @@ def test_router_v2_dataset_is_selection_only_and_keeps_splits_disjoint():
     train, validation = build_router_v2_records()
     validate_records(train + validation)
 
-    assert len(train) == 639
-    assert len(validation) == 177
-    assert sum(record["kind"] == "tool_call" for record in train) == 585
+    assert len(train) == 648
+    assert len(validation) == 180
+    assert sum(record["kind"] == "tool_call" for record in train) == 594
     assert sum(record["kind"] == "answer" for record in train) == 54
     assert {record["router_protocol"] for record in train + validation} == {
         ROUTER_PROTOCOL_VERSION
@@ -138,8 +138,8 @@ def test_router_v2_acceptance_v4_is_balanced_sealed_and_training_rejected():
     train, validation = build_router_v2_records()
     acceptance = build_acceptance_v4_records(train, validation)
 
-    assert len(acceptance) == 69
-    assert sum(record["kind"] == "tool_call" for record in acceptance) == 57
+    assert len(acceptance) == 70
+    assert sum(record["kind"] == "tool_call" for record in acceptance) == 58
     assert sum(record["kind"] == "answer" for record in acceptance) == 12
     assert abs(sum(record["language"] == "en" for record in acceptance)
                - sum(record["language"] == "th" for record in acceptance)) <= 1
@@ -208,7 +208,7 @@ def test_repair_and_acceptance_sets_are_contract_valid_and_disjoint():
     validate_records(repair + validation)
     validate_records(acceptance)
 
-    assert len(repair) == 131  # one replay per tool (57), all 18 answers and 56 repairs
+    assert len(repair) == 132  # one replay per tool (58), all 18 answers and 56 repairs
     assert len({
         record["seed_id"]
         for record in repair
@@ -258,8 +258,8 @@ def test_release_acceptance_v3_covers_every_tool_and_is_training_rejected():
     )
     validate_records(release)
 
-    assert len(release) == 69
-    assert sum(record["kind"] == "tool_call" for record in release) == 57
+    assert len(release) == 70
+    assert sum(record["kind"] == "tool_call" for record in release) == 58
     assert sum(record["kind"] == "answer" for record in release) == 12
     assert abs(sum(record["language"] == "en" for record in release)
                - sum(record["language"] == "th" for record in release)) <= 1
