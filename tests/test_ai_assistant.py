@@ -1215,3 +1215,98 @@ def test_list_analysis_recipes_enumerates_saved_recipes():
     out = reg.execute("list_analysis_recipes", {})
     assert "One-sample t-test" in out
     assert "Clean" in out
+
+
+def _window_with_plotted_axes(n_series=3):
+    import numpy as np
+    window = _FakeWindow(pd.DataFrame({"a": [1, 2, 3]}))
+    ax = window.active_axes()
+    x = np.linspace(0, 10, 30)
+    for i in range(n_series):
+        ax.plot(x, np.sin(x) + i, label=f"s{i}")
+    ax.legend()
+    return window, ax
+
+
+def test_format_graph_applies_journal_preset_by_fuzzy_name():
+    window, ax = _window_with_plotted_axes()
+    out = build_app_registry(window).execute("format_graph", {"journal_preset": "nature"})
+    assert "Nature" in out and "preset" in out
+    assert ax.spines["top"].get_visible() is False  # open-frame journal styling
+    assert ax.xaxis.label.get_family() == ["sans-serif"]
+
+
+def test_format_graph_recolors_colorblind_safe():
+    from core.plot_style import COLORBLIND_SAFE_PALETTES, SCIENTIFIC_PALETTES
+    window, ax = _window_with_plotted_axes(3)
+    out = build_app_registry(window).execute("format_graph", {"colorblind": True})
+    assert "palette" in out
+    safe = SCIENTIFIC_PALETTES[COLORBLIND_SAFE_PALETTES[0]]
+    assert ax.get_lines()[0].get_color().upper() == safe[0].upper()
+
+
+def test_format_graph_named_palette_and_line_width():
+    from core.plot_style import SCIENTIFIC_PALETTES
+    window, ax = _window_with_plotted_axes(2)
+    out = build_app_registry(window).execute(
+        "format_graph", {"palette": "Tol Bright (CB-safe)", "line_width": 2.0}
+    )
+    assert "Tol Bright" in out
+    assert ax.get_lines()[0].get_color().upper() == SCIENTIFIC_PALETTES["Tol Bright (CB-safe)"][0].upper()
+    assert ax.get_lines()[0].get_linewidth() == 2.0
+
+
+def test_format_graph_rejects_unknown_preset_and_palette():
+    window, _ = _window_with_plotted_axes(1)
+    reg = build_app_registry(window)
+    assert "Unknown journal preset" in reg.execute("format_graph", {"journal_preset": "wat"})
+    assert "Unknown palette" in reg.execute("format_graph", {"palette": "wat"})
+
+
+def test_format_graph_fill_value_labels_and_errorbars():
+    window, ax = _window_with_plotted_axes(2)
+    reg = build_app_registry(window)
+    out = reg.execute("format_graph", {"fill": "under", "fill_alpha": 0.3})
+    assert "fill under" in out
+    fills = [c for c in ax.collections if str(c.get_gid() or "").startswith("_ps_fill")]
+    assert len(fills) == 2
+    out = reg.execute("format_graph", {"value_labels": True, "label_format": "%.2f"})
+    assert "value labels" in out
+    assert any(str(t.get_gid() or "").startswith("_ps_vlab") for t in ax.texts)
+    out = reg.execute("format_graph", {"errorbars": "5%"})
+    assert "error bars 5%" in out
+    assert any(getattr(c, "_ps_gid", None) for c in ax.containers)
+    out = reg.execute("format_graph", {"errorbars": "off", "fill": "off",
+                                       "value_labels": False})
+    assert not any(getattr(c, "_ps_gid", None) for c in ax.containers)
+
+
+def test_format_graph_inset_zoom_defaults_to_middle_third():
+    window, ax = _window_with_plotted_axes(1)
+    out = build_app_registry(window).execute("format_graph", {"inset": True})
+    assert "zoom inset" in out
+    axins = getattr(ax, "_ps_inset_ax", None)
+    assert axins is not None
+    lo, hi = axins.get_xlim()
+    assert 2.0 < lo < 4.5 and 5.5 < hi < 8.0  # middle third of 0..10
+    out = build_app_registry(window).execute("format_graph", {"inset": False})
+    assert "inset removed" in out
+    assert getattr(ax, "_ps_inset_ax", None) is None
+
+
+def test_format_graph_colormap_on_heatmap_and_line_plot():
+    import numpy as np
+
+    window, ax = _window_with_plotted_axes(1)
+    out = build_app_registry(window).execute("format_graph", {"colormap": "viridis"})
+    assert "no image/heatmap" in out  # line plots have no mappable
+
+    window2 = _FakeWindow(pd.DataFrame({"a": [1.0]}))
+    ax2 = window2.active_axes()
+    image = ax2.imshow(np.random.default_rng(1).random((4, 4)))
+    out = build_app_registry(window2).execute(
+        "format_graph", {"colormap": "cividis", "colorbar": True,
+                         "colorbar_label": "Counts"}
+    )
+    assert "colormap/colorbar" in out
+    assert image.get_cmap().name == "cividis"

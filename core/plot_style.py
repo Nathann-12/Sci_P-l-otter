@@ -4,14 +4,18 @@ Pure matplotlib logic, no Qt, so the whole style layer is unit-testable and
 reusable (session save, workflow, templates). A *style* is a plain nested dict
 so it round-trips through JSON.
 
-Top-level keys: ``axes``, ``tick_labels``, ``grid``, ``legend``, ``figure``.
+Top-level keys: ``axes``, ``tick_labels``, ``grid``, ``legend``, ``figure``,
+``inset``, ``colorbar``.
 Per-curve styling lives in :func:`read_line_style` / :func:`apply_line_style`.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # --- choices exposed to the dialog -----------------------------------------
 LINE_STYLES = ["-", "--", "-.", ":", "None"]
@@ -51,31 +55,143 @@ COLORMAPS = [
 # Journal figure presets: publication-ready figure sizes + font sizes.
 # Widths are the common single-column sizes (inches). Merge onto a style
 # with get_preset_style(name).
+# Curated, publication-grade qualitative palettes. Five of these are verified
+# colour-vision-deficiency (CVD) safe — the property Origin's default colour
+# cycle does not guarantee — so a one-click recolour is genuinely accessible.
+SCIENTIFIC_PALETTES = {
+    "Okabe-Ito (CB-safe)": [
+        "#0072B2", "#E69F00", "#009E73", "#D55E00",
+        "#CC79A7", "#56B4E9", "#F0E442", "#000000",
+    ],
+    "Tol Bright (CB-safe)": [
+        "#4477AA", "#EE6677", "#228833", "#CCBB44",
+        "#66CCEE", "#AA3377", "#BBBBBB",
+    ],
+    "Tol Muted (CB-safe)": [
+        "#CC6677", "#332288", "#DDCC77", "#117733", "#88CCEE",
+        "#882255", "#44AA99", "#999933", "#AA4499",
+    ],
+    "Tol Vibrant (CB-safe)": [
+        "#EE7733", "#0077BB", "#33BBEE", "#EE3377",
+        "#CC3311", "#009988", "#BBBBBB",
+    ],
+    "Viridis (CB-safe)": [
+        "#440154", "#414487", "#2A788E", "#22A884", "#7AD151", "#FDE725",
+    ],
+    "ColorBrewer Set2": [
+        "#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3",
+        "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3",
+    ],
+    "Grayscale (print-safe)": [
+        "#000000", "#4D4D4D", "#7F7F7F", "#A6A6A6", "#CCCCCC",
+    ],
+    "SciPlotter": [
+        "#4F9CF9", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "#56B4E9",
+    ],
+}
+
+# Palettes whose ordering keeps all pairs distinguishable under the common
+# colour-vision deficiencies (used by the AI ``colorblind`` shortcut).
+COLORBLIND_SAFE_PALETTES = (
+    "Okabe-Ito (CB-safe)", "Tol Bright (CB-safe)", "Tol Muted (CB-safe)",
+    "Tol Vibrant (CB-safe)", "Viridis (CB-safe)",
+)
+
+
+def list_palettes():
+    """Return the available scientific palette names (colour-safe first)."""
+    return list(SCIENTIFIC_PALETTES.keys())
+
+
+# Curated colormaps for images/heatmaps — perceptually-uniform CVD-safe first.
+COLORMAPS = (
+    "viridis", "cividis", "plasma", "inferno", "magma",
+    "coolwarm", "RdBu_r", "Spectral_r", "Greys", "hot", "terrain", "turbo",
+)
+
+FILL_MODES = ("none", "under", "between_next")
+ERRORBAR_MODES = ("none", "constant", "percent")
+INSET_LOCS = ("upper right", "upper left", "lower right", "lower left")
+
+# Section defaults: identity Apply must diff to a no-op, and a Cancel snapshot
+# taken before any inset/colorbar existed must remove one added by live preview.
+INSET_DEFAULTS = {
+    "enabled": False, "loc": "upper right", "size": 38.0,
+    "xmin": 0.0, "xmax": 1.0, "indicate": True,
+}
+COLORBAR_DEFAULTS = {
+    "enabled": False, "cmap": "", "label": "",
+    "shrink": 1.0, "tick_size": 8.0,
+}
+LINE_DECO_DEFAULTS = {
+    "fill": "none", "fill_color": "", "fill_alpha": 0.25,
+    "value_labels": False, "value_labels_fmt": "%.3g",
+    "value_labels_size": 8.0, "value_labels_every": 1,
+    "errorbar_mode": "none", "errorbar_value": 5.0,
+    "errorbar_capsize": 3.0, "errorbar_alpha": 0.9,
+}
+
+
+# Complete, ready-to-publish journal styles: not just point sizes but tick
+# direction, minor ticks, open (top/right hidden) spines, font family, grid
+# off, and a CVD-safe palette + line width — one click gets a submission-ready
+# figure, which Origin needs a hand-built template to match.
 JOURNAL_PRESETS = {
     "IEEE (single column)": {
-        "figure": {"width_in": 3.5, "height_in": 2.6, "dpi": 300},
-        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7},
-        "legend": {"fontsize": 7},
+        "figure": {"width_in": 3.5, "height_in": 2.6, "dpi": 300,
+                   "fig_facecolor": "#ffffff", "facecolor": "#ffffff"},
+        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7,
+                 "font_family": "serif", "tick_direction": "in",
+                 "minor_ticks": True, "spine_top": False, "spine_right": False,
+                 "spine_width": 0.8},
+        "grid": {"major": False, "minor": False},
+        "legend": {"fontsize": 7, "frame": False},
+        "palette": "Okabe-Ito (CB-safe)", "line_width": 1.1,
     },
     "Nature (single column)": {
-        "figure": {"width_in": 3.50, "height_in": 2.63, "dpi": 300},
-        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6},
-        "legend": {"fontsize": 6},
+        "figure": {"width_in": 3.50, "height_in": 2.63, "dpi": 300,
+                   "fig_facecolor": "#ffffff", "facecolor": "#ffffff"},
+        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6,
+                 "font_family": "sans-serif", "tick_direction": "out",
+                 "minor_ticks": True, "spine_top": False, "spine_right": False,
+                 "spine_width": 0.8},
+        "grid": {"major": False, "minor": False},
+        "legend": {"fontsize": 6, "frame": False},
+        "palette": "Tol Bright (CB-safe)", "line_width": 1.0,
     },
     "Science (single column)": {
-        "figure": {"width_in": 2.24, "height_in": 2.0, "dpi": 300},
-        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6},
-        "legend": {"fontsize": 6},
+        "figure": {"width_in": 2.24, "height_in": 2.0, "dpi": 300,
+                   "fig_facecolor": "#ffffff", "facecolor": "#ffffff"},
+        "axes": {"title_size": 8, "label_size": 7, "tick_size": 6,
+                 "font_family": "sans-serif", "tick_direction": "out",
+                 "minor_ticks": True, "spine_top": False, "spine_right": False,
+                 "spine_width": 0.8},
+        "grid": {"major": False, "minor": False},
+        "legend": {"fontsize": 6, "frame": False},
+        "palette": "Okabe-Ito (CB-safe)", "line_width": 1.0,
     },
     "ACS (single column)": {
-        "figure": {"width_in": 3.33, "height_in": 2.5, "dpi": 300},
-        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7},
-        "legend": {"fontsize": 7},
+        "figure": {"width_in": 3.33, "height_in": 2.5, "dpi": 300,
+                   "fig_facecolor": "#ffffff", "facecolor": "#ffffff"},
+        "axes": {"title_size": 9, "label_size": 8, "tick_size": 7,
+                 "font_family": "sans-serif", "tick_direction": "in",
+                 "minor_ticks": True, "spine_top": False, "spine_right": False,
+                 "spine_width": 0.9},
+        "grid": {"major": False, "minor": False},
+        "legend": {"fontsize": 7, "frame": False},
+        "palette": "ColorBrewer Set2", "line_width": 1.2,
     },
     "Thesis (large)": {
-        "figure": {"width_in": 6.5, "height_in": 4.5, "dpi": 300},
-        "axes": {"title_size": 14, "label_size": 12, "tick_size": 10},
-        "legend": {"fontsize": 11},
+        "figure": {"width_in": 6.5, "height_in": 4.5, "dpi": 300,
+                   "fig_facecolor": "#ffffff", "facecolor": "#ffffff"},
+        "axes": {"title_size": 14, "label_size": 12, "tick_size": 10,
+                 "font_family": "serif", "tick_direction": "out",
+                 "minor_ticks": True, "spine_top": False, "spine_right": False,
+                 "spine_width": 1.0},
+        "grid": {"major": True, "minor": False, "color": "#dddddd",
+                 "linestyle": "-", "alpha": 0.5},
+        "legend": {"fontsize": 11, "frame": True},
+        "palette": "Tol Muted (CB-safe)", "line_width": 1.6,
     },
     "Excel Pro (presentation)": {
         "figure": {
@@ -110,6 +226,7 @@ JOURNAL_PRESETS = {
             "shadow_offset_x": 3.0,
             "shadow_offset_y": 3.0,
         },
+        "palette": "SciPlotter", "line_width": 2.4,
     },
     "Dark Pro (presentation)": {
         "figure": {
@@ -144,6 +261,7 @@ JOURNAL_PRESETS = {
             "shadow_offset_x": 3.0,
             "shadow_offset_y": 3.0,
         },
+        "palette": "Tol Vibrant (CB-safe)", "line_width": 2.4,
     },
 }
 
@@ -155,6 +273,46 @@ def get_preset_style(name: str) -> Dict[str, Any]:
     if preset is None:
         raise ValueError(f"unknown journal preset: {name!r}")
     return copy.deepcopy(preset)
+
+
+def preset_palette(name: str):
+    """Return ``(palette_name, line_width)`` carried by a preset, or ``(None, None)``."""
+    preset = JOURNAL_PRESETS.get(name) or {}
+    return preset.get("palette"), preset.get("line_width")
+
+
+def apply_palette(ax, name, *, line_width=None, recolor_markers=True) -> int:
+    """Recolour every line on ``ax`` in order from a scientific palette.
+
+    Returns the number of artists recoloured. Markers are tinted to match the
+    line by default, an existing legend is rebuilt so its swatches stay in sync,
+    and an optional uniform ``line_width`` is applied. Unknown palette names
+    raise ``ValueError`` so callers can report the mistake.
+    """
+    colors = SCIENTIFIC_PALETTES.get(name)
+    if colors is None:
+        raise ValueError(f"unknown palette: {name!r}")
+    artists = list_line_artists(ax)
+    for index, line in enumerate(artists):
+        color = colors[index % len(colors)]
+        line.set_color(color)
+        if recolor_markers:
+            line.set_markerfacecolor(color)
+            line.set_markeredgecolor(color)
+        if line_width is not None:
+            line.set_linewidth(float(line_width))
+    legend = ax.get_legend()
+    if legend is not None and artists:
+        title = legend.get_title()
+        title_text = title.get_text() if title is not None else ""
+        try:
+            ncol = legend._ncols  # matplotlib >= 3.6
+        except AttributeError:
+            ncol = getattr(legend, "_ncol", 1)
+        new_legend = ax.legend(ncol=max(1, int(ncol or 1)))
+        if title_text:
+            new_legend.set_title(title_text)
+    return len(artists)
 
 
 def _num_or_none(v):
@@ -303,6 +461,10 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
             "shadow_offset_x": 3.0,
             "shadow_offset_y": 3.0,
         },
+        # Decoration state we own is stored on the axes when applied, so the
+        # dialog reopens showing reality and a Cancel snapshot reverts it.
+        "inset": dict(getattr(ax, "_ps_inset_cfg", None) or INSET_DEFAULTS),
+        "colorbar": dict(getattr(ax, "_ps_colorbar_cfg", None) or COLORBAR_DEFAULTS),
     }
     if fig is not None:
         w, h = fig.get_size_inches()
@@ -343,7 +505,7 @@ _AXES_KEY_GROUPS = (
      "refline_color", "refline_style", "refline_width", "refline_alpha"),
 )
 # Sections that are rebuilt as a whole, so they diff as a whole.
-_ATOMIC_SECTIONS = ("grid", "legend", "tick_labels", "effects")
+_ATOMIC_SECTIONS = ("grid", "legend", "tick_labels", "effects", "inset", "colorbar")
 
 
 def diff_style(baseline: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
@@ -583,6 +745,10 @@ def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
             pass
     if "effects" in style:
         _apply_axes_effects(ax, style.get("effects", {}))
+    if "inset" in style:
+        _apply_inset(ax, style.get("inset") or {})
+    if "colorbar" in style:
+        _apply_colorbar(ax, style.get("colorbar") or {})
     # figure size / DPI are export-only: applying them to a live embedded Qt
     # canvas squashes the on-screen layout (see the "apply preset" bug)
     if not live and fig is not None and (f.get("width_in") or f.get("height_in")):
@@ -749,6 +915,9 @@ def read_line_style(line) -> Dict[str, Any]:
         "shadow_alpha": 0.25,
         "shadow_offset_x": 1.5,
         "shadow_offset_y": 1.5,
+        # decorations we applied earlier are remembered on the artist so the
+        # dialog reopens showing them (and Cancel snapshots can revert them)
+        **{**LINE_DECO_DEFAULTS, **(getattr(line, "_ps_deco", None) or {})},
     }
 
 
@@ -801,6 +970,8 @@ def apply_line_style(line, d: Dict[str, Any]) -> None:
     if "label" in d and d["label"]:
         line.set_label(d["label"])
     _apply_line_effects(line, d)
+    if any(key in d for key in LINE_DECO_DEFAULTS):
+        _apply_line_decorations(line, d)
 
 
 # --- helpers ----------------------------------------------------------------
@@ -1122,5 +1293,277 @@ def _apply_line_effects(line, d: Dict[str, Any]) -> None:
 
 
 def list_line_artists(ax) -> List[Any]:
-    """The Line2D artists that carry a real (non-underscore) label, in order."""
-    return [ln for ln in ax.get_lines()]
+    """The user's data curves, in order — excluding artists this module owns.
+
+    Reference lines, error-bar caps and other decorations carry a ``_ps_``
+    gid; without this filter a palette recolour (or the Lines tab) would
+    treat them as data curves.
+    """
+    return [
+        ln for ln in ax.get_lines()
+        if not str(ln.get_gid() or "").startswith("_ps_")
+    ]
+
+
+# --- decorations: fill / value labels / error bars / inset / colorbar --------
+def _line_gid(line, kind: str) -> str:
+    return f"_ps_{kind}_{id(line)}"
+
+
+def _remove_gid_artists(ax, gid: str) -> None:
+    # containers first: ErrorbarContainer.remove() drops its child artists, so
+    # removing children individually beforehand would double-remove them
+    for container in list(getattr(ax, "containers", [])):
+        if getattr(container, "_ps_gid", None) == gid:
+            try:
+                container.remove()
+            except Exception:
+                logger.debug("errorbar container removal failed", exc_info=True)
+    for group in (ax.lines, ax.collections, ax.texts, ax.patches):
+        for artist in list(group):
+            if str(artist.get_gid() or "") == gid:
+                try:
+                    artist.remove()
+                except Exception:
+                    logger.debug("decoration artist removal failed", exc_info=True)
+
+
+def _finite_xy(line):
+    x = np.asarray(line.get_xdata(), dtype=float)
+    y = np.asarray(line.get_ydata(), dtype=float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    return x[ok], y[ok]
+
+
+def _apply_line_fill(line, d: Dict[str, Any]) -> None:
+    """Fill under the curve or between this curve and the next one."""
+    ax = line.axes
+    if ax is None:
+        return
+    gid = _line_gid(line, "fill")
+    _remove_gid_artists(ax, gid)
+    mode = str(d.get("fill", "none"))
+    if mode not in FILL_MODES or mode == "none":
+        return
+    x, y = _finite_xy(line)
+    if x.size < 2:
+        return
+    color = d.get("fill_color") or _to_hex(line.get_color())
+    alpha = float(d.get("fill_alpha", 0.25))
+    if mode == "under":
+        artist = ax.fill_between(x, y, 0.0, color=color, alpha=alpha, linewidth=0)
+    else:  # between_next
+        curves = list_line_artists(ax)
+        try:
+            index = curves.index(line)
+        except ValueError:
+            return
+        if index + 1 >= len(curves):
+            return  # no next curve — quietly nothing to fill against
+        other = curves[index + 1]
+        ox, oy = _finite_xy(other)
+        if ox.size < 2:
+            return
+        artist = ax.fill_between(
+            x, y, np.interp(x, ox, oy), color=color, alpha=alpha, linewidth=0
+        )
+    artist.set_gid(gid)
+    artist.set_zorder(line.get_zorder() - 0.5)
+
+
+def _apply_line_value_labels(line, d: Dict[str, Any]) -> None:
+    """Numeric labels above every Nth data point (auto-thinned when dense)."""
+    ax = line.axes
+    if ax is None:
+        return
+    gid = _line_gid(line, "vlab")
+    _remove_gid_artists(ax, gid)
+    if not d.get("value_labels"):
+        return
+    x, y = _finite_xy(line)
+    if x.size == 0:
+        return
+    every = max(1, int(d.get("value_labels_every", 1) or 1))
+    # never draw an unreadable wall of text on dense data
+    if x.size / every > 200:
+        every = int(np.ceil(x.size / 200))
+    fmt = str(d.get("value_labels_fmt") or "%.3g")
+    try:
+        fmt % 1.0
+    except (TypeError, ValueError):
+        fmt = "%.3g"
+    color = d.get("value_labels_color") or _to_hex(line.get_color())
+    size = float(d.get("value_labels_size", 8.0) or 8.0)
+    for xv, yv in zip(x[::every], y[::every]):
+        ax.annotate(
+            fmt % yv, (xv, yv), textcoords="offset points", xytext=(0, 6),
+            ha="center", fontsize=size, color=color, gid=gid, clip_on=True,
+        )
+
+
+def _apply_line_errorbars(line, d: Dict[str, Any]) -> None:
+    """Constant or percent Y error bars as a decoration on an existing curve."""
+    ax = line.axes
+    if ax is None:
+        return
+    gid = _line_gid(line, "err")
+    _remove_gid_artists(ax, gid)
+    mode = str(d.get("errorbar_mode", "none"))
+    if mode not in ERRORBAR_MODES or mode == "none":
+        return
+    x, y = _finite_xy(line)
+    if x.size == 0:
+        return
+    value = float(d.get("errorbar_value", 5.0) or 0.0)
+    err = np.abs(y) * value / 100.0 if mode == "percent" else np.full_like(y, abs(value))
+    color = d.get("errorbar_color") or _to_hex(line.get_color())
+    container = ax.errorbar(
+        x, y, yerr=err, fmt="none", ecolor=color,
+        elinewidth=max(0.8, float(line.get_linewidth()) * 0.75),
+        capsize=float(d.get("errorbar_capsize", 3.0) or 0.0),
+        alpha=float(d.get("errorbar_alpha", 0.9)),
+        zorder=line.get_zorder() - 0.25,
+    )
+    container._ps_gid = gid
+    for group in container.lines[1:]:  # caplines + barlinecols
+        for artist in group:
+            artist.set_gid(gid)
+
+
+def _apply_line_decorations(line, d: Dict[str, Any]) -> None:
+    _apply_line_fill(line, d)
+    _apply_line_value_labels(line, d)
+    _apply_line_errorbars(line, d)
+    # remember what was applied so read_line_style reports reality
+    try:
+        line._ps_deco = {k: d.get(k, v) for k, v in LINE_DECO_DEFAULTS.items()}
+    except Exception:
+        logger.debug("line decoration state store failed", exc_info=True)
+
+
+def _apply_inset(ax, cfg: Dict[str, Any]) -> None:
+    """Create/refresh/remove a zoomed inset panel of the axes' own curves."""
+    try:
+        prev = getattr(ax, "_ps_inset_ax", None)
+        if prev is not None:
+            try:
+                prev.remove()
+            except Exception:
+                logger.debug("inset removal failed", exc_info=True)
+            ax._ps_inset_ax = None
+        for mark in getattr(ax, "_ps_inset_marks", ()) or ():
+            try:
+                mark.remove()
+            except Exception:
+                logger.debug("inset indicator removal failed", exc_info=True)
+        ax._ps_inset_marks = ()
+        ax._ps_inset_cfg = None
+        if not cfg.get("enabled"):
+            return
+
+        loc = str(cfg.get("loc", "upper right"))
+        size = max(15.0, min(60.0, float(cfg.get("size", 38.0) or 38.0))) / 100.0
+        pad = 0.06
+        x0 = 1.0 - size - pad if "right" in loc else pad
+        y0 = 1.0 - size - pad if "upper" in loc else pad
+        axins = ax.inset_axes([x0, y0, size, size])
+        axins.set_gid("_ps_inset")
+        axins.set_in_layout(False)  # keep tight_layout away from the child axes
+
+        xmin = float(cfg.get("xmin", 0.0))
+        xmax = float(cfg.get("xmax", 1.0))
+        if xmax <= xmin:
+            xmin, xmax = sorted((xmin, xmax)) or (xmin, xmin + 1.0)
+            if xmax == xmin:
+                xmax = xmin + 1.0
+        ys = []
+        for curve in list_line_artists(ax):
+            x, y = _finite_xy(curve)
+            if x.size < 2:
+                continue
+            axins.plot(
+                x, y,
+                color=curve.get_color(), linewidth=curve.get_linewidth(),
+                linestyle=curve.get_linestyle(), marker=curve.get_marker(),
+                markersize=curve.get_markersize(), alpha=curve.get_alpha() or 1.0,
+            )
+            inside = y[(x >= xmin) & (x <= xmax)]
+            if inside.size:
+                ys.append((float(np.min(inside)), float(np.max(inside))))
+        axins.set_xlim(xmin, xmax)
+        if ys:
+            lo = min(pair[0] for pair in ys)
+            hi = max(pair[1] for pair in ys)
+            span = (hi - lo) or 1.0
+            axins.set_ylim(lo - 0.08 * span, hi + 0.08 * span)
+        axins.tick_params(labelsize=7)
+        marks = []
+        if cfg.get("indicate", True):
+            try:
+                indicator = ax.indicate_inset_zoom(axins, edgecolor="0.5")
+                if isinstance(indicator, tuple):  # matplotlib < 3.10
+                    rect, connectors = indicator
+                    rect.set_gid("_ps_inset_box")
+                    marks = [rect, *connectors]
+                else:  # >= 3.10: one InsetIndicator that removes as a unit
+                    indicator.set_gid("_ps_inset_box")
+                    marks = [indicator]
+            except Exception:
+                logger.debug("indicate_inset_zoom failed", exc_info=True)
+        ax._ps_inset_ax = axins
+        ax._ps_inset_marks = tuple(marks)
+        ax._ps_inset_cfg = {k: cfg.get(k, v) for k, v in INSET_DEFAULTS.items()}
+    except Exception:
+        logger.debug("inset apply failed", exc_info=True)
+
+
+def _axes_mappables(ax):
+    """Colormapped artists (images, pcolormesh/scatter with array data)."""
+    mappables = list(ax.images)
+    for coll in ax.collections:
+        try:
+            if coll.get_array() is not None and getattr(coll.get_array(), "size", 0):
+                mappables.append(coll)
+        except Exception:
+            continue
+    return mappables
+
+
+def _apply_colorbar(ax, cfg: Dict[str, Any]) -> None:
+    """Restyle the colormap/colorbar of image-like plots (heatmap, spectrogram)."""
+    try:
+        mappables = _axes_mappables(ax)
+        if not mappables:
+            ax._ps_colorbar_cfg = None
+            return
+        cmap = str(cfg.get("cmap", "") or "")
+        if cmap:
+            for mappable in mappables:
+                mappable.set_cmap(cmap)
+        target = getattr(ax, "_ps_colorbar", None)
+        if target is None:
+            # a colorbar the plot module already made hangs off the mappable
+            target = next(
+                (m.colorbar for m in mappables if getattr(m, "colorbar", None)), None
+            )
+        if cfg.get("enabled") and target is None and ax.figure is not None:
+            target = ax.figure.colorbar(
+                mappables[0], ax=ax, shrink=float(cfg.get("shrink", 1.0) or 1.0)
+            )
+            ax._ps_colorbar = target
+        elif not cfg.get("enabled") and getattr(ax, "_ps_colorbar", None) is not None:
+            try:
+                ax._ps_colorbar.remove()
+            except Exception:
+                logger.debug("colorbar removal failed", exc_info=True)
+            ax._ps_colorbar = None
+            target = next(
+                (m.colorbar for m in mappables if getattr(m, "colorbar", None)), None
+            )
+        if target is not None:
+            if cfg.get("label"):
+                target.set_label(str(cfg["label"]))
+            target.ax.tick_params(labelsize=float(cfg.get("tick_size", 8.0) or 8.0))
+        ax._ps_colorbar_cfg = {k: cfg.get(k, v) for k, v in COLORBAR_DEFAULTS.items()}
+    except Exception:
+        logger.debug("colorbar apply failed", exc_info=True)

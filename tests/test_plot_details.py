@@ -636,3 +636,223 @@ def test_loading_template_updates_dialog_state_before_apply(win, monkeypatch):
     win._apply_plot_details(ax, fig, lines, dlg, target_tab=win.tabs.currentWidget())
     fig.canvas.draw()
     assert _visual_state(ax, fig) == before
+
+
+def _min_style():
+    return {
+        "axes": {"title": "", "xlabel": "", "ylabel": "", "title_size": 12,
+                 "label_size": 10, "tick_size": 10, "x_autoscale": True,
+                 "xmin": 0, "xmax": 1, "y_autoscale": True, "ymin": 0, "ymax": 1,
+                 "xscale": "linear", "yscale": "linear"},
+        "grid": {"major": False}, "legend": {"visible": False},
+        "figure": {"facecolor": "#ffffff"},
+    }
+
+
+def _one_line():
+    return [{"label": "s1", "color": "#112233", "linewidth": 1.0,
+             "linestyle": "-", "marker": "None", "markersize": 6, "alpha": 1.0}]
+
+
+def test_default_palette_is_keep_so_identity_apply_is_noop(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    assert dlg.get_style()["palette"]["name"] == dlg._palette_keep
+    # seed baseline captured at construction carries the same keep sentinel
+    assert dlg._seed_style["palette"]["name"] == dlg._palette_keep
+
+
+def test_journal_preset_selects_its_colorblind_palette(qapp):
+    from core.plot_style import preset_palette
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    dlg.cb_preset.setCurrentText("Nature (single column)")
+    dlg._on_apply_preset()
+    pal_name, line_width = preset_palette("Nature (single column)")
+    assert dlg.cb_palette.currentText() == pal_name
+    out = dlg.get_style()["palette"]
+    assert out["name"] == pal_name
+    assert out["line_width"] == line_width
+    # preset also delivered complete styling into the controls
+    assert dlg.chk_spinetop.isChecked() is False
+    assert dlg.cb_tickdir.currentText() in ("in", "out", "inout")
+
+
+def test_palette_recolors_live_graph_through_mixin(win):
+    from core.plot_style import SCIENTIFIC_PALETTES
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+    keep = "— keep colors —"
+    base = {"axes": {}, "grid": {}, "legend": {"visible": False}, "figure": {},
+            "palette": {"name": keep, "line_width": None}}
+    current = {**base, "palette": {"name": "Okabe-Ito (CB-safe)", "line_width": 2.0}}
+
+    class _Dlg:
+        _seed_style = base
+        _palette_keep = keep
+        def get_style(self): return current
+        def get_line_styles(self): return [{} for _ in lines]
+
+    win._apply_plot_details(ax, fig, lines, _Dlg())
+    expected = SCIENTIFIC_PALETTES["Okabe-Ito (CB-safe)"]
+    assert ax.get_lines()[0].get_color().upper() == expected[0].upper()
+    assert ax.get_lines()[0].get_linewidth() == 2.0
+
+
+def test_identity_palette_apply_leaves_colors_untouched(win):
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+    before = [ln.get_color() for ln in ax.get_lines()]
+    keep = "— keep colors —"
+    style = {"axes": {}, "grid": {}, "legend": {"visible": False}, "figure": {},
+             "palette": {"name": keep, "line_width": None}}
+
+    class _Dlg:
+        _seed_style = style
+        _palette_keep = keep
+        def get_style(self): return style
+        def get_line_styles(self): return [{} for _ in lines]
+
+    win._apply_plot_details(ax, fig, lines, _Dlg())
+    assert [ln.get_color() for ln in ax.get_lines()] == before
+
+
+def _two_lines():
+    base = {"linewidth": 1.0, "linestyle": "-", "marker": "None",
+            "markersize": 6, "alpha": 1.0}
+    return [{"label": "a", "color": "#112233", **base},
+            {"label": "b", "color": "#445566", **base}]
+
+
+def test_live_preview_schedules_redraw_on_edit(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    fired = []
+    dlg.applied.connect(lambda: fired.append(1))
+    assert dlg.chk_live.isChecked()
+    assert not dlg._live_timer.isActive()
+    dlg.ed_title.setText("Live!")
+    assert dlg._live_timer.isActive()  # a redraw is queued, no button pressed
+    dlg._live_timer.stop()
+    dlg._on_apply()                    # simulate the debounce firing
+    assert fired
+
+
+def test_live_preview_off_makes_editing_silent(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    dlg.chk_live.setChecked(False)
+    dlg.ed_title.setText("no live")
+    dlg.sp_title_size.setValue(20)
+    assert not dlg._live_timer.isActive()
+
+
+def test_switching_curve_does_not_trigger_live_redraw(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _two_lines())
+    dlg._live_timer.stop()
+    dlg.cb_line.setCurrentIndex(1)     # repopulates controls for curve b
+    assert not dlg._live_timer.isActive()
+
+
+def test_cancel_reverts_live_preview_changes(win):
+    from core.plot_style import read_style, read_line_style
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+    original_title = ax.get_title()
+    original_color = ax.get_lines()[0].get_color()
+
+    # snapshot as the opener does, then mutate the graph as live preview would
+    style = read_style(ax, fig)
+    line_styles = [read_line_style(ln) for ln in lines]
+    ax.set_title("Temporary preview")
+    ax.get_lines()[0].set_color("#ff0000")
+
+    win._restore_plot_details(ax, fig, lines, style, line_styles)
+    assert ax.get_title() == original_title
+    from matplotlib.colors import to_hex
+    assert to_hex(ax.get_lines()[0].get_color()) == to_hex(original_color)
+
+
+def test_dialog_round_trips_decoration_controls(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    dlg.cb_linefill.setCurrentText("under")
+    dlg.chk_fillauto.setChecked(False)
+    dlg.btn_fillcolor.setColor(QColor("#123456"))
+    dlg.sp_fillalpha.setValue(0.4)
+    dlg.cb_errmode.setCurrentText("percent")
+    dlg.sp_errvalue.setValue(7.5)
+    dlg.chk_vlabels.setChecked(True)
+    dlg.ed_vfmt.setText("%.1f")
+    dlg.sp_vevery.setValue(3)
+    out = dlg.get_line_styles()[0]
+    assert out["fill"] == "under"
+    assert out["fill_color"] == "#123456"
+    assert out["fill_alpha"] == 0.4
+    assert out["errorbar_mode"] == "percent" and out["errorbar_value"] == 7.5
+    assert out["value_labels"] is True
+    assert out["value_labels_fmt"] == "%.1f" and out["value_labels_every"] == 3
+
+
+def test_dialog_emits_inset_and_colorbar_sections(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    # defaults diff to a no-op
+    assert dlg.get_style()["inset"]["enabled"] is False
+    assert dlg.get_style()["colorbar"]["cmap"] == ""
+    dlg.chk_inset.setChecked(True)
+    dlg.sp_insetxmin.setValue(2.0)
+    dlg.sp_insetxmax.setValue(4.0)
+    dlg.cb_cmap.setCurrentText("cividis")
+    dlg.chk_cbar.setChecked(True)
+    out = dlg.get_style()
+    assert out["inset"] == {"enabled": True, "loc": "upper right", "size": 38.0,
+                            "xmin": 2.0, "xmax": 4.0, "indicate": True}
+    assert out["colorbar"]["cmap"] == "cividis" and out["colorbar"]["enabled"]
+
+
+def test_focus_line_opens_lines_tab_with_curve_selected(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _two_lines())
+    dlg.focus_line(1)
+    assert dlg._tabs.tabText(dlg._tabs.currentIndex()).startswith("Lines")
+    assert dlg.cb_line.currentIndex() == 1
+
+
+def test_pick_to_edit_finds_curve_under_cursor(win):
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+    assert lines
+
+    class _Event:  # a click landing exactly on the first curve's first point
+        def __init__(self, line):
+            self.inaxes = line.axes
+            x, y = line.get_xdata(), line.get_ydata()
+            self.xdata, self.ydata = float(x[0]), float(y[0])
+            trans = line.axes.transData.transform((self.xdata, self.ydata))
+            self.x, self.y = float(trans[0]), float(trans[1])
+
+    assert win._line_index_at_event(_Event(lines[0])) == 0
+
+    class _Miss:
+        inaxes = None
+        x = y = xdata = ydata = -10_000.0
+
+    assert win._line_index_at_event(_Miss()) is None
+
+
+def test_cancel_reverts_live_inset_and_fill(win):
+    from core.plot_style import (INSET_DEFAULTS, apply_line_style, apply_style,
+                                 read_line_style, read_style)
+    _plot_something(win)
+    ax, fig, lines = win._active_graph_axes()
+
+    # snapshot exactly as open_plot_details_dialog does
+    style = read_style(ax, fig)
+    line_styles = [read_line_style(ln) for ln in lines]
+    assert style["inset"]["enabled"] is False
+
+    # live preview adds an inset and a fill
+    apply_style(ax, {"inset": {**INSET_DEFAULTS, "enabled": True,
+                               "xmin": 0.5, "xmax": 1.5}}, fig)
+    deco = dict(line_styles[0]); deco["fill"] = "under"
+    apply_line_style(lines[0], deco)
+    assert getattr(ax, "_ps_inset_ax", None) is not None
+
+    win._restore_plot_details(ax, fig, lines, style, line_styles)
+    assert getattr(ax, "_ps_inset_ax", None) is None
+    fills = [c for c in ax.collections if str(c.get_gid() or "").startswith("_ps_fill")]
+    assert fills == []

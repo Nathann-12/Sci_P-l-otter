@@ -38,9 +38,12 @@ class MainWindowPlotStyleMixin:
     def _on_canvas_click(self, event):
         if getattr(event, "dblclick", False):
             # Plain double-click is the everyday data/axis workflow.
-            # Ctrl+double-click keeps direct access to the expert style dialog.
+            # Ctrl+double-click opens Plot Details — and lands directly on the
+            # curve under the cursor when there is one (pick-to-edit).
             if "control" in str(getattr(event, "key", "") or "").casefold():
-                self.open_plot_details_dialog()
+                self.open_plot_details_dialog(
+                    preselect_line=self._line_index_at_event(event)
+                )
                 return
             opener = getattr(self, "open_graph_data_panel", None)
             if callable(opener):
@@ -48,20 +51,40 @@ class MainWindowPlotStyleMixin:
             else:
                 self.open_plot_details_dialog()
 
+    def _line_index_at_event(self, event):
+        """Index (among the user's curves) of the line under the cursor, or None."""
+        try:
+            from core.plot_style import list_line_artists
+
+            ax, _fig, _lines = self._active_graph_axes()
+            if ax is None:
+                return None
+            for index, line in enumerate(list_line_artists(ax)):
+                hit, _detail = line.contains(event)
+                if hit:
+                    return index
+        except Exception:
+            logger.debug("pick-to-edit hit test failed", exc_info=True)
+        return None
+
     def _active_graph_axes(self):
         """(ax, fig, lines) of the current graph tab, or (None, None, [])."""
         try:
+            from core.plot_style import list_line_artists
+
             tab = self.tabs.currentWidget()
             if tab is None or not hasattr(tab, "get_axes"):
                 return None, None, []
             ax = tab.get_axes()
             fig = tab.get_figure() if hasattr(tab, "get_figure") else ax.figure
-            return ax, fig, list(ax.get_lines())
+            # only the user's curves — never our decoration artists
+            # (reference lines, error-bar caps) as editable "Lines"
+            return ax, fig, list_line_artists(ax)
         except Exception:
             logger.debug("active graph axes lookup failed", exc_info=True)
             return None, None, []
 
-    def open_plot_details_dialog(self):
+    def open_plot_details_dialog(self, preselect_line=None):
         """Open the Plot Details dialog for the active graph."""
         from dialogs.plot_details_dialog import PlotDetailsDialog
         from core import plot_templates
@@ -99,9 +122,33 @@ class MainWindowPlotStyleMixin:
         dlg.save_template_requested.connect(_save_template)
         dlg.load_template_requested.connect(_load_template)
         dlg.delete_template_requested.connect(_delete_template)
+        if preselect_line is not None:
+            dlg.focus_line(int(preselect_line))
         from PySide6.QtWidgets import QDialog
         if dlg.exec() == QDialog.Accepted:
             _apply()
+        else:
+            # Live preview committed edits as the user typed; Cancel must put
+            # the graph back exactly as it was when the dialog opened.
+            self._restore_plot_details(
+                ax, fig, lines, style, line_styles, target_tab=target_tab
+            )
+
+    def _restore_plot_details(self, ax, fig, lines, style, line_styles, *,
+                              target_tab=None) -> None:
+        """Reapply the pre-edit snapshot to undo any live-preview changes."""
+        try:
+            apply_style(ax, style, fig, live=True)
+            for ln, d in zip(lines, line_styles):
+                apply_line_style(ln, d)
+            self._relayout_live_figure(fig)
+            tab = target_tab or self._graph_tab_for_figure(fig)
+            if hasattr(tab, "draw"):
+                tab.draw()
+            elif getattr(fig, "canvas", None) is not None:
+                fig.canvas.draw_idle()
+        except Exception:
+            logger.debug("plot details revert failed", exc_info=True)
 
     def _refresh_plot_template_names(self, dlg) -> None:
         from core import plot_templates
@@ -130,7 +177,11 @@ class MainWindowPlotStyleMixin:
 
         try:
             tpl = plot_templates.load_template(name)
-            dlg.load_style_into_controls(tpl)
+            dlg._loading = True
+            try:
+                dlg.load_style_into_controls(tpl)
+            finally:
+                dlg._loading = False
             self._apply_plot_details(ax, fig, lines, dlg, target_tab=target_tab)
             self.notify(f"Applied template: {name}")
         except Exception as e:
@@ -192,6 +243,17 @@ class MainWindowPlotStyleMixin:
                         and d == base_lines[i]):
                     continue
                 apply_line_style(ln, d)
+                lines_changed = True
+            # Scientific palette recolour: a one-shot action, applied only when
+            # the user actually changed it since the last Apply (so identity
+            # Apply stays a no-op and respects the diff-apply contract).
+            palette = style.get("palette") or {}
+            base_palette = (baseline or {}).get("palette") or {}
+            pal_name = palette.get("name")
+            keep = getattr(dlg, "_palette_keep", "— keep colors —")
+            if pal_name and pal_name != keep and palette != base_palette:
+                from core.plot_style import apply_palette
+                apply_palette(ax, pal_name, line_width=palette.get("line_width"))
                 lines_changed = True
             # a legend may need rebuilding after labels/colors change
             if ((("legend" in effective) or lines_changed)

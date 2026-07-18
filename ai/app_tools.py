@@ -1377,6 +1377,127 @@ def _tool_format_graph(window, args: Dict[str, Any]) -> str:
             ax.set_xscale("log"); changed.append("log-x")
         if args.get("logy"):
             ax.set_yscale("log"); changed.append("log-y")
+
+        # Publication styling — the part Origin cannot do from a chat command.
+        from core.plot_style import (
+            COLORBLIND_SAFE_PALETTES, JOURNAL_PRESETS, SCIENTIFIC_PALETTES,
+            apply_palette, apply_style, get_preset_style, preset_palette,
+        )
+        preset = args.get("journal_preset")
+        if preset:
+            match = _match_choice(preset, JOURNAL_PRESETS.keys())
+            if match is None:
+                return (
+                    f"Unknown journal preset '{preset}'. Options: "
+                    + ", ".join(JOURNAL_PRESETS.keys())
+                )
+            style = get_preset_style(match)
+            style.pop("palette", None)
+            lw = style.pop("line_width", None)
+            apply_style(ax, style, getattr(ax, "figure", None), live=True)
+            pal_name, pal_lw = preset_palette(match)
+            if pal_name:
+                apply_palette(ax, pal_name, line_width=lw or pal_lw)
+            changed.append(f"{match} preset")
+
+        palette = args.get("palette")
+        if args.get("colorblind") and not palette:
+            palette = COLORBLIND_SAFE_PALETTES[0]
+        if palette:
+            match = _match_choice(palette, SCIENTIFIC_PALETTES.keys())
+            if match is None:
+                return (
+                    f"Unknown palette '{palette}'. Options: "
+                    + ", ".join(SCIENTIFIC_PALETTES.keys())
+                )
+            n = apply_palette(ax, match, line_width=args.get("line_width"))
+            changed.append(f"{match} palette ({n} series)")
+        elif args.get("line_width") is not None:
+            for line in ax.get_lines():
+                line.set_linewidth(float(args["line_width"]))
+            changed.append("line width")
+
+        # Per-curve decorations: fill, value labels, error bars.
+        from core.plot_style import (
+            ERRORBAR_MODES, FILL_MODES, INSET_DEFAULTS, list_line_artists,
+        )
+        curves = list_line_artists(ax)
+        fill = args.get("fill")
+        if fill is not None:
+            mode = {"off": "none", "between": "between_next"}.get(str(fill), str(fill))
+            if mode not in FILL_MODES:
+                return f"Unknown fill '{fill}'. Options: under, between, off."
+            deco = {"fill": mode}
+            if args.get("fill_alpha") is not None:
+                deco["fill_alpha"] = float(args["fill_alpha"])
+            for line in curves:
+                _apply_line_deco(line, deco)
+            changed.append(f"fill {mode}")
+        if args.get("value_labels") is not None:
+            deco = {"value_labels": bool(args["value_labels"])}
+            if args.get("label_format"):
+                deco["value_labels_fmt"] = str(args["label_format"])
+            for line in curves:
+                _apply_line_deco(line, deco)
+            changed.append("value labels" if deco["value_labels"] else "value labels off")
+        err = args.get("errorbars")
+        if err is not None:
+            text = str(err).strip()
+            if text.lower() in ("off", "none", "false"):
+                deco = {"errorbar_mode": "none"}
+                note = "error bars off"
+            elif text.endswith("%"):
+                deco = {"errorbar_mode": "percent", "errorbar_value": float(text[:-1])}
+                note = f"error bars {text}"
+            else:
+                deco = {"errorbar_mode": "constant", "errorbar_value": float(text)}
+                note = f"error bars ±{text}"
+            if deco["errorbar_mode"] not in ERRORBAR_MODES:
+                return "Unknown errorbars value. Use e.g. '5%', '0.2' or 'off'."
+            for line in curves:
+                _apply_line_deco(line, deco)
+            changed.append(note)
+
+        # Zoomed inset + colormap/colorbar for heatmap-like plots.
+        if args.get("inset") is not None:
+            if args.get("inset"):
+                cfg = dict(INSET_DEFAULTS)
+                cfg["enabled"] = True
+                if args.get("inset_xmin") is not None and args.get("inset_xmax") is not None:
+                    cfg["xmin"] = float(args["inset_xmin"])
+                    cfg["xmax"] = float(args["inset_xmax"])
+                elif curves:
+                    # default: zoom into the middle third of the data range
+                    import numpy as np
+
+                    x = np.asarray(curves[0].get_xdata(), dtype=float)
+                    x = x[np.isfinite(x)]
+                    if x.size:
+                        lo, hi = float(np.min(x)), float(np.max(x))
+                        cfg["xmin"] = lo + (hi - lo) / 3.0
+                        cfg["xmax"] = hi - (hi - lo) / 3.0
+                apply_style(ax, {"inset": cfg})
+                changed.append("zoom inset")
+            else:
+                apply_style(ax, {"inset": dict(INSET_DEFAULTS)})
+                changed.append("inset removed")
+        if args.get("colormap") is not None or args.get("colorbar") is not None:
+            from core.plot_style import COLORBAR_DEFAULTS, COLORMAPS, _axes_mappables
+
+            if not _axes_mappables(ax):
+                changed.append("no image/heatmap for colormap")
+            else:
+                cfg = dict(COLORBAR_DEFAULTS)
+                cmap = args.get("colormap")
+                if cmap:
+                    match = _match_choice(cmap, COLORMAPS)
+                    cfg["cmap"] = match or str(cmap)
+                cfg["enabled"] = bool(args.get("colorbar", True))
+                if args.get("colorbar_label"):
+                    cfg["label"] = str(args["colorbar_label"])
+                apply_style(ax, {"colorbar": cfg})
+                changed.append("colormap/colorbar")
+
         fig = getattr(ax, "figure", None)
         if fig is not None and getattr(fig, "canvas", None) is not None:
             fig.canvas.draw_idle()
@@ -1384,6 +1505,33 @@ def _tool_format_graph(window, args: Dict[str, Any]) -> str:
         logger.debug("format_graph tool failed", exc_info=True)
         return f"Could not format the graph: {exc}"
     return f"Updated the graph: {', '.join(changed)}." if changed else "Nothing to change."
+
+
+def _apply_line_deco(line, deco: Dict[str, Any]) -> None:
+    """Merge a partial decoration change over the curve's current state."""
+    from core.plot_style import LINE_DECO_DEFAULTS, apply_line_style
+
+    current = {**LINE_DECO_DEFAULTS, **(getattr(line, "_ps_deco", None) or {})}
+    current.update(deco)
+    apply_line_style(line, current)
+
+
+def _match_choice(value, choices):
+    """Case-insensitive, substring-tolerant match of *value* to a choice name."""
+    text = str(value).strip().casefold()
+    choices = list(choices)
+    for choice in choices:
+        if choice.casefold() == text:
+            return choice
+    for choice in choices:
+        folded = choice.casefold()
+        if text in folded or folded.split(" (")[0] == text:
+            return choice
+    # last resort: match on the leading word (e.g. "nature" -> "Nature (...)")
+    for choice in choices:
+        if choice.casefold().startswith(text) and text:
+            return choice
+    return None
 
 
 def _tool_list_charts(_window, _args: Dict[str, Any]) -> str:
@@ -1781,8 +1929,11 @@ def build_app_registry(window) -> ToolRegistry:
     )
     registry.add(
         "format_graph",
-        "Decorate the active graph: set title / xlabel / ylabel, toggle grid or "
-        "legend, or switch axes to log (logx/logy).",
+        "Decorate the active graph: title/labels, grid, legend, log axes, a "
+        "publication journal_preset (Nature/IEEE/...), scientific palette or "
+        "colorblind-safe recolour, uniform line_width, area fill (under/between), "
+        "data value_labels, error bars ('5%' or a constant), a zoomed inset "
+        "panel, and colormap/colorbar for heatmaps.",
         {
             "title": {"type": "string", "description": "graph title", "required": False},
             "xlabel": {"type": "string", "description": "x axis label", "required": False},
@@ -1791,6 +1942,57 @@ def build_app_registry(window) -> ToolRegistry:
             "legend": {"type": "boolean", "description": "show legend", "required": False},
             "logx": {"type": "boolean", "description": "log x axis", "required": False},
             "logy": {"type": "boolean", "description": "log y axis", "required": False},
+            "journal_preset": {
+                "type": "string", "required": False,
+                "description": "publication style, e.g. Nature / IEEE / Science / ACS / Thesis",
+            },
+            "palette": {
+                "type": "string", "required": False,
+                "description": "scientific palette name to recolour all series",
+            },
+            "colorblind": {
+                "type": "boolean", "required": False,
+                "description": "recolour with a colorblind-safe palette",
+            },
+            "line_width": {
+                "type": "number", "required": False,
+                "description": "uniform line width for all series",
+            },
+            "fill": {
+                "type": "string", "required": False,
+                "description": "area fill: under | between | off",
+            },
+            "fill_alpha": {
+                "type": "number", "required": False,
+                "description": "fill opacity 0-1",
+            },
+            "value_labels": {
+                "type": "boolean", "required": False,
+                "description": "label data points with their values",
+            },
+            "label_format": {
+                "type": "string", "required": False,
+                "description": "value label format, e.g. %.2f",
+            },
+            "errorbars": {
+                "type": "string", "required": False,
+                "description": "Y error bars: '5%', a constant like '0.2', or 'off'",
+            },
+            "inset": {
+                "type": "boolean", "required": False,
+                "description": "show a zoomed inset panel",
+            },
+            "inset_xmin": {"type": "number", "description": "inset zoom X from", "required": False},
+            "inset_xmax": {"type": "number", "description": "inset zoom X to", "required": False},
+            "colormap": {
+                "type": "string", "required": False,
+                "description": "colormap for heatmap/image plots, e.g. viridis",
+            },
+            "colorbar": {
+                "type": "boolean", "required": False,
+                "description": "show a colorbar (heatmap/image plots)",
+            },
+            "colorbar_label": {"type": "string", "description": "colorbar label", "required": False},
         },
         lambda args: _tool_format_graph(window, args),
     )

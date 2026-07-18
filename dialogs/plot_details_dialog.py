@@ -9,9 +9,12 @@ live "Apply" without closing.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Signal
+logger = logging.getLogger(__name__)
+
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -35,13 +38,18 @@ from PySide6.QtWidgets import QPushButton
 
 from widgets.color_button import ColorButton
 from core.plot_style import (
+    COLORMAPS,
     DRAW_STYLES,
+    ERRORBAR_MODES,
+    FILL_MODES,
     FILL_STYLES,
     FONT_FAMILIES,
     GRID_AXES,
+    INSET_LOCS,
     JOURNAL_PRESETS,
     LEGEND_LOCS,
     LINE_STYLES,
+    list_palettes,
     MARKERS,
     SCALES,
     TICK_LABEL_AXES,
@@ -97,15 +105,38 @@ class PlotDetailsDialog(QDialog):
             )),
             "Figure",
         )
+        tabs.addTab(
+            _scrolled(self._build_inset_colorbar_tab(
+                style.get("inset", {}), style.get("colorbar", {})
+            )),
+            "Inset && Colorbar",
+        )
         tabs.addTab(self._build_preset_tab(), "Presets && Templates")
+        self._tabs = tabs
         outer.addWidget(tabs)
+
+        # Live preview: edits redraw the graph instantly, no button needed.
+        # A short debounce coalesces rapid changes (spin scroll, typing) into
+        # one redraw. Cancel restores the original — the mixin owns that.
+        self._loading = False
+        self.chk_live = QCheckBox("Live preview")
+        self.chk_live.setChecked(True)
+        self.chk_live.setToolTip("Update the graph as you edit — no Apply needed")
+        self._live_timer = QTimer(self)
+        self._live_timer.setSingleShot(True)
+        self._live_timer.setInterval(180)
+        self._live_timer.timeout.connect(self._on_apply)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Apply | QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Apply).clicked.connect(self._on_apply)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        outer.addWidget(buttons)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.chk_live)
+        bottom.addStretch(1)
+        bottom.addWidget(buttons)
+        outer.addLayout(bottom)
         self.setMinimumWidth(480)
         self.setMinimumHeight(520)
 
@@ -115,6 +146,48 @@ class PlotDetailsDialog(QDialog):
         # seed read something the current theme renders differently.
         self._seed_style = self.get_style()
         self._seed_line_styles = self.get_line_styles()
+
+        # Once seeded, connect every control to the live-preview scheduler.
+        self._wire_live_preview()
+        # A pending debounced redraw must never fire after the dialog closes.
+        self.finished.connect(lambda *_: self._live_timer.stop())
+
+    # ------------------------------------------------------------ live preview
+    def _wire_live_preview(self) -> None:
+        """Connect every editable control's change signal to the debounce timer.
+
+        Controls that don't feed ``get_style()`` (preset/template pickers)
+        simply diff to a no-op, so a blanket connection is safe. Programmatic
+        updates set ``_loading`` to suppress feedback loops.
+        """
+        for w in self.findChildren(QLineEdit):
+            w.textChanged.connect(self._schedule_live)
+        for w in self.findChildren(QSpinBox):
+            w.valueChanged.connect(self._schedule_live)
+        for w in self.findChildren(QDoubleSpinBox):
+            w.valueChanged.connect(self._schedule_live)
+        for w in self.findChildren(QCheckBox):
+            if w is not self.chk_live:
+                w.toggled.connect(self._schedule_live)
+        # Management pickers (which curve is shown, preset/template selection)
+        # only repopulate controls — they must not schedule a redraw. The
+        # palette picker DOES recolour live, so it stays connected.
+        skip_combos = {
+            getattr(self, "cb_line", None),
+            getattr(self, "cb_preset", None),
+            getattr(self, "cb_template", None),
+        }
+        for w in self.findChildren(QComboBox):
+            if w in skip_combos:
+                continue
+            w.currentIndexChanged.connect(self._schedule_live)
+        for w in self.findChildren(ColorButton):
+            w.colorChanged.connect(self._schedule_live)
+
+    def _schedule_live(self, *_args) -> None:
+        if self._loading or not self.chk_live.isChecked():
+            return
+        self._live_timer.start()
 
     # ------------------------------------------------------------------ Axes
     def _build_axes_tab(self, a: Dict[str, Any]) -> QWidget:
@@ -380,6 +453,61 @@ class PlotDetailsDialog(QDialog):
         v.addStretch(1)
         return w
 
+    # ------------------------------------------------- Inset & Colorbar
+    def _build_inset_colorbar_tab(self, ins: Dict[str, Any], cb: Dict[str, Any]) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        gb_inset = QGroupBox("Zoom inset")
+        inf = QFormLayout(gb_inset)
+        self.chk_inset = QCheckBox("Show a zoomed inset panel")
+        self.chk_inset.setChecked(bool(ins.get("enabled", False)))
+        self.sp_insetxmin = _dspin(float(ins.get("xmin", 0.0)))
+        self.sp_insetxmax = _dspin(float(ins.get("xmax", 1.0)))
+        self.cb_insetloc = _combo(list(INSET_LOCS), ins.get("loc", "upper right"))
+        self.sp_insetsize = _dspin(float(ins.get("size", 38.0)), 15.0, 60.0,
+                                   decimals=0, step=1.0)
+        self.chk_insetbox = QCheckBox("Mark the zoomed region on the main plot")
+        self.chk_insetbox.setChecked(bool(ins.get("indicate", True)))
+        inf.addRow("", self.chk_inset)
+        inf.addRow("X from", self.sp_insetxmin)
+        inf.addRow("X to", self.sp_insetxmax)
+        inf.addRow("Position", self.cb_insetloc)
+        inf.addRow("Size (% of plot)", self.sp_insetsize)
+        inf.addRow("", self.chk_insetbox)
+        v.addWidget(gb_inset)
+
+        gb_cbar = QGroupBox("Colormap && Colorbar (heatmap / image plots)")
+        cf = QFormLayout(gb_cbar)
+        self.cb_cmap = _combo(["(keep)"] + list(COLORMAPS), cb.get("cmap") or "(keep)")
+        self.chk_cbar = QCheckBox("Show colorbar")
+        self.chk_cbar.setChecked(bool(cb.get("enabled", False)))
+        self.ed_cbarlabel = QLineEdit(str(cb.get("label", "")))
+        self.sp_cbarshrink = _dspin(float(cb.get("shrink", 1.0)), 0.3, 1.0,
+                                    decimals=2, step=0.05)
+        self.sp_cbarticksize = _dspin(float(cb.get("tick_size", 8.0)), 4.0, 20.0,
+                                      decimals=1, step=1.0)
+        cf.addRow("Colormap", self.cb_cmap)
+        cf.addRow("", self.chk_cbar)
+        cf.addRow("Label", self.ed_cbarlabel)
+        cf.addRow("Shrink", self.sp_cbarshrink)
+        cf.addRow("Tick size", self.sp_cbarticksize)
+        v.addWidget(gb_cbar)
+        v.addStretch(1)
+        return w
+
+    def focus_line(self, index: int) -> None:
+        """Open the Lines tab with curve *index* selected (canvas pick-to-edit)."""
+        try:
+            for t in range(self._tabs.count()):
+                if self._tabs.tabText(t).startswith("Lines"):
+                    self._tabs.setCurrentIndex(t)
+                    break
+            if 0 <= index < self.cb_line.count():
+                self.cb_line.setCurrentIndex(index)
+        except Exception:
+            logger.debug("focus_line failed", exc_info=True)
+
     # ------------------------------------------------- Presets & Templates
     def _build_preset_tab(self) -> QWidget:
         w = QWidget()
@@ -394,6 +522,20 @@ class PlotDetailsDialog(QDialog):
         pf.addRow("Preset", self.cb_preset)
         pf.addRow("", btn_preset)
         v.addWidget(gb_preset)
+
+        # Colorblind-safe scientific palettes — one click recolours every series.
+        gb_palette = QGroupBox("Color palette")
+        qf = QFormLayout(gb_palette)
+        self._palette_keep = "— keep colors —"
+        self._palette_line_width = None
+        self.cb_palette = QComboBox()
+        self.cb_palette.addItem(self._palette_keep)
+        self.cb_palette.addItems(list_palettes())
+        btn_palette = QPushButton("Recolor series")
+        btn_palette.clicked.connect(self._on_apply)
+        qf.addRow("Palette", self.cb_palette)
+        qf.addRow("", btn_palette)
+        v.addWidget(gb_palette)
 
         gb_tpl = QGroupBox("My templates")
         tf = QFormLayout(gb_tpl)
@@ -425,8 +567,21 @@ class PlotDetailsDialog(QDialog):
         """Merge the selected journal preset into the current widgets."""
         from core.plot_style import get_preset_style
         preset = get_preset_style(self.cb_preset.currentText())
-        self.load_style_into_controls(preset)
-        self._on_apply()  # live preview
+        # Palette + line width ride along with the preset but are applied as a
+        # recolour action, not as style controls — pull them out first.
+        palette_name = preset.pop("palette", None)
+        line_width = preset.pop("line_width", None)
+        self._loading = True
+        try:
+            self.load_style_into_controls(preset)
+            if palette_name:
+                index = self.cb_palette.findText(palette_name)
+                if index >= 0:
+                    self.cb_palette.setCurrentIndex(index)
+                self._palette_line_width = line_width
+        finally:
+            self._loading = False
+        self._on_apply()  # apply the whole preset in one redraw
 
     def set_template_names(self, names: List[str]) -> None:
         self._template_names = list(names or [])
@@ -674,6 +829,32 @@ class PlotDetailsDialog(QDialog):
         if "shadow_offset_y" in effects:
             self.sp_shadowy.setValue(float(effects["shadow_offset_y"]))
 
+        ins = style.get("inset", {})
+        if "enabled" in ins:
+            self.chk_inset.setChecked(bool(ins["enabled"]))
+        if "xmin" in ins:
+            self.sp_insetxmin.setValue(float(ins["xmin"]))
+        if "xmax" in ins:
+            self.sp_insetxmax.setValue(float(ins["xmax"]))
+        if "loc" in ins:
+            _set_combo(self.cb_insetloc, ins["loc"])
+        if "size" in ins:
+            self.sp_insetsize.setValue(float(ins["size"]))
+        if "indicate" in ins:
+            self.chk_insetbox.setChecked(bool(ins["indicate"]))
+
+        cbar = style.get("colorbar", {})
+        if "enabled" in cbar:
+            self.chk_cbar.setChecked(bool(cbar["enabled"]))
+        if "cmap" in cbar:
+            _set_combo(self.cb_cmap, cbar["cmap"] or "(keep)")
+        if "label" in cbar:
+            self.ed_cbarlabel.setText(str(cbar["label"]))
+        if "shrink" in cbar:
+            self.sp_cbarshrink.setValue(float(cbar["shrink"]))
+        if "tick_size" in cbar:
+            self.sp_cbarticksize.setValue(float(cbar["tick_size"]))
+
     # -------------------------------------------------------- Grid & Legend
     def _build_grid_legend_tab(self, g: Dict[str, Any], leg: Dict[str, Any]) -> QWidget:
         w = QWidget()
@@ -801,6 +982,44 @@ class PlotDetailsDialog(QDialog):
         form.addRow("", self.chk_lineshadow)
         form.addRow("Shadow opacity", self.sp_lineshadowalpha)
         v.addLayout(form)
+
+        # --- Fill under / between curves ---
+        gb_fill = QGroupBox("Area fill")
+        ff = QFormLayout(gb_fill)
+        self.cb_linefill = _combo(list(FILL_MODES), "none")
+        self.chk_fillauto = QCheckBox("Match line color")
+        self.chk_fillauto.setChecked(True)
+        self.btn_fillcolor = ColorButton(QColor("#4F9CF9"))
+        self.sp_fillalpha = _dspin(0.25, 0.02, 1.0, decimals=2, step=0.05)
+        ff.addRow("Fill", self.cb_linefill)
+        ff.addRow("", _flags_row(self.chk_fillauto))
+        ff.addRow("Fill color", self.btn_fillcolor)
+        ff.addRow("Fill opacity", self.sp_fillalpha)
+        v.addWidget(gb_fill)
+
+        # --- Error bars (constant or percent, as decoration) ---
+        gb_err = QGroupBox("Error bars (Y)")
+        ef = QFormLayout(gb_err)
+        self.cb_errmode = _combo(list(ERRORBAR_MODES), "none")
+        self.sp_errvalue = _dspin(5.0, 0.0, 1e9, decimals=3, step=1.0)
+        self.sp_errcap = _dspin(3.0, 0.0, 20.0, decimals=1, step=0.5)
+        ef.addRow("Mode", self.cb_errmode)
+        ef.addRow("Value (abs or %)", self.sp_errvalue)
+        ef.addRow("Cap size", self.sp_errcap)
+        v.addWidget(gb_err)
+
+        # --- Data point value labels ---
+        gb_vlab = QGroupBox("Value labels")
+        vf = QFormLayout(gb_vlab)
+        self.chk_vlabels = QCheckBox("Label data points")
+        self.ed_vfmt = QLineEdit("%.3g")
+        self.sp_vevery = _spin(1, 1, 1000)
+        self.sp_vsize = _dspin(8.0, 4.0, 24.0, decimals=1, step=1.0)
+        vf.addRow("", self.chk_vlabels)
+        vf.addRow("Format", self.ed_vfmt)
+        vf.addRow("Every Nth point", self.sp_vevery)
+        vf.addRow("Font size", self.sp_vsize)
+        v.addWidget(gb_vlab)
         v.addStretch(1)
 
         if not self._line_styles:
@@ -833,6 +1052,18 @@ class PlotDetailsDialog(QDialog):
         self.sp_lineglowalpha.setValue(float(d.get("glow_alpha", 0.35)))
         self.chk_lineshadow.setChecked(bool(d.get("shadow", False)))
         self.sp_lineshadowalpha.setValue(float(d.get("shadow_alpha", 0.25)))
+        _set_combo(self.cb_linefill, d.get("fill", "none"))
+        fill_color = d.get("fill_color") or ""
+        self.chk_fillauto.setChecked(not fill_color)
+        self.btn_fillcolor.setColor(_hex_to_qcolor(fill_color or color))
+        self.sp_fillalpha.setValue(float(d.get("fill_alpha", 0.25)))
+        _set_combo(self.cb_errmode, d.get("errorbar_mode", "none"))
+        self.sp_errvalue.setValue(float(d.get("errorbar_value", 5.0)))
+        self.sp_errcap.setValue(float(d.get("errorbar_capsize", 3.0)))
+        self.chk_vlabels.setChecked(bool(d.get("value_labels", False)))
+        self.ed_vfmt.setText(str(d.get("value_labels_fmt", "%.3g")))
+        self.sp_vevery.setValue(int(d.get("value_labels_every", 1) or 1))
+        self.sp_vsize.setValue(float(d.get("value_labels_size", 8.0)))
 
     def _store_line(self, i: int) -> None:
         prev = self._line_styles[i] if i < len(self._line_styles) else {}
@@ -858,12 +1089,32 @@ class PlotDetailsDialog(QDialog):
             "shadow_alpha": self.sp_lineshadowalpha.value(),
             "shadow_offset_x": prev.get("shadow_offset_x", 1.5),
             "shadow_offset_y": prev.get("shadow_offset_y", 1.5),
+            "fill": self.cb_linefill.currentText(),
+            "fill_color": (
+                "" if self.chk_fillauto.isChecked()
+                else self.btn_fillcolor.color().name()
+            ),
+            "fill_alpha": self.sp_fillalpha.value(),
+            "errorbar_mode": self.cb_errmode.currentText(),
+            "errorbar_value": self.sp_errvalue.value(),
+            "errorbar_capsize": self.sp_errcap.value(),
+            "errorbar_alpha": prev.get("errorbar_alpha", 0.9),
+            "value_labels": self.chk_vlabels.isChecked(),
+            "value_labels_fmt": self.ed_vfmt.text().strip() or "%.3g",
+            "value_labels_every": self.sp_vevery.value(),
+            "value_labels_size": self.sp_vsize.value(),
         }
 
     def _on_line_changed(self, i: int) -> None:
+        # Switching which curve is shown just repopulates controls — it must not
+        # trigger a live redraw (nothing on the graph actually changed).
         self._store_line(self._current_line)
         self._current_line = i
-        self._load_line(i)
+        self._loading = True
+        try:
+            self._load_line(i)
+        finally:
+            self._loading = False
 
     # ---------------------------------------------------------------- Figure
     def _build_figure_tab(self, f: Dict[str, Any], a: Dict[str, Any], effects: Dict[str, Any]) -> QWidget:
@@ -1014,6 +1265,30 @@ class PlotDetailsDialog(QDialog):
                 "shadow_alpha": self.sp_shadowalpha.value(),
                 "shadow_offset_x": self.sp_shadowx.value(),
                 "shadow_offset_y": self.sp_shadowy.value(),
+            },
+            # One-shot recolour action (not read back from the figure). Default
+            # "keep" so an identity Apply diffs to a visual no-op.
+            "palette": {
+                "name": self.cb_palette.currentText(),
+                "line_width": self._palette_line_width,
+            },
+            "inset": {
+                "enabled": self.chk_inset.isChecked(),
+                "loc": self.cb_insetloc.currentText(),
+                "size": self.sp_insetsize.value(),
+                "xmin": self.sp_insetxmin.value(),
+                "xmax": self.sp_insetxmax.value(),
+                "indicate": self.chk_insetbox.isChecked(),
+            },
+            "colorbar": {
+                "enabled": self.chk_cbar.isChecked(),
+                "cmap": (
+                    "" if self.cb_cmap.currentText() == "(keep)"
+                    else self.cb_cmap.currentText()
+                ),
+                "label": self.ed_cbarlabel.text(),
+                "shrink": self.sp_cbarshrink.value(),
+                "tick_size": self.sp_cbarticksize.value(),
             },
         }
 
