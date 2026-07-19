@@ -282,6 +282,63 @@ def test_two_row_toolbar_processing_and_analysis_actions_execute(win, monkeypatc
     assert "Descriptive Stats" in win._datasets
 
 
+def test_view_tools_arm_the_graph_cursor(win):
+    """Box zoom / crosshair / annotation tools must give visible cursor feedback.
+
+    A user complaint: clicking these did nothing visible — the pointer stayed a
+    plain arrow so there was no sign a tool was armed.
+    """
+    from PySide6.QtCore import Qt
+
+    _seed_science_book(win, rows=32)
+    win.plot_from_workbook("line", new_graph=True)
+    tab = win._get_current_tab()
+
+    def shape():
+        return tab.canvas.cursor().shape()
+
+    win.start_box_zoom()
+    assert shape() == Qt.CrossCursor
+
+    win.toggle_crosshair(True)
+    assert shape() == Qt.CrossCursor
+    win.toggle_crosshair(False)
+    assert shape() == Qt.ArrowCursor  # restored when the tool is switched off
+
+    # Annotation tools: text = I-beam, shapes = crosshair; disabling restores arrow.
+    win.toolbar_actions["ann_text"].trigger()
+    assert shape() == Qt.IBeamCursor
+    win.toolbar_actions["ann_rect"].trigger()
+    assert shape() == Qt.CrossCursor
+    win.actAnnEnable.setChecked(False)
+    assert shape() == Qt.ArrowCursor
+
+
+def test_units_and_calibrate_dialogs_are_english_and_themed(win):
+    """The Units/Calibrate dialogs used to hardcode a light theme + Thai labels
+    that rendered as tofu; they should now be English and inherit the theme."""
+    from dialogs_units import UnitsDialog
+    from dialogs_calibrate import CalibrateDialog
+
+    _seed_science_book(win, rows=16)
+    dlg = UnitsDialog(win._df, win)
+    assert dlg.windowTitle() == "Units & Calibration"
+    # numeric columns land in the table (t, signal, other, err, kernel)
+    assert dlg.table.rowCount() >= 3
+    # no hardcoded light-theme stylesheet fighting the app theme
+    assert dlg.styleSheet() == ""
+    # sensible size, not the old 1600x800 monster
+    assert dlg.width() <= 1100
+
+    cal = CalibrateDialog(win)
+    assert "Calibration" in cal.windowTitle() and cal.styleSheet() == ""
+    cal.raw1_spin.setValue(0.0); cal.true1_spin.setValue(1.0)
+    cal.raw2_spin.setValue(10.0); cal.true2_spin.setValue(21.0)
+    cal.compute_calibration()
+    a, b = cal.get_calibration()
+    assert abs(a - 2.0) < 1e-9 and abs(b - 1.0) < 1e-9
+
+
 def test_two_row_toolbar_annotation_gas_and_workflow_actions_execute(win, monkeypatch):
     _seed_science_book(win, rows=64)
     calls = _install_nonblocking_ui(win, monkeypatch)
@@ -289,9 +346,12 @@ def test_two_row_toolbar_annotation_gas_and_workflow_actions_execute(win, monkey
     manager = win.tabs.currentWidget().annotation_manager
 
     win.toolbar_actions["ann_text"].trigger()
-    assert manager.mode == "text"
+    # Picking a tool must ARM the manager (enable + mode), not just set the mode —
+    # otherwise clicks on the graph silently did nothing until "Annotate" was toggled.
+    assert manager.mode == "text" and manager.enabled is True
+    assert win.actAnnEnable.isChecked() is True
     win.toolbar_actions["ann_arrow"].trigger()
-    assert manager.mode == "arrow"
+    assert manager.mode == "arrow" and manager.enabled is True
 
     _menu_action(_submenu(_top_menu(win, "Modules"), "Gas Sensor"), "Gas Dilution (ppm)...").trigger()
     win.analysis_history.record("fill_missing", col="signal", method="mean")

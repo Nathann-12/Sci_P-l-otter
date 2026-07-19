@@ -3,10 +3,29 @@ from __future__ import annotations
 import logging
 
 from matplotlib.widgets import Cursor, RectangleSelector
+from PySide6.QtCore import Qt
 
 
 class MainWindowViewMixin:
     """Reusable view and canvas interactions extracted from MainWindow."""
+
+    def _set_canvas_cursor(self, canvas, shape) -> None:
+        """Arm a tool cursor on the graph canvas so an active tool is visible."""
+        try:
+            from PySide6.QtGui import QCursor
+            if canvas is not None:
+                canvas.setCursor(QCursor(shape))
+        except Exception:
+            logging.getLogger(__name__).debug("set canvas cursor failed", exc_info=True)
+
+    def _restore_canvas_cursor(self, canvas=None) -> None:
+        """Return the graph canvas to the default arrow cursor."""
+        try:
+            canvas = canvas if canvas is not None else self._active_canvas()
+            if canvas is not None:
+                canvas.unsetCursor()
+        except Exception:
+            logging.getLogger(__name__).debug("restore canvas cursor failed", exc_info=True)
 
     def _get_current_tab(self):
         current_tab_id = self.tabs.get_current_tab_id()
@@ -120,6 +139,7 @@ class MainWindowViewMixin:
             self._cid_motion_canvas = None
 
         if not checked:
+            self._restore_canvas_cursor(canvas)
             self.statusBar().showMessage("Crosshair disabled.")
             canvas.draw()
             return
@@ -141,6 +161,10 @@ class MainWindowViewMixin:
         self._cid_motion_canvas = canvas
         self.statusBar().showMessage("Crosshair enabled.")
         canvas.draw()
+        # Arm the cursor after draw(): matplotlib's Qt backend resets the widget
+        # cursor to the default arrow on its first draw, so setting it earlier
+        # would be immediately clobbered.
+        self._set_canvas_cursor(canvas, Qt.CrossCursor)
 
     def toggle_inspector(self, checked: bool):
         try:
@@ -196,6 +220,7 @@ class MainWindowViewMixin:
                 canvas.draw()
                 self.statusBar().showMessage(f"Zoomed to X=({xmin}, {xmax})  Y=({ymin}, {ymax})")
             finally:
+                self._restore_canvas_cursor(canvas)
                 if self._rs is not None:
                     try:
                         self._rs.set_active(False)
@@ -213,3 +238,6 @@ class MainWindowViewMixin:
             minspany=0,
             spancoords="data",
         )
+        # Arm the cross cursor last: the selector may trigger the backend's
+        # first draw, which resets the widget cursor to the default arrow.
+        self._set_canvas_cursor(canvas, Qt.CrossCursor)

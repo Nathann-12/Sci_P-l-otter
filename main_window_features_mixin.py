@@ -1726,7 +1726,7 @@ class MainWindowFeaturesMixin:
     def open_units_dialog(self):
         """Open units and calibration dialog"""
         if self._df is None or self._df.empty:
-            self.warn("No Data", "ยังไม่มีข้อมูล")
+            self.warn("No Data", "No data loaded yet — open or select a Book with data first.")
             return
 
         try:

@@ -73,11 +73,32 @@ class AnnotationManager(QObject):
     # -------- public API --------
     def set_enabled(self, on: bool) -> None:
         self.enabled = bool(on)
+        if not self.enabled:
+            self.mode = None
+        self._update_cursor()
         self.changed.emit()
 
     def set_mode(self, mode: Optional[str]) -> None:
         self.mode = mode
+        self._update_cursor()
         self.changed.emit()
+
+    def _update_cursor(self) -> None:
+        """Give the canvas a tool cursor so the user can see the tool is armed.
+
+        Without this, picking Text/Arrow/Rect looked like a no-op — the pointer
+        stayed a plain arrow even though clicks now place annotations.
+        """
+        try:
+            from PySide6.QtGui import QCursor
+            canvas = self.fig.canvas
+            if not self.enabled or not self.mode:
+                canvas.unsetCursor()
+                return
+            shape = Qt.IBeamCursor if self.mode == 'text' else Qt.CrossCursor
+            canvas.setCursor(QCursor(shape))
+        except Exception:
+            logging.getLogger(__name__).debug("annotation cursor update failed", exc_info=True)
 
     def set_style(self, style: AnnotationStyle) -> None:
         self._style = style

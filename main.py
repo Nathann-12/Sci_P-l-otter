@@ -176,7 +176,7 @@ _QTA_ICON_MAP = {
     "materials": "mdi.atom",
     "physics_lab": "mdi.flask-outline",
     "modules": "mdi.view-dashboard-outline",
-    "format": "mdi.brush-outline",
+    "format": "mdi.palette-outline",
     "gallery": "mdi.view-gallery-outline",
     "use_active_book": "mdi.database-check-outline",
     "reload_columns": "mdi.table-refresh",

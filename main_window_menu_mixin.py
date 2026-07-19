@@ -852,8 +852,40 @@ class MainWindowMenuMixin:
 
         # --- Annotation menu (recreate safely) ---
         def _mgr():
-            tab = self.tabs.currentWidget()
+            # Graph-scoped: resolve the selected/last-selected Graph window, not
+            # whatever subwindow (possibly a Book) happens to have focus.
+            tab = None
+            if hasattr(self, "_get_current_tab"):
+                tab = self._get_current_tab()
+            if tab is None:
+                tab = self.tabs.currentWidget()
             return getattr(tab, 'annotation_manager', None)
+
+        def _begin_annotation(mode):
+            """Arm an annotation tool: enable the manager, set the draw mode and
+            reflect the state on the Annotate toggle. Picking a tool used to only
+            set the mode without enabling, so clicks silently did nothing."""
+            mgr = _mgr()
+            if mgr is None:
+                try:
+                    self.statusBar().showMessage(
+                        "Select or open a Graph window first, then pick an annotation tool.")
+                except Exception:
+                    pass
+                return
+            mgr.set_enabled(True)
+            mgr.set_mode(mode)
+            try:
+                self.actAnnEnable.blockSignals(True)
+                self.actAnnEnable.setChecked(True)
+                self.actAnnEnable.blockSignals(False)
+            except Exception:
+                pass
+            try:
+                self.statusBar().showMessage(
+                    f"{mode.capitalize()} tool armed — click on the graph to place it.")
+            except Exception:
+                pass
 
         try:
             self.annMenu
@@ -887,12 +919,12 @@ class MainWindowMenuMixin:
         # Wire actions (guarded)
         try:
             self.actAnnEnable.toggled.connect(lambda on: (_mgr() and _mgr().set_enabled(on)))
-            self.actAnnText.triggered.connect(lambda: (_mgr() and _mgr().set_mode('text')))
-            self.actAnnArrow.triggered.connect(lambda: (_mgr() and _mgr().set_mode('arrow')))
-            self.actAnnLine.triggered.connect(lambda: (_mgr() and _mgr().set_mode('line')))
-            self.actAnnRect.triggered.connect(lambda: (_mgr() and _mgr().set_mode('rect')))
-            self.actAnnEllipse.triggered.connect(lambda: (_mgr() and _mgr().set_mode('ellipse')))
-            self.actAnnCallout.triggered.connect(lambda: (_mgr() and _mgr().set_mode('callout')))
+            self.actAnnText.triggered.connect(lambda: _begin_annotation('text'))
+            self.actAnnArrow.triggered.connect(lambda: _begin_annotation('arrow'))
+            self.actAnnLine.triggered.connect(lambda: _begin_annotation('line'))
+            self.actAnnRect.triggered.connect(lambda: _begin_annotation('rect'))
+            self.actAnnEllipse.triggered.connect(lambda: _begin_annotation('ellipse'))
+            self.actAnnCallout.triggered.connect(lambda: _begin_annotation('callout'))
             self.actAnnStyleDock.triggered.connect(lambda: self.annStyleDock.show())
             self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
             self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
