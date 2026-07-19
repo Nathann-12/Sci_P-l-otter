@@ -493,6 +493,51 @@ def test_open_plot_details_on_empty_graph_is_polite(win, monkeypatch):
     assert infos  # informed, did not crash
 
 
+def test_plot_details_is_nonmodal_so_the_graph_stays_visible(win):
+    """The format dialog must not sit modal on top of the graph — the user needs
+    to watch the live preview while editing. It opens non-modal, is tracked, and
+    reopening replaces the previous one instead of stacking."""
+    _plot_something(win)
+    dlg = win.open_plot_details_dialog()
+    try:
+        assert dlg is not None
+        assert dlg.isModal() is False          # graph stays interactive/visible
+        assert dlg.isVisible() is True         # shown, not exec-blocked
+        assert win._plot_details_dlg is dlg     # tracked (kept alive)
+
+        dlg2 = win.open_plot_details_dialog()   # reopening must not stack dialogs
+        assert win._plot_details_dlg is dlg2 and dlg.isVisible() is False
+        dlg = dlg2
+    finally:
+        dlg.reject()
+    assert win._plot_details_dlg is None        # ref released on close
+
+
+def test_plot_details_preset_live_previews_and_cancel_reverts(win):
+    """Apply preset must live-update the graph; Cancel restores the pre-edit look
+    (the whole point of the non-modal, side-by-side layout)."""
+    _plot_something(win)
+    ax, _fig, _lines = win._active_graph_axes()
+
+    def label_size():
+        return round(ax.xaxis.label.get_size(), 1)
+
+    before = label_size()
+    dlg = win.open_plot_details_dialog()
+    dlg.cb_preset.setCurrentText("Science (single column)")
+    dlg._on_apply_preset()
+    assert label_size() != before               # live preview took effect
+    dlg.reject()
+    assert label_size() == before               # Cancel reverted
+
+    dlg2 = win.open_plot_details_dialog()
+    dlg2.cb_preset.setCurrentText("Science (single column)")
+    dlg2._on_apply_preset()
+    applied = label_size()
+    dlg2.accept()
+    assert label_size() == applied and applied != before   # OK kept it
+
+
 def test_scale_tab_and_formula_roundtrip(qapp):
     """Origin Scale tab (anchor/minor-counts/margin) + tick-label Formula come
     back from get_style() under the right keys."""

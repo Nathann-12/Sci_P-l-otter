@@ -131,15 +131,84 @@ class MainWindowPlotStyleMixin:
         dlg.delete_template_requested.connect(_delete_template)
         if preselect_line is not None:
             dlg.focus_line(int(preselect_line))
+
+        # Non-modal + placed beside the graph so the live preview stays visible.
+        # A modal window centred over the graph hid the very thing being
+        # formatted, so the user could not see their changes take effect.
         from PySide6.QtWidgets import QDialog
-        if dlg.exec() == QDialog.Accepted:
-            _apply()
-        else:
-            # Live preview committed edits as the user typed; Cancel must put
-            # the graph back exactly as it was when the dialog opened.
-            self._restore_plot_details(
-                ax, fig, lines, style, line_styles, target_tab=target_tab
-            )
+
+        prev = getattr(self, "_plot_details_dlg", None)
+        if prev is not None:
+            try:
+                prev.close()
+            except Exception:
+                logger.debug("closing previous plot details failed", exc_info=True)
+        self._plot_details_dlg = dlg
+
+        def _on_finished(result):
+            try:
+                if result == QDialog.Accepted:
+                    _apply()
+                else:
+                    # Live preview committed edits as the user typed; Cancel must
+                    # put the graph back exactly as it was when the dialog opened.
+                    self._restore_plot_details(
+                        ax, fig, lines, style, line_styles, target_tab=target_tab
+                    )
+            finally:
+                if getattr(self, "_plot_details_dlg", None) is dlg:
+                    self._plot_details_dlg = None
+
+        dlg.finished.connect(_on_finished)
+        dlg.setModal(False)
+        self._position_plot_details_dialog(dlg, target_tab)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        return dlg
+
+    def _plot_details_target_rect(self, target_tab):
+        """Global-screen rectangle of the graph being formatted, if resolvable."""
+        from PySide6.QtCore import QRect
+        try:
+            canvas = getattr(target_tab, "canvas", None)
+            if canvas is not None and canvas.isVisible():
+                tl = canvas.mapToGlobal(canvas.rect().topLeft())
+                br = canvas.mapToGlobal(canvas.rect().bottomRight())
+                return QRect(tl, br)
+        except Exception:
+            logger.debug("plot details target rect failed", exc_info=True)
+        return None
+
+    def _position_plot_details_dialog(self, dlg, target_tab) -> None:
+        """Place Plot Details next to the graph, never on top of it."""
+        from PySide6.QtWidgets import QApplication
+        try:
+            dlg.adjustSize()
+            dw, dh = dlg.width(), dlg.height()
+            screen = self.screen() if hasattr(self, "screen") else None
+            screen = screen or QApplication.primaryScreen()
+            avail = screen.availableGeometry()
+            graph = self._plot_details_target_rect(target_tab)
+            margin = 8
+            x = y = None
+            if graph is not None:
+                if graph.right() + margin + dw <= avail.right():          # right of graph
+                    x = graph.right() + margin
+                elif avail.left() + dw + margin <= graph.left():          # left of graph
+                    x = graph.left() - margin - dw
+                if x is not None:
+                    y = min(max(graph.top(), avail.top()), avail.bottom() - dh)
+            if x is None:
+                # No clear side — dock to the right screen edge (over the tool
+                # docks, which matter far less than the graph itself).
+                x = avail.right() - dw - margin
+                y = avail.top() + margin
+            x = max(avail.left(), min(int(x), avail.right() - dw))
+            y = max(avail.top(), min(int(y), avail.bottom() - dh))
+            dlg.move(x, y)
+        except Exception:
+            logger.debug("plot details positioning failed", exc_info=True)
 
     def _restore_plot_details(self, ax, fig, lines, style, line_styles, *,
                               target_tab=None) -> None:
