@@ -37,6 +37,11 @@ class MainWindowPlotStyleMixin:
 
     def _on_canvas_click(self, event):
         if getattr(event, "dblclick", False):
+            # A double-click on an annotation text belongs to the annotation
+            # manager (inline edit) — opening Plot Details on top of the text
+            # editor would fight it for the same gesture.
+            if self._annotation_dblclick_target(event):
+                return
             # Origin behaviour: double-click ANYWHERE on the graph opens Plot
             # Details — no need to aim at a thin line. Landing near a curve
             # (generous 12px radius) preselects it in the Lines tab.
@@ -50,6 +55,18 @@ class MainWindowPlotStyleMixin:
             self.open_plot_details_dialog(
                 preselect_line=self._line_index_at_event(event)
             )
+
+    def _annotation_dblclick_target(self, event) -> bool:
+        """True when an enabled annotation manager will consume this dblclick."""
+        try:
+            tab = self._get_current_tab() if hasattr(self, "_get_current_tab") else None
+            mgr = getattr(tab, "annotation_manager", None)
+            if mgr is None or not getattr(mgr, "enabled", False):
+                return False
+            return mgr._nearest_text_index(event) is not None
+        except Exception:
+            logger.debug("annotation dblclick probe failed", exc_info=True)
+            return False
 
     _PICK_RADIUS_PX = 12.0  # generous hit area — thin lines are hard targets
 

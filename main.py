@@ -258,6 +258,7 @@ _QTA_ICON_MAP = {
     "peak_export": "mdi.table-arrow-right",
     "peak_clear": "mdi.delete-sweep-outline",
     "ann_enable": "mdi.cursor-default-click-outline",
+    "ann_select": "mdi.cursor-move",
     "ann_text": "mdi.format-text",
     "ann_arrow": "mdi.arrow-top-right",
     "ann_line": "mdi.vector-line",

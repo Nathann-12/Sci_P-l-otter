@@ -861,6 +861,71 @@ class MainWindowMenuMixin:
                 tab = self.tabs.currentWidget()
             return getattr(tab, 'annotation_manager', None)
 
+        def _clear_ann_toggles():
+            if hasattr(self, 'annActionGroup'):
+                self.annActionGroup.blockSignals(True)
+                self.annActionGroup.setExclusive(False)
+                for act in self.annActionGroup.actions():
+                    act.setChecked(False)
+                self.annActionGroup.setExclusive(True)
+                self.annActionGroup.blockSignals(False)
+
+        def _sync_active_annotation_mgr(mgr=None):
+            if mgr is None:
+                mgr = _mgr()
+            if mgr is None:
+                return
+            
+            # Connect style applied from the style dock to set the manager's style
+            if getattr(self, "_connected_style_slot", None) is not None:
+                try:
+                    self.annStyleDock.style_applied.disconnect(self._connected_style_slot)
+                except Exception:
+                    pass
+            self._connected_style_slot = mgr.set_style
+            self.annStyleDock.style_applied.connect(mgr.set_style)
+            
+            def on_selection_changed():
+                _clear_ann_toggles()
+                act_map = {
+                    'select': getattr(self, 'actAnnSelect', None),
+                    'text': self.actAnnText,
+                    'arrow': self.actAnnArrow,
+                    'line': self.actAnnLine,
+                    'rect': self.actAnnRect,
+                    'ellipse': self.actAnnEllipse,
+                    'callout': self.actAnnCallout,
+                }
+                # mode None while enabled = the Select tool (draw-once drops
+                # back here after each shape); disabled = no tool checked.
+                key = mgr.mode if mgr.mode is not None else (
+                    'select' if mgr.enabled else None)
+                act = act_map.get(key)
+                if act:
+                    self.annActionGroup.blockSignals(True)
+                    act.setChecked(True)
+                    self.annActionGroup.blockSignals(False)
+
+                if mgr.selected_index is not None and mgr.selected_index < len(mgr.items):
+                    item = mgr.items[mgr.selected_index]
+                    self.annStyleDock.set_style_values(item.style)
+            
+            # Connect selection_changed and changed signals safely
+            if getattr(self, "_connected_selection_mgr", None) is not None:
+                try:
+                    self._connected_selection_mgr.selection_changed.disconnect(self._connected_selection_slot)
+                except Exception:
+                    pass
+                try:
+                    self._connected_selection_mgr.changed.disconnect(self._connected_selection_slot)
+                except Exception:
+                    pass
+            
+            self._connected_selection_mgr = mgr
+            self._connected_selection_slot = on_selection_changed
+            mgr.selection_changed.connect(on_selection_changed)
+            mgr.changed.connect(on_selection_changed)
+
         def _begin_annotation(mode):
             """Arm an annotation tool: enable the manager, set the draw mode and
             reflect the state on the Annotate toggle. Picking a tool used to only
@@ -881,9 +946,16 @@ class MainWindowMenuMixin:
                 self.actAnnEnable.blockSignals(False)
             except Exception:
                 pass
+            _sync_active_annotation_mgr(mgr)
             try:
-                self.statusBar().showMessage(
-                    f"{mode.capitalize()} tool armed — click on the graph to place it.")
+                if mode is None:
+                    self.statusBar().showMessage(
+                        "Select tool — click an annotation to move it; Del deletes, "
+                        "double-click text to edit.")
+                else:
+                    self.statusBar().showMessage(
+                        f"{mode.capitalize()} tool armed — click on the graph to "
+                        "place it (it switches back to Select when done).")
             except Exception:
                 pass
 
@@ -896,18 +968,33 @@ class MainWindowMenuMixin:
                 self.annMenu = QMenu("&Annotation", self)
                 m.addMenu(self.annMenu)
                 self.actAnnEnable = self.annMenu.addAction("Enable Annotation Mode"); self.actAnnEnable.setCheckable(True)
-                self.actAnnText = self.annMenu.addAction("Add Text (T)")
-                self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)")
-                self.actAnnLine = self.annMenu.addAction("Add Line (L)")
-                self.actAnnRect = self.annMenu.addAction("Add Rectangle (R)")
-                self.actAnnEllipse = self.annMenu.addAction("Add Ellipse (E)")
-                self.actAnnCallout = self.annMenu.addAction("Add Callout (C)")
+
+                self.actAnnSelect = self.annMenu.addAction("Select / Move (S)"); self.actAnnSelect.setCheckable(True)
+                self.actAnnText = self.annMenu.addAction("Add Text (T)"); self.actAnnText.setCheckable(True)
+                self.actAnnArrow = self.annMenu.addAction("Add Arrow (W)"); self.actAnnArrow.setCheckable(True)
+                self.actAnnLine = self.annMenu.addAction("Add Line (L)"); self.actAnnLine.setCheckable(True)
+                self.actAnnRect = self.annMenu.addAction("Add Rectangle (R)"); self.actAnnRect.setCheckable(True)
+                self.actAnnEllipse = self.annMenu.addAction("Add Ellipse (E)"); self.actAnnEllipse.setCheckable(True)
+                self.actAnnCallout = self.annMenu.addAction("Add Callout (C)"); self.actAnnCallout.setCheckable(True)
+                
+                from PySide6.QtGui import QActionGroup
+                self.annActionGroup = QActionGroup(self)
+                self.annActionGroup.addAction(self.actAnnSelect)
+                self.annActionGroup.addAction(self.actAnnText)
+                self.annActionGroup.addAction(self.actAnnArrow)
+                self.annActionGroup.addAction(self.actAnnLine)
+                self.annActionGroup.addAction(self.actAnnRect)
+                self.annActionGroup.addAction(self.actAnnEllipse)
+                self.annActionGroup.addAction(self.actAnnCallout)
+                self.annActionGroup.setExclusive(True)
+                
                 self.annMenu.addSeparator()
                 self.actAnnStyleDock = self.annMenu.addAction("Style Dock...")
                 self.actAnnManage = self.annMenu.addAction("Manage Annotations")
                 self.annMenu.addSeparator()
                 self.actUndo = self.annMenu.addAction("Undo"); self.actRedo = self.annMenu.addAction("Redo")
                 # Shortcuts
+                self.actAnnSelect.setShortcut("S")
                 self.actAnnText.setShortcut("T"); self.actAnnArrow.setShortcut("W"); self.actAnnLine.setShortcut("L")
                 self.actAnnRect.setShortcut("R"); self.actAnnEllipse.setShortcut("E"); self.actAnnCallout.setShortcut("C")
                 self.actUndo.setShortcut("Ctrl+Z"); self.actRedo.setShortcut("Ctrl+Y")
@@ -918,18 +1005,21 @@ class MainWindowMenuMixin:
 
         # Wire actions (guarded)
         try:
-            self.actAnnEnable.toggled.connect(lambda on: (_mgr() and _mgr().set_enabled(on)))
+            self.actAnnEnable.toggled.connect(lambda on: (_mgr() and (_mgr().set_enabled(on), _clear_ann_toggles() if not on else None)))
+            self.actAnnSelect.triggered.connect(lambda: _begin_annotation(None))
             self.actAnnText.triggered.connect(lambda: _begin_annotation('text'))
             self.actAnnArrow.triggered.connect(lambda: _begin_annotation('arrow'))
             self.actAnnLine.triggered.connect(lambda: _begin_annotation('line'))
             self.actAnnRect.triggered.connect(lambda: _begin_annotation('rect'))
             self.actAnnEllipse.triggered.connect(lambda: _begin_annotation('ellipse'))
             self.actAnnCallout.triggered.connect(lambda: _begin_annotation('callout'))
-            self.actAnnStyleDock.triggered.connect(lambda: self.annStyleDock.show())
+            self.actAnnStyleDock.triggered.connect(lambda: (self.annStyleDock.show(), _sync_active_annotation_mgr()))
             self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
             self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
             self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
-            self.annStyleDock.style_applied.connect(lambda st: (_mgr() and _mgr().set_style(st)))
+            
+            # Sync style when tabs switch
+            self.tabs.currentChanged.connect(lambda _: _sync_active_annotation_mgr())
         except Exception:
             pass
 

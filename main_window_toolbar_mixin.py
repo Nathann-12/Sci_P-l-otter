@@ -51,8 +51,8 @@ class MainWindowToolbarMixin:
         "format_graph", "crosshair", "boxzoom", "reset_view",
         "left_zoom_in", "left_zoom_out",
         "export_figure", "export_data", "batch_export", "copy_graph",
-        "ann_enable", "ann_text", "ann_arrow", "ann_line", "ann_rect",
-        "ann_ellipse", "ann_callout", "ann_manage",
+        "ann_enable", "ann_select", "ann_text", "ann_arrow", "ann_line",
+        "ann_rect", "ann_ellipse", "ann_callout", "ann_manage",
     })
 
     _PLOT_BAR_SPECS = (
@@ -187,12 +187,13 @@ class MainWindowToolbarMixin:
         existing_action: QAction | None = None,
     ) -> QAction:
         action = existing_action or QAction(text, self)
-        if existing_action is None and slot is not None:
-            action.triggered.connect(slot)
-        action.setText(text)
-        action.setToolTip(tooltip or text)
-        action.setStatusTip(tooltip or text)
-        action.setCheckable(checkable)
+        if existing_action is None:
+            if slot is not None:
+                action.triggered.connect(slot)
+            action.setText(text)
+            action.setToolTip(tooltip or text)
+            action.setStatusTip(tooltip or text)
+            action.setCheckable(checkable)
         self._set_toolbar_icon(action, icon_key, fallback_sp)
         toolbar.addAction(action)
         self.toolbar_actions[key] = action
@@ -626,6 +627,7 @@ class MainWindowToolbarMixin:
         self._add_separator(left)
         for key, text, attr, icon in (
             ("ann_enable", "Annotate", "actAnnEnable", "ann_enable"),
+            ("ann_select", "Select / Move", "actAnnSelect", "ann_select"),
             ("ann_text", "Text", "actAnnText", "ann_text"),
             ("ann_arrow", "Arrow", "actAnnArrow", "ann_arrow"),
             ("ann_line", "Ann Line", "actAnnLine", "ann_line"),
@@ -636,9 +638,11 @@ class MainWindowToolbarMixin:
             ("undo", "Undo", "actUndo", "undo"),
             ("redo", "Redo", "actRedo", "redo"),
         ):
+            existing_act = getattr(self, attr, None)
             self._add_toolbar_action(
-                left, key, text, self._trigger_action_attr(attr), icon,
+                left, key, text, self._trigger_action_attr(attr) if existing_act is None else None, icon,
                 QStyle.StandardPixmap.SP_FileDialogContentsView,
+                existing_action=existing_act,
             )
 
         # ---- BOTTOM: reproducibility / workflow ----
