@@ -72,6 +72,17 @@ class AnnotationManager(QObject):
         self._drag_start_pt: Optional[Tuple[float, float]] = None
         self._drag_orig_props: Optional[Dict[str, Any]] = None
         self._selector_artist: Optional[Rectangle] = None
+        self._handle_artist: Optional[Any] = None
+
+        # Resize (grab a handle on the selected item)
+        self._resize_handle: Optional[str] = None
+        self._resize_orig: Optional[Dict[str, Any]] = None
+        self._resize_snapshot_pending: bool = False
+
+        # Clipboard for copy/paste + constrained-draw bookkeeping
+        self._clipboard: Optional[Dict[str, Any]] = None
+        self._last_draw_pt: Optional[Tuple[float, float]] = None
+        self._last_nudge_ts: float = 0.0
 
         # Default annotation font to current Matplotlib family (ensures Thai if configured)
         try:
@@ -89,6 +100,12 @@ class AnnotationManager(QObject):
         self.cid_release = self.fig.canvas.mpl_connect('button_release_event', self._on_release)
         self.cid_motion = self.fig.canvas.mpl_connect('motion_notify_event', self._on_motion)
         self.cid_key = self.fig.canvas.mpl_connect('key_press_event', self._on_key)
+        # Let other canvas consumers (graph context menu, Plot Details dblclick)
+        # discover this manager and yield gestures that land on an annotation.
+        try:
+            self.fig.canvas._annotation_manager = self
+        except Exception:
+            pass
 
     # -------- public API --------
     def set_enabled(self, on: bool) -> None:
@@ -108,12 +125,14 @@ class AnnotationManager(QObject):
 
     def clear_selection(self) -> None:
         self.selected_index = None
-        if self._selector_artist:
-            try:
-                self._selector_artist.remove()
-            except Exception:
-                pass
-            self._selector_artist = None
+        for attr in ('_selector_artist', '_handle_artist'):
+            artist = getattr(self, attr, None)
+            if artist is not None:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
         self.selection_changed.emit()
         self.fig.canvas.draw_idle()
 
@@ -137,6 +156,149 @@ class AnnotationManager(QObject):
             self.fig.canvas.draw_idle()
             self.changed.emit()
             self.selection_changed.emit()
+
+    # -------- clipboard / duplicate / arrange (PowerPoint-style ops) --------
+    def duplicate_selected(self) -> Optional[int]:
+        """Clone the selected annotation slightly offset and select the clone."""
+        if self.selected_index is None or self.selected_index >= len(self.items):
+            return None
+        return self._paste_payload(self._item_payload(self.items[self.selected_index]))
+
+    def copy_selected(self) -> bool:
+        if self.selected_index is None or self.selected_index >= len(self.items):
+            return False
+        self._clipboard = self._item_payload(self.items[self.selected_index])
+        return True
+
+    def paste_clipboard(self) -> Optional[int]:
+        if not self._clipboard:
+            return None
+        return self._paste_payload(self._clipboard)
+
+    def _item_payload(self, it: AnnotationItem) -> Dict[str, Any]:
+        return {'kind': it.kind, 'props': dict(it.props), 'style': asdict(it.style)}
+
+    def _paste_payload(self, payload: Dict[str, Any]) -> Optional[int]:
+        try:
+            self._snapshot()
+            props = dict(payload['props'])
+            # Nudge the clone by ~3% of the visible range so it lands beside
+            # the original, never invisibly on top of it.
+            x_lim = self.ax.get_xlim()
+            y_lim = self.ax.get_ylim()
+            dx = (x_lim[1] - x_lim[0]) * 0.03
+            dy = -(y_lim[1] - y_lim[0]) * 0.03
+            for kx in ('x', 'x1', 'x2', 'tx'):
+                if kx in props:
+                    props[kx] += dx
+            for ky in ('y', 'y1', 'y2', 'ty'):
+                if ky in props:
+                    props[ky] += dy
+            it = AnnotationItem(kind=payload['kind'], props=props,
+                                style=AnnotationStyle(**payload['style']))
+            self._create_artist_from_item(it)
+            self.items.append(it)
+            new_idx = len(self.items) - 1
+            self.selected_index = new_idx
+            self._update_selector()
+            self.fig.canvas.draw_idle()
+            self.changed.emit()
+            self.selection_changed.emit()
+            return new_idx
+        except Exception:
+            logging.getLogger(__name__).debug("annotation paste failed", exc_info=True)
+            return None
+
+    def bring_to_front(self, idx: Optional[int] = None) -> None:
+        self._restack(idx, front=True)
+
+    def send_to_back(self, idx: Optional[int] = None) -> None:
+        self._restack(idx, front=False)
+
+    def _restack(self, idx: Optional[int], *, front: bool) -> None:
+        if idx is None:
+            idx = self.selected_index
+        if idx is None or idx >= len(self.items):
+            return
+        zs = [it.style.zorder for it in self.items] or [3]
+        new_z = (max(zs) + 1) if front else max(0, min(zs) - 1)
+        if self.items[idx].style.zorder == new_z:
+            return
+        self._snapshot()
+        # Styles may be shared between items (the manager hands out the same
+        # AnnotationStyle instance) — replace instead of mutating in place.
+        st = asdict(self.items[idx].style)
+        st['zorder'] = new_z
+        self.items[idx].style = AnnotationStyle(**st)
+        try:
+            self.artists[idx].set_zorder(new_z)
+        except Exception:
+            pass
+        self.fig.canvas.draw_idle()
+        self.changed.emit()
+
+    def nudge_selected(self, dx_frac: float, dy_frac: float) -> None:
+        """Move the selected item by a fraction of the visible axis range."""
+        if self.selected_index is None or self.selected_index >= len(self.items):
+            return
+        import time
+        now = time.monotonic()
+        # Coalesce a burst of key-repeats into one undo entry.
+        if now - self._last_nudge_ts > 1.5:
+            self._snapshot()
+        self._last_nudge_ts = now
+        x_lim = self.ax.get_xlim()
+        y_lim = self.ax.get_ylim()
+        dx = (x_lim[1] - x_lim[0]) * dx_frac
+        dy = (y_lim[1] - y_lim[0]) * dy_frac
+        idx = self.selected_index
+        self._move_item(idx, dx, dy, dict(self.items[idx].props))
+        self._update_selector()
+        self.fig.canvas.draw_idle()
+        self.changed.emit()
+
+    def consumes_right_click(self, ev) -> bool:
+        """True when a right-click lands on an annotation this manager owns —
+        the graph context menu should yield to the annotation menu then."""
+        try:
+            return bool(self.enabled) and self._hit_test(ev) is not None
+        except Exception:
+            return False
+
+    def _move_item(self, idx: int, dx: float, dy: float,
+                   orig: Dict[str, Any]) -> None:
+        """Apply a translation from ``orig`` props to item ``idx``."""
+        item = self.items[idx]
+        a = self.artists[idx]
+        if item.kind == 'text':
+            item.props['x'] = orig['x'] + dx
+            item.props['y'] = orig['y'] + dy
+            a.set_position((item.props['x'], item.props['y']))
+        elif item.kind in ('rect', 'ellipse'):
+            item.props['x'] = orig['x'] + dx
+            item.props['y'] = orig['y'] + dy
+            if item.kind == 'rect':
+                a.set_xy((item.props['x'], item.props['y']))
+            else:
+                a.center = (item.props['x'], item.props['y'])
+        elif item.kind in ('line', 'arrow'):
+            item.props['x1'] = orig['x1'] + dx
+            item.props['y1'] = orig['y1'] + dy
+            item.props['x2'] = orig['x2'] + dx
+            item.props['y2'] = orig['y2'] + dy
+            if item.kind == 'line':
+                a.set_data([item.props['x1'], item.props['x2']],
+                           [item.props['y1'], item.props['y2']])
+            else:
+                a.set_positions((item.props['x1'], item.props['y1']),
+                                (item.props['x2'], item.props['y2']))
+        elif item.kind == 'callout':
+            item.props['x'] = orig['x'] + dx
+            item.props['y'] = orig['y'] + dy
+            item.props['tx'] = orig['tx'] + dx
+            item.props['ty'] = orig['ty'] + dy
+            a.xy = (item.props['x'], item.props['y'])
+            a.set_position((item.props['tx'], item.props['ty']))
 
     def _update_cursor(self) -> None:
         """Give the canvas a tool cursor so the user can see the tool is armed.
@@ -229,16 +391,35 @@ class AnnotationManager(QObject):
     def _on_key(self, ev):
         if not self.enabled:
             return
-        if ev.key in ('delete', 'backspace'):
+        key = str(ev.key or '')
+        if key in ('delete', 'backspace'):
             if self.selected_index is not None:
                 self.delete_selected()
-        elif ev.key == 'escape':
+        elif key == 'escape':
             # First Esc: drop the draw tool (enter Select mode); second Esc:
             # clear the current selection.
             if self.mode is not None:
                 self.set_mode(None)
             else:
                 self.clear_selection()
+        elif key in ('left', 'right', 'up', 'down',
+                     'shift+left', 'shift+right', 'shift+up', 'shift+down'):
+            # Arrow keys nudge the selection (Shift = coarse step)
+            step = 0.05 if key.startswith('shift+') else 0.01
+            direction = key.split('+')[-1]
+            dx = {'left': -step, 'right': step}.get(direction, 0.0)
+            dy = {'down': -step, 'up': step}.get(direction, 0.0)
+            self.nudge_selected(dx, dy)
+        elif key == 'ctrl+d':
+            self.duplicate_selected()
+        elif key == 'ctrl+c':
+            self.copy_selected()
+        elif key == 'ctrl+v':
+            self.paste_clipboard()
+        elif key == 'pageup':
+            self.bring_to_front()
+        elif key == 'pagedown':
+            self.send_to_back()
 
     def _on_press(self, ev):
         # Accept clicks on whatever axes is under the cursor; axes can be recreated during plotting
@@ -255,8 +436,32 @@ class AnnotationManager(QObject):
                 self._start_inline_edit(idx)
                 return
 
+        # Right-click on an item → select it and show the annotation context
+        # menu (works from any tool, like PowerPoint). A miss falls through to
+        # the normal graph context menu, which yields via consumes_right_click.
+        if getattr(ev, 'button', 1) == 3:
+            idx = self._hit_test(ev)
+            if idx is not None:
+                self.selected_index = idx
+                self._update_selector()
+                self.selection_changed.emit()
+                self._show_context_menu(idx)
+            return
+
         # If in Selection Mode (mode is None), select the clicked item
         if self.mode is None:
+            # A handle on the selected item wins over body hits → resize
+            handle = self._handle_at(ev)
+            if handle is not None and self.selected_index is not None:
+                self._resize_handle = handle
+                self._resize_orig = dict(self.items[self.selected_index].props)
+                self._resize_snapshot_pending = True
+                try:
+                    from PySide6.QtGui import QCursor
+                    self.fig.canvas.setCursor(QCursor(Qt.CrossCursor))
+                except Exception:
+                    pass
+                return
             idx = self._hit_test(ev)
             if idx is not None:
                 self.selected_index = idx
@@ -353,7 +558,18 @@ class AnnotationManager(QObject):
         if not self.enabled or ev.inaxes is None:
             return
 
-        # 1. Moving selected items
+        # 1. Resizing via a grabbed handle on the selected item
+        if self._resize_handle is not None and self.selected_index is not None:
+            if self._resize_snapshot_pending:
+                # First motion: props still hold pre-resize coordinates.
+                self._snapshot()
+                self._resize_snapshot_pending = False
+            self._apply_resize(self._resize_handle, ev.xdata, ev.ydata)
+            self._update_selector()
+            self.fig.canvas.draw_idle()
+            return
+
+        # 2. Moving selected items
         if self._is_dragging and self.selected_index is not None:
             if self._drag_start_pt is None or self._drag_orig_props is None:
                 return
@@ -364,64 +580,21 @@ class AnnotationManager(QObject):
                 self._snapshot()
                 self._drag_snapshot_pending = False
             x0, y0 = self._drag_start_pt
-            x1, y1 = ev.xdata, ev.ydata
-            dx = x1 - x0
-            dy = y1 - y0
-
-            idx = self.selected_index
-            item = self.items[idx]
-            a = self.artists[idx]
-
-            if item.kind == 'text':
-                new_x = self._drag_orig_props['x'] + dx
-                new_y = self._drag_orig_props['y'] + dy
-                item.props['x'] = new_x
-                item.props['y'] = new_y
-                a.set_position((new_x, new_y))
-            elif item.kind in ('rect', 'ellipse'):
-                new_x = self._drag_orig_props['x'] + dx
-                new_y = self._drag_orig_props['y'] + dy
-                item.props['x'] = new_x
-                item.props['y'] = new_y
-                if item.kind == 'rect':
-                    a.set_xy((new_x, new_y))
-                else:
-                    a.center = (new_x, new_y)
-            elif item.kind in ('line', 'arrow'):
-                new_x1 = self._drag_orig_props['x1'] + dx
-                new_y1 = self._drag_orig_props['y1'] + dy
-                new_x2 = self._drag_orig_props['x2'] + dx
-                new_y2 = self._drag_orig_props['y2'] + dy
-                item.props['x1'] = new_x1
-                item.props['y1'] = new_y1
-                item.props['x2'] = new_x2
-                item.props['y2'] = new_y2
-
-                if item.kind == 'line':
-                    a.set_data([new_x1, new_x2], [new_y1, new_y2])
-                else:
-                    a.set_positions((new_x1, new_y1), (new_x2, new_y2))
-            elif item.kind == 'callout':
-                new_x = self._drag_orig_props['x'] + dx
-                new_y = self._drag_orig_props['y'] + dy
-                new_tx = self._drag_orig_props['tx'] + dx
-                new_ty = self._drag_orig_props['ty'] + dy
-                item.props['x'] = new_x
-                item.props['y'] = new_y
-                item.props['tx'] = new_tx
-                item.props['ty'] = new_ty
-                a.xy = (new_x, new_y)
-                a.set_position((new_tx, new_ty))
-
+            dx = ev.xdata - x0
+            dy = ev.ydata - y0
+            self._move_item(self.selected_index, dx, dy, self._drag_orig_props)
             self._update_selector()
             self.fig.canvas.draw_idle()
             return
 
-        # 2. Hover feedback in Select mode: open-hand over a draggable item
+        # 2. Hover feedback in Select mode: crosshair over a resize handle,
+        # open-hand over a draggable item body
         if self.mode is None and not self._is_dragging and self._press_pt is None:
             try:
                 from PySide6.QtGui import QCursor
-                if self._hit_test(ev) is not None:
+                if self._handle_at(ev) is not None:
+                    self.fig.canvas.setCursor(QCursor(Qt.CrossCursor))
+                elif self._hit_test(ev) is not None:
                     self.fig.canvas.setCursor(QCursor(Qt.OpenHandCursor))
                 else:
                     self.fig.canvas.unsetCursor()
@@ -433,7 +606,8 @@ class AnnotationManager(QObject):
         if not self._press_pt or self._current_artist is None:
             return
         x0, y0 = self._press_pt
-        x1, y1 = ev.xdata, ev.ydata
+        x1, y1 = self._constrain_creation(ev, x0, y0, ev.xdata, ev.ydata)
+        self._last_draw_pt = (x1, y1)
         a = self._current_artist
 
         if hasattr(a, 'set_width') and hasattr(a, 'set_height'):
@@ -474,6 +648,16 @@ class AnnotationManager(QObject):
         if not self.enabled:
             return
 
+        # Finalize a handle resize
+        if self._resize_handle is not None:
+            self._resize_handle = None
+            self._resize_orig = None
+            self._resize_snapshot_pending = False
+            self._update_selector()
+            self._update_cursor()
+            self.changed.emit()
+            return
+
         # If drag-moving existing item, finalize it (the undo snapshot was
         # already taken at the first motion — snapshotting here would record
         # the post-move state and make Undo a no-op)
@@ -492,6 +676,9 @@ class AnnotationManager(QObject):
             x0, y0 = self._press_pt
             x1 = ev.xdata if ev.xdata is not None else x0
             y1 = ev.ydata if ev.ydata is not None else y0
+            # Honor the Shift constraint the preview showed during the drag
+            x1, y1 = self._constrain_creation(ev, x0, y0, x1, y1)
+            self._last_draw_pt = None
 
             # Calculate pixel distance to filter accidental micro-clicks
             try:
@@ -727,14 +914,168 @@ class AnnotationManager(QObject):
                 continue
         return best_idx
 
+    # --- resize handles ---
+    def _handle_points(self, item: AnnotationItem) -> List[Tuple[str, float, float]]:
+        """(name, x, y) grab points for resizing ``item`` (data coords)."""
+        p = item.props
+        if item.kind in ('line', 'arrow'):
+            return [('p1', p['x1'], p['y1']), ('p2', p['x2'], p['y2'])]
+        if item.kind == 'rect':
+            x, y = p['x'], p['y']
+            w, h = p.get('w', 0.0), p.get('h', 0.0)
+            return [('c00', x, y), ('c10', x + w, y),
+                    ('c01', x, y + h), ('c11', x + w, y + h)]
+        if item.kind == 'ellipse':
+            x, y = p['x'], p['y']
+            w, h = p.get('w', 0.0), p.get('h', 0.0)
+            return [('c00', x - w / 2, y - h / 2), ('c10', x + w / 2, y - h / 2),
+                    ('c01', x - w / 2, y + h / 2), ('c11', x + w / 2, y + h / 2)]
+        if item.kind == 'callout':
+            return [('tip', p['x'], p['y']), ('text', p['tx'], p['ty'])]
+        return []  # text resizes via font size, not handles
+
+    def _handle_at(self, ev, tolerance_px: float = 8.0) -> Optional[str]:
+        """Name of the selected item's handle under the cursor, if any."""
+        if (self.selected_index is None
+                or self.selected_index >= len(self.items)
+                or ev.x is None or ev.y is None):
+            return None
+        try:
+            for name, hx, hy in self._handle_points(self.items[self.selected_index]):
+                px, py = self.ax.transData.transform((hx, hy))
+                if ((ev.x - px) ** 2 + (ev.y - py) ** 2) ** 0.5 <= tolerance_px:
+                    return name
+        except Exception:
+            pass
+        return None
+
+    def _apply_resize(self, handle: str, mx, my) -> None:
+        """Recompute the selected item's geometry with ``handle`` at (mx, my)."""
+        if mx is None or my is None or self._resize_orig is None:
+            return
+        idx = self.selected_index
+        if idx is None or idx >= len(self.items):
+            return
+        item = self.items[idx]
+        a = self.artists[idx]
+        o = self._resize_orig
+        try:
+            if item.kind in ('line', 'arrow'):
+                if handle == 'p1':
+                    item.props['x1'], item.props['y1'] = mx, my
+                else:
+                    item.props['x2'], item.props['y2'] = mx, my
+                if item.kind == 'line':
+                    a.set_data([item.props['x1'], item.props['x2']],
+                               [item.props['y1'], item.props['y2']])
+                else:
+                    a.set_positions((item.props['x1'], item.props['y1']),
+                                    (item.props['x2'], item.props['y2']))
+            elif item.kind == 'rect':
+                # The dragged corner follows the mouse; the opposite corner
+                # stays anchored.
+                anchors = {
+                    'c00': (o['x'] + o['w'], o['y'] + o['h']),
+                    'c10': (o['x'], o['y'] + o['h']),
+                    'c01': (o['x'] + o['w'], o['y']),
+                    'c11': (o['x'], o['y']),
+                }
+                ax_, ay_ = anchors[handle]
+                item.props['x'], item.props['y'] = ax_, ay_
+                item.props['w'], item.props['h'] = mx - ax_, my - ay_
+                a.set_xy((ax_, ay_))
+                a.set_width(item.props['w'])
+                a.set_height(item.props['h'])
+            elif item.kind == 'ellipse':
+                anchors = {
+                    'c00': (o['x'] + o['w'] / 2, o['y'] + o['h'] / 2),
+                    'c10': (o['x'] - o['w'] / 2, o['y'] + o['h'] / 2),
+                    'c01': (o['x'] + o['w'] / 2, o['y'] - o['h'] / 2),
+                    'c11': (o['x'] - o['w'] / 2, o['y'] - o['h'] / 2),
+                }
+                ax_, ay_ = anchors[handle]
+                item.props['x'] = (ax_ + mx) / 2
+                item.props['y'] = (ay_ + my) / 2
+                item.props['w'] = abs(mx - ax_)
+                item.props['h'] = abs(my - ay_)
+                a.center = (item.props['x'], item.props['y'])
+                a.width = item.props['w']
+                a.height = item.props['h']
+            elif item.kind == 'callout':
+                if handle == 'tip':
+                    item.props['x'], item.props['y'] = mx, my
+                    a.xy = (mx, my)
+                else:
+                    item.props['tx'], item.props['ty'] = mx, my
+                    a.set_position((mx, my))
+        except Exception:
+            logging.getLogger(__name__).debug("annotation resize failed", exc_info=True)
+
+    def _constrain_creation(self, ev, x0, y0, x1, y1):
+        """Shift while drawing: lines/arrows snap to 45° steps, rect/ellipse
+        become square/circular — computed in display space so it looks right
+        regardless of the data aspect ratio."""
+        key = str(getattr(ev, 'key', '') or '')
+        if 'shift' not in key or x1 is None or y1 is None:
+            return x1, y1
+        if self.mode not in ('line', 'arrow', 'rect', 'ellipse'):
+            return x1, y1
+        try:
+            import math
+            p0x, p0y = self.ax.transData.transform((x0, y0))
+            p1x, p1y = self.ax.transData.transform((x1, y1))
+            dx, dy = p1x - p0x, p1y - p0y
+            if self.mode in ('line', 'arrow'):
+                angle = math.atan2(dy, dx)
+                snapped = round(angle / (math.pi / 4)) * (math.pi / 4)
+                r = math.hypot(dx, dy)
+                dx, dy = r * math.cos(snapped), r * math.sin(snapped)
+            else:  # rect/ellipse → square/circle on screen
+                m = max(abs(dx), abs(dy))
+                dx = math.copysign(m, dx if dx != 0 else 1.0)
+                dy = math.copysign(m, dy if dy != 0 else 1.0)
+            inv = self.ax.transData.inverted()
+            cx, cy = inv.transform((p0x + dx, p0y + dy))
+            return float(cx), float(cy)
+        except Exception:
+            return x1, y1
+
+    # --- context menu (right-click on an item) ---
+    def _build_context_menu(self, idx: int) -> "QMenu":
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu()
+        it = self.items[idx] if idx < len(self.items) else None
+        if it is not None and it.kind in ('text', 'callout'):
+            menu.addAction("Edit Text…", lambda: self._start_inline_edit(idx))
+            menu.addSeparator()
+        menu.addAction("Duplicate\tCtrl+D", lambda: self.duplicate_selected())
+        menu.addSeparator()
+        menu.addAction("Bring to Front\tPgUp", lambda: self.bring_to_front(idx))
+        menu.addAction("Send to Back\tPgDn", lambda: self.send_to_back(idx))
+        menu.addSeparator()
+        menu.addAction("Delete\tDel", lambda: self.delete_selected())
+        return menu
+
+    def _show_context_menu(self, idx: int) -> None:
+        try:
+            if not isinstance(self.fig.canvas, QWidget):
+                return  # headless canvas — nothing to pop up
+            from PySide6.QtGui import QCursor
+            menu = self._build_context_menu(idx)
+            menu.exec(QCursor.pos())
+        except Exception:
+            logging.getLogger(__name__).debug("annotation context menu failed", exc_info=True)
+
     def _update_selector(self) -> None:
-        if self._selector_artist:
-            try:
-                self._selector_artist.remove()
-            except Exception:
-                pass
-            self._selector_artist = None
-        
+        for attr in ('_selector_artist', '_handle_artist'):
+            artist = getattr(self, attr, None)
+            if artist is not None:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
         if self.selected_index is not None and self.selected_index < len(self.items):
             item = self.items[self.selected_index]
             try:
@@ -792,6 +1133,21 @@ class AnnotationManager(QObject):
                 self._selector_artist = Rectangle(p0, w, h, fill=False, edgecolor='#4F9CF9',
                                                   linestyle='--', linewidth=1.5, zorder=99)
                 self.ax.add_patch(self._selector_artist)
+            except Exception:
+                pass
+            # Grab handles (small squares) so the shape can be resized, not
+            # just moved — endpoints for lines/arrows, corners for boxes.
+            try:
+                points = self._handle_points(item)
+                if points:
+                    from matplotlib.lines import Line2D
+                    xs = [hp[1] for hp in points]
+                    ys = [hp[2] for hp in points]
+                    self._handle_artist = Line2D(
+                        xs, ys, linestyle='None', marker='s', markersize=6,
+                        markerfacecolor='#4F9CF9', markeredgecolor='white',
+                        markeredgewidth=1.0, zorder=100)
+                    self.ax.add_line(self._handle_artist)
             except Exception:
                 pass
         self.fig.canvas.draw_idle()

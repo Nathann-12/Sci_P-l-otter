@@ -4,7 +4,8 @@ from matplotlib.figure import Figure
 from annotations import AnnotationManager, AnnotationStyle, AnnotationItem
 
 class FakeEvent:
-    def __init__(self, xdata, ydata, x=None, y=None, inaxes=None, dblclick=False, key=None):
+    def __init__(self, xdata, ydata, x=None, y=None, inaxes=None, dblclick=False,
+                 key=None, button=1):
         self.xdata = xdata
         self.ydata = ydata
         self.x = x
@@ -12,6 +13,21 @@ class FakeEvent:
         self.inaxes = inaxes
         self.dblclick = dblclick
         self.key = key
+        self.button = button
+
+
+def _mgr_with_rect(x=0.1, y=0.1, w=0.2, h=0.2):
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1])
+    fig.canvas.draw()
+    mgr = AnnotationManager(fig, ax)
+    mgr.set_enabled(True)
+    it = AnnotationItem('rect', {'x': x, 'y': y, 'w': w, 'h': h}, AnnotationStyle())
+    mgr._create_artist_from_item(it)
+    mgr.items.append(it)
+    fig.canvas.draw()
+    return mgr, ax
 
 def test_annotations_creation_and_micro_click():
     fig = Figure()
@@ -197,6 +213,149 @@ def test_click_select_without_move_adds_no_undo_entry():
     mgr._on_release(FakeEvent(0.2, 0.2, x=px, y=py, inaxes=ax))
     assert mgr.selected_index == 0
     assert len(mgr._undo) == depth             # no junk snapshot
+
+
+def test_resize_line_endpoint_with_handle_and_undo():
+    """Dragging an endpoint handle reshapes the line; Undo restores it."""
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1])
+    fig.canvas.draw()
+    mgr = AnnotationManager(fig, ax)
+    mgr.set_enabled(True)
+    it = AnnotationItem('line', {'x1': 0.2, 'y1': 0.2, 'x2': 0.6, 'y2': 0.6},
+                        AnnotationStyle())
+    mgr._create_artist_from_item(it)
+    mgr.items.append(it)
+    fig.canvas.draw()
+
+    mgr.set_mode(None)
+    mgr.selected_index = 0
+    px, py = ax.transData.transform((0.6, 0.6))     # p2 handle
+    mgr._on_press(FakeEvent(0.6, 0.6, x=px, y=py, inaxes=ax))
+    assert mgr._resize_handle == 'p2'
+    mx, my = ax.transData.transform((0.8, 0.4))
+    mgr._on_motion(FakeEvent(0.8, 0.4, x=mx, y=my, inaxes=ax))
+    mgr._on_release(FakeEvent(0.8, 0.4, x=mx, y=my, inaxes=ax))
+
+    assert mgr.items[0].props['x2'] == pytest.approx(0.8)
+    assert mgr.items[0].props['y2'] == pytest.approx(0.4)
+    assert mgr.items[0].props['x1'] == pytest.approx(0.2)  # other end anchored
+    mgr.undo()
+    assert mgr.items[0].props['x2'] == pytest.approx(0.6)
+
+
+def test_resize_rect_corner_keeps_opposite_corner_anchored():
+    mgr, ax = _mgr_with_rect()
+    mgr.set_mode(None)
+    mgr.selected_index = 0
+    px, py = ax.transData.transform((0.3, 0.3))     # c11 corner
+    mgr._on_press(FakeEvent(0.3, 0.3, x=px, y=py, inaxes=ax))
+    assert mgr._resize_handle == 'c11'
+    mx, my = ax.transData.transform((0.5, 0.4))
+    mgr._on_motion(FakeEvent(0.5, 0.4, x=mx, y=my, inaxes=ax))
+    mgr._on_release(FakeEvent(0.5, 0.4, x=mx, y=my, inaxes=ax))
+
+    p = mgr.items[0].props
+    assert p['x'] == pytest.approx(0.1) and p['y'] == pytest.approx(0.1)
+    assert p['w'] == pytest.approx(0.4) and p['h'] == pytest.approx(0.3)
+
+
+def test_duplicate_and_paste_offset_the_clone():
+    mgr, ax = _mgr_with_rect()
+    mgr.selected_index = 0
+    new_idx = mgr.duplicate_selected()
+    assert new_idx == 1 and len(mgr.items) == 2
+    assert mgr.selected_index == 1
+    assert mgr.items[1].props['x'] > mgr.items[0].props['x']  # offset clone
+    # copy/paste too
+    assert mgr.copy_selected() is True
+    pasted = mgr.paste_clipboard()
+    assert pasted == 2 and len(mgr.items) == 3
+    mgr.undo()
+    assert len(mgr.items) == 2
+
+
+def test_arrow_key_nudge_moves_selection():
+    mgr, ax = _mgr_with_rect()
+    mgr.selected_index = 0
+    x_before = mgr.items[0].props['x']
+    x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+    mgr._on_key(FakeEvent(None, None, key='right'))
+    assert mgr.items[0].props['x'] == pytest.approx(x_before + 0.01 * x_range)
+    mgr._on_key(FakeEvent(None, None, key='shift+left'))
+    assert mgr.items[0].props['x'] == pytest.approx(
+        x_before + (0.01 - 0.05) * x_range)
+
+
+def test_bring_to_front_and_send_to_back_adjust_zorder():
+    mgr, ax = _mgr_with_rect()
+    it2 = AnnotationItem('rect', {'x': 0.5, 'y': 0.5, 'w': 0.1, 'h': 0.1},
+                         AnnotationStyle())
+    mgr._create_artist_from_item(it2)
+    mgr.items.append(it2)
+
+    mgr.bring_to_front(0)
+    assert mgr.items[0].style.zorder > mgr.items[1].style.zorder
+    assert mgr.artists[0].get_zorder() == mgr.items[0].style.zorder
+    mgr.send_to_back(0)
+    assert mgr.items[0].style.zorder < mgr.items[1].style.zorder
+
+
+def test_shift_constrains_line_to_45_degree_steps():
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1])
+    fig.canvas.draw()
+    mgr = AnnotationManager(fig, ax)
+    mgr.set_enabled(True)
+    mgr.set_mode('line')
+
+    p0 = ax.transData.transform((0.2, 0.2))
+    p1 = ax.transData.transform((0.6, 0.22))        # nearly horizontal
+    mgr._on_press(FakeEvent(0.2, 0.2, x=p0[0], y=p0[1], inaxes=ax))
+    mgr._on_motion(FakeEvent(0.6, 0.22, x=p1[0], y=p1[1], inaxes=ax, key='shift'))
+    mgr._on_release(FakeEvent(0.6, 0.22, x=p1[0], y=p1[1], inaxes=ax, key='shift'))
+
+    p = mgr.items[-1].props
+    assert p['y2'] == pytest.approx(p['y1'])        # snapped horizontal
+    assert p['x2'] == pytest.approx(0.6, abs=0.05)
+
+
+def test_right_click_selects_item_and_yields_to_annotation_menu():
+    mgr, ax = _mgr_with_rect()
+    mgr.set_mode(None)
+    px, py = ax.transData.transform((0.2, 0.2))
+    ev = FakeEvent(0.2, 0.2, x=px, y=py, inaxes=ax, button=3)
+    assert mgr.consumes_right_click(ev) is True     # graph menu must yield
+    mgr._on_press(ev)                               # Agg canvas: selects, no popup
+    assert mgr.selected_index == 0
+    # a right-click on empty space is not consumed
+    ev_miss = FakeEvent(0.9, 0.9, *ax.transData.transform((0.9, 0.9)), inaxes=ax,
+                        button=3)
+    assert mgr.consumes_right_click(ev_miss) is False
+
+
+def test_context_menu_offers_powerpoint_style_actions():
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    mgr, ax = _mgr_with_rect()
+    menu = mgr._build_context_menu(0)
+    texts = " | ".join(a.text() for a in menu.actions() if a.text())
+    for expected in ("Duplicate", "Bring to Front", "Send to Back", "Delete"):
+        assert expected in texts
+
+
+def test_selection_shows_resize_handles():
+    mgr, ax = _mgr_with_rect()
+    mgr.selected_index = 0
+    mgr._update_selector()
+    assert mgr._handle_artist is not None
+    xs = list(mgr._handle_artist.get_xdata())
+    assert len(xs) == 4                              # four corners
+    mgr.clear_selection()
+    assert mgr._handle_artist is None
 
 
 def test_second_escape_clears_selection():

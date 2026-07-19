@@ -104,6 +104,15 @@ class ContextMenuManager(QObject):
         else:
             self._refresh_axis_state()
         if ev.button == 3:  # right-click
+            # An enabled annotation manager owns right-clicks that land on one
+            # of its items (it shows its own Edit/Duplicate/Delete menu).
+            ann = getattr(self.canvas, '_annotation_manager', None)
+            if ann is not None and getattr(ann, 'consumes_right_click', None):
+                try:
+                    if ann.consumes_right_click(ev):
+                        return
+                except Exception:
+                    pass
             self._show_menu(QtGui.QCursor.pos(), ev)
         elif ev.button == 1 and self._box_patch is not None:
             # start box zoom drag
