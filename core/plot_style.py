@@ -143,7 +143,10 @@ JOURNAL_PRESETS = {
         "axes": {"title_size": 9, "label_size": 8, "tick_size": 7,
                  "font_family": "serif", "tick_direction": "in",
                  "minor_ticks": True, "spine_top": False, "spine_right": False,
-                 "spine_width": 0.8},
+                 "spine_width": 0.8,
+                 "title_color": "#000000", "label_color": "#000000",
+                 "tick_color": "#000000", "tick_label_color": "#000000",
+                 "spine_color": "#000000"},
         "grid": {"major": False, "minor": False},
         "legend": {"fontsize": 7, "frame": False},
         "palette": "Okabe-Ito (CB-safe)", "line_width": 1.1,
@@ -154,7 +157,10 @@ JOURNAL_PRESETS = {
         "axes": {"title_size": 8, "label_size": 7, "tick_size": 6,
                  "font_family": "sans-serif", "tick_direction": "out",
                  "minor_ticks": True, "spine_top": False, "spine_right": False,
-                 "spine_width": 0.8},
+                 "spine_width": 0.8,
+                 "title_color": "#000000", "label_color": "#000000",
+                 "tick_color": "#000000", "tick_label_color": "#000000",
+                 "spine_color": "#000000"},
         "grid": {"major": False, "minor": False},
         "legend": {"fontsize": 6, "frame": False},
         "palette": "Tol Bright (CB-safe)", "line_width": 1.0,
@@ -165,7 +171,10 @@ JOURNAL_PRESETS = {
         "axes": {"title_size": 8, "label_size": 7, "tick_size": 6,
                  "font_family": "sans-serif", "tick_direction": "out",
                  "minor_ticks": True, "spine_top": False, "spine_right": False,
-                 "spine_width": 0.8},
+                 "spine_width": 0.8,
+                 "title_color": "#000000", "label_color": "#000000",
+                 "tick_color": "#000000", "tick_label_color": "#000000",
+                 "spine_color": "#000000"},
         "grid": {"major": False, "minor": False},
         "legend": {"fontsize": 6, "frame": False},
         "palette": "Okabe-Ito (CB-safe)", "line_width": 1.0,
@@ -176,7 +185,10 @@ JOURNAL_PRESETS = {
         "axes": {"title_size": 9, "label_size": 8, "tick_size": 7,
                  "font_family": "sans-serif", "tick_direction": "in",
                  "minor_ticks": True, "spine_top": False, "spine_right": False,
-                 "spine_width": 0.9},
+                 "spine_width": 0.9,
+                 "title_color": "#000000", "label_color": "#000000",
+                 "tick_color": "#000000", "tick_label_color": "#000000",
+                 "spine_color": "#000000"},
         "grid": {"major": False, "minor": False},
         "legend": {"fontsize": 7, "frame": False},
         "palette": "ColorBrewer Set2", "line_width": 1.2,
@@ -187,7 +199,10 @@ JOURNAL_PRESETS = {
         "axes": {"title_size": 14, "label_size": 12, "tick_size": 10,
                  "font_family": "serif", "tick_direction": "out",
                  "minor_ticks": True, "spine_top": False, "spine_right": False,
-                 "spine_width": 1.0},
+                 "spine_width": 1.0,
+                 "title_color": "#000000", "label_color": "#1a1a1a",
+                 "tick_color": "#1a1a1a", "tick_label_color": "#1a1a1a",
+                 "spine_color": "#333333"},
         "grid": {"major": True, "minor": False, "color": "#dddddd",
                  "linestyle": "-", "alpha": 0.5},
         "legend": {"fontsize": 11, "frame": True},
@@ -207,6 +222,10 @@ JOURNAL_PRESETS = {
             "tick_size": 10,
             "spine_color": "#9aa4b2",
             "spine_width": 1.2,
+            "title_color": "#1f2937",
+            "label_color": "#1f2937",
+            "tick_color": "#54606f",
+            "tick_label_color": "#1f2937",
         },
         "grid": {"major": True, "minor": False, "color": "#d8dee9", "linestyle": "-", "alpha": 0.45},
         "legend": {
@@ -242,6 +261,10 @@ JOURNAL_PRESETS = {
             "tick_size": 10,
             "spine_color": "#5b6472",
             "spine_width": 1.2,
+            "title_color": "#f0f2f5",
+            "label_color": "#dfe4ea",
+            "tick_color": "#9aa4b2",
+            "tick_label_color": "#c7ccd6",
         },
         "grid": {"major": True, "minor": False, "color": "#3d4655", "linestyle": "-", "alpha": 0.38},
         "legend": {
@@ -721,12 +744,30 @@ def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
                         frame.set_alpha(float(leg.get("alpha", 1.0)))
                     except Exception:
                         pass
+                    # Legend text should track the axis text colour so it never
+                    # washes out — e.g. dark-theme light text left on a white
+                    # journal preset, or black text on the Dark Pro background.
+                    text_color = None
+                    try:
+                        ticklabels = ax.xaxis.get_ticklabels()
+                        text_color = (ticklabels[0].get_color() if ticklabels
+                                      else ax.xaxis.label.get_color())
+                        for txt in new_leg.get_texts():
+                            txt.set_color(text_color)
+                    except Exception:
+                        pass
                     title_obj = new_leg.get_title()
-                    if title_obj is not None and leg.get("title"):
-                        try:
-                            title_obj.set_fontsize(float(leg.get("title_size", 10.0)))
-                        except Exception:
-                            pass
+                    if title_obj is not None:
+                        if text_color:
+                            try:
+                                title_obj.set_color(text_color)
+                            except Exception:
+                                pass
+                        if leg.get("title"):
+                            try:
+                                title_obj.set_fontsize(float(leg.get("title_size", 10.0)))
+                            except Exception:
+                                pass
         else:
             existing = ax.get_legend()
             if existing is not None:

@@ -93,3 +93,53 @@ def test_journal_presets_are_publication_complete_not_just_font_sizes():
 def test_nature_preset_is_colorblind_safe():
     pal_name, _ = preset_palette("Nature (single column)")
     assert pal_name in COLORBLIND_SAFE_PALETTES
+
+
+def _contrast(c1: str, c2: str) -> float:
+    import matplotlib.colors as mcolors
+
+    def lum(c):
+        r, g, b = mcolors.to_rgb(c)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    hi, lo = sorted((lum(c1), lum(c2)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_every_preset_pins_readable_text_colors_on_its_background():
+    """A preset that recolours the background must also pin the text colours.
+
+    Regression: journal presets set a white background but left the dark-theme
+    light-gray text in place, so labels/ticks washed out to near-invisible.
+    """
+    from core.plot_style import JOURNAL_PRESETS
+
+    for name, preset in JOURNAL_PRESETS.items():
+        axes = preset.get("axes", {})
+        bg = preset.get("figure", {}).get("facecolor")
+        assert bg, f"{name} has no facecolor"
+        for key in ("title_color", "label_color", "tick_label_color"):
+            color = axes.get(key)
+            assert color, f"{name} does not pin {key}"
+            ratio = _contrast(color, bg)
+            assert ratio >= 3.0, f"{name}.{key}={color} washes out on {bg} ({ratio:.2f})"
+
+
+def test_apply_style_recolors_legend_text_to_match_axis_text():
+    """Legend text must track the axis text colour so it never washes out."""
+    from core.plot_style import apply_style, get_preset_style
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1], label="s")
+    preset = get_preset_style("Science (single column)")
+    preset.pop("palette", None)
+    preset.pop("line_width", None)
+    preset.setdefault("legend", {})["visible"] = True
+    apply_style(ax, preset, fig)
+
+    assert ax.title.get_color() == "#000000"
+    assert ax.xaxis.get_ticklabels()[0].get_color() == "#000000"
+    legend = ax.get_legend()
+    assert legend is not None
+    assert legend.get_texts()[0].get_color() == "#000000"
