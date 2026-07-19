@@ -85,6 +85,42 @@ def test_cancellation_marks_remaining_sources_skipped(tmp_path):
     assert [item.status for item in result.items] == ["success", "skipped", "skipped"]
 
 
+def test_batch_report_document_summarises_the_run(tmp_path):
+    from analysis.batch import batch_report_document
+
+    ok = tmp_path / "ok.csv"; _write_csv(ok, [1, 2, 3])
+    result = run_batch_analysis(
+        [ok], loader=pd.read_csv,
+        analyzer=lambda frame, ctx: pd.DataFrame({"mean": [frame.y.mean()]}),
+        recipe_name="MeanRecipe",
+    )
+    doc = batch_report_document(result)
+    assert "MeanRecipe" in doc.title
+    counts = doc.counts()
+    assert counts["tables"] >= 1  # per-file summary table
+    from core.report import KpiSection
+
+    assert any(isinstance(s, KpiSection) for s in doc.sections)
+
+
+@pytest.mark.parametrize("suffix", [".pdf", ".docx", ".pptx"])
+def test_export_batch_report_document_formats(tmp_path, suffix):
+    if suffix == ".docx":
+        pytest.importorskip("docx")
+    if suffix == ".pptx":
+        pytest.importorskip("pptx")
+    source = tmp_path / "s.csv"; _write_csv(source, [1, 2, 3])
+    result = run_batch_analysis(
+        [source], loader=pd.read_csv,
+        analyzer=lambda frame, ctx: pd.DataFrame({"mean": [frame.y.mean()]}),
+        recipe_name="Doc",
+    )
+    dest = tmp_path / f"report{suffix}"
+    export_batch_report(result, dest)
+    head = dest.read_bytes()[:5]
+    assert (head[:5] == b"%PDF-") if suffix == ".pdf" else (head[:2] == b"PK")
+
+
 @pytest.mark.parametrize("suffix", [".csv", ".json", ".xlsx", ".html"])
 def test_export_batch_report_formats_are_readable_and_atomic(tmp_path, suffix):
     source = tmp_path / "source.csv"

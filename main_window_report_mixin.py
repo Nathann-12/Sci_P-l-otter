@@ -35,6 +35,10 @@ class MainWindowReportMixin:
             lambda: self._report_export_dialog("html"))
         menu.addAction("Export Report as PDF...").triggered.connect(
             lambda: self._report_export_dialog("pdf"))
+        menu.addAction("Export Report as Word (DOCX)...").triggered.connect(
+            lambda: self._report_export_dialog("docx"))
+        menu.addAction("Export Report as PowerPoint (PPTX)...").triggered.connect(
+            lambda: self._report_export_dialog("pptx"))
         menu.addAction("Export Report as Markdown...").triggered.connect(
             lambda: self._report_export_dialog("md"))
         menu.addSeparator()
@@ -191,6 +195,10 @@ class MainWindowReportMixin:
                 R.render_markdown(doc, image_dir=image_dir), encoding="utf-8")
         elif suffix == ".pdf":
             R.render_pdf(doc, path)
+        elif suffix == ".docx":
+            R.render_docx(doc, path)
+        elif suffix == ".pptx":
+            R.render_pptx(doc, path)
         else:
             raise ValueError(f"Unsupported report format: {suffix or '(none)'}")
         return path
@@ -260,9 +268,12 @@ class MainWindowReportMixin:
         filters = {
             "html": "HTML report (*.html)",
             "pdf": "PDF report (*.pdf)",
+            "docx": "Word report (*.docx)",
+            "pptx": "PowerPoint (*.pptx)",
             "md": "Markdown report (*.md)",
         }
-        ext = {"html": ".html", "pdf": ".pdf", "md": ".md"}[fmt]
+        ext = {"html": ".html", "pdf": ".pdf", "docx": ".docx",
+               "pptx": ".pptx", "md": ".md"}[fmt]
         path = self.ask_save_path("Export Report",
                                   f"{_safe_name(doc.title)}{ext}", filters[fmt])
         if not path:

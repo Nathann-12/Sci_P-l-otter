@@ -25,7 +25,8 @@ DATA_FILTER = (
     "*.hdf *.mat *.xml);;All Files (*.*)"
 )
 REPORT_FILTER = (
-    "Excel Workbook (*.xlsx);;HTML Report (*.html);;CSV Summary (*.csv);;JSON Manifest (*.json)"
+    "Excel Workbook (*.xlsx);;PDF Report (*.pdf);;Word Report (*.docx);;"
+    "PowerPoint (*.pptx);;HTML Report (*.html);;CSV Summary (*.csv);;JSON Manifest (*.json)"
 )
 
 
@@ -123,8 +124,10 @@ class BatchAnalysisDialog(QDialog):
         )
         if not path:
             return
-        suffixes = {"Excel Workbook (*.xlsx)": ".xlsx", "HTML Report (*.html)": ".html",
-                    "CSV Summary (*.csv)": ".csv", "JSON Manifest (*.json)": ".json"}
+        suffixes = {"Excel Workbook (*.xlsx)": ".xlsx", "PDF Report (*.pdf)": ".pdf",
+                    "Word Report (*.docx)": ".docx", "PowerPoint (*.pptx)": ".pptx",
+                    "HTML Report (*.html)": ".html", "CSV Summary (*.csv)": ".csv",
+                    "JSON Manifest (*.json)": ".json"}
         if not Path(path).suffix:
             path += suffixes.get(selected_filter, ".xlsx")
         self.report_path.setText(path)
@@ -137,9 +140,9 @@ class BatchAnalysisDialog(QDialog):
         if not self.report_path.text().strip():
             return "Choose where to save the summary report."
         if Path(self.report_path.text().strip()).suffix.lower() not in {
-            ".xlsx", ".html", ".htm", ".csv", ".json",
+            ".xlsx", ".pdf", ".docx", ".pptx", ".html", ".htm", ".csv", ".json",
         }:
-            return "Report must use .xlsx, .html, .csv, or .json."
+            return "Report must use .xlsx, .pdf, .docx, .pptx, .html, .csv, or .json."
         return ""
 
     def _refresh_validation(self, *_args) -> None:

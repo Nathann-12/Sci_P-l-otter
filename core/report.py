@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import datetime as _dt
 import html
+import io
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
@@ -339,6 +340,132 @@ def _scaled_image(buffer, max_width):
     buffer.seek(0)
     scale = min(1.0, max_width / iw)
     return Image(buffer, width=iw * scale, height=ih * scale)
+
+
+def render_docx(doc: ReportDocument, path: str) -> str:
+    """Render the document to a Word .docx (requires python-docx)."""
+    try:
+        from docx import Document
+        from docx.shared import Inches, Pt, RGBColor
+    except ImportError as exc:  # pragma: no cover - env without python-docx
+        raise RuntimeError(
+            "Word export needs python-docx (pip install python-docx)") from exc
+
+    d = Document()
+    d.add_heading(doc.title, level=0)
+    if doc.subtitle:
+        d.add_paragraph(doc.subtitle).italic = True
+    meta = f"Author: {doc.author}   Date: {doc.date}" if doc.author else f"Date: {doc.date}"
+    m = d.add_paragraph(meta)
+    m.runs[0].font.size = Pt(9)
+    m.runs[0].font.color.rgb = RGBColor(0x5A, 0x66, 0x76)
+
+    for s in doc.sections:
+        if isinstance(s, TextSection):
+            if s.heading:
+                d.add_heading(s.heading, level=1)
+            for para in str(s.body).split("\n\n"):
+                if para.strip():
+                    d.add_paragraph(para.strip())
+        elif isinstance(s, FigureSection) and s.png:
+            if s.title:
+                d.add_heading(s.title, level=1)
+            d.add_picture(io.BytesIO(s.png), width=Inches(6.0))
+            if s.caption:
+                cap = d.add_paragraph(s.caption)
+                cap.runs[0].italic = True
+                cap.runs[0].font.size = Pt(9)
+        elif isinstance(s, TableSection) and s.frame is not None:
+            if s.title:
+                d.add_heading(s.title, level=1)
+            data = _table_data_docx(s.frame, s.max_rows)
+            table = d.add_table(rows=len(data), cols=len(data[0]))
+            table.style = "Light Grid Accent 1"
+            for r, row in enumerate(data):
+                for c, val in enumerate(row):
+                    table.rows[r].cells[c].text = val
+        elif isinstance(s, KpiSection) and s.items:
+            table = d.add_table(rows=len(s.items), cols=2)
+            for r, (label, value) in enumerate(s.items):
+                table.rows[r].cells[0].text = str(label)
+                table.rows[r].cells[1].text = _fmt(value)
+    d.save(str(path))
+    return str(path)
+
+
+def _table_data_docx(frame, max_rows):
+    shown = frame.head(max_rows)
+    data = [[str(c) for c in shown.columns]]
+    data += [[_fmt(v) for v in row] for _, row in shown.iterrows()]
+    return data
+
+
+def render_pptx(doc: ReportDocument, path: str) -> str:
+    """Render the document to PowerPoint .pptx — a title slide plus one slide
+    per figure/table (requires python-pptx)."""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+    except ImportError as exc:  # pragma: no cover - env without python-pptx
+        raise RuntimeError(
+            "PowerPoint export needs python-pptx (pip install python-pptx)") from exc
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)   # 16:9
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+
+    # title slide
+    title_layout = prs.slide_layouts[0]
+    slide = prs.slides.add_slide(title_layout)
+    slide.shapes.title.text = doc.title
+    if len(slide.placeholders) > 1:
+        sub = doc.subtitle or ""
+        if doc.author:
+            sub = f"{sub}\n{doc.author}".strip()
+        slide.placeholders[1].text = f"{sub}\n{doc.date}".strip()
+
+    def _titled(text):
+        s = prs.slides.add_slide(blank)
+        box = s.shapes.add_textbox(Inches(0.6), Inches(0.3), Inches(12), Inches(0.8))
+        tf = box.text_frame
+        tf.text = text
+        tf.paragraphs[0].font.size = Pt(28)
+        tf.paragraphs[0].font.bold = True
+        return s
+
+    for sec in doc.sections:
+        if isinstance(sec, FigureSection) and sec.png:
+            s = _titled(sec.title or "Figure")
+            s.shapes.add_picture(io.BytesIO(sec.png), Inches(1.2), Inches(1.3),
+                                 height=Inches(5.4))
+        elif isinstance(sec, TableSection) and sec.frame is not None:
+            s = _titled(sec.title or "Table")
+            data = _table_data_docx(sec.frame, sec.max_rows)
+            rows, cols = len(data), len(data[0])
+            tbl = s.shapes.add_table(rows, cols, Inches(0.8), Inches(1.4),
+                                     Inches(11.7), Inches(0.4 * rows)).table
+            for r in range(rows):
+                for c in range(cols):
+                    cell = tbl.cell(r, c)
+                    cell.text = data[r][c]
+                    cell.text_frame.paragraphs[0].font.size = Pt(12)
+        elif isinstance(sec, TextSection) and (sec.heading or sec.body):
+            s = _titled(sec.heading or "Notes")
+            box = s.shapes.add_textbox(Inches(0.8), Inches(1.4), Inches(11.7), Inches(5))
+            box.text_frame.word_wrap = True
+            box.text_frame.text = str(sec.body)
+            for p in box.text_frame.paragraphs:
+                p.font.size = Pt(16)
+        elif isinstance(sec, KpiSection) and sec.items:
+            s = _titled("Key Results")
+            box = s.shapes.add_textbox(Inches(0.8), Inches(1.6), Inches(11.7), Inches(5))
+            tf = box.text_frame
+            tf.text = "\n".join(f"{label}:  {_fmt(value)}" for label, value in sec.items)
+            for p in tf.paragraphs:
+                p.font.size = Pt(20)
+    prs.save(str(path))
+    return str(path)
 
 
 def _pdf_table(frame: pd.DataFrame, max_rows: int, width):

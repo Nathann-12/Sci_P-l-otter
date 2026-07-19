@@ -78,3 +78,28 @@ def test_number_formatting():
     assert R._fmt(3.14159) == "3.142"
     assert R._fmt(float("nan")) == "—"
     assert R._fmt("text") == "text"
+
+
+def test_docx_renders_a_valid_office_file(tmp_path):
+    pytest.importorskip("docx")
+    path = tmp_path / "r.docx"
+    R.render_docx(_doc(), str(path))
+    data = path.read_bytes()
+    assert data[:2] == b"PK" and len(data) > 5000  # zip-based Office file
+    from docx import Document
+
+    d = Document(str(path))
+    assert any("Study" in p.text for p in d.paragraphs)
+    assert len(d.tables) >= 1  # the calibration table came through
+
+
+def test_pptx_has_a_slide_per_visual(tmp_path):
+    pytest.importorskip("pptx")
+    path = tmp_path / "r.pptx"
+    R.render_pptx(_doc(), str(path))
+    assert path.read_bytes()[:2] == b"PK"
+    from pptx import Presentation
+
+    prs = Presentation(str(path))
+    # title slide + one figure slide + one table slide
+    assert len(prs.slides) >= 3

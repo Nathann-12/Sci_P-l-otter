@@ -32,8 +32,8 @@ def _tool_generate_report(window, args: Dict[str, Any]) -> str:
         return "Nothing to report yet — plot something or run an analysis first."
 
     fmt = str(args.get("format", "html") or "html").lower().lstrip(".")
-    if fmt not in ("html", "pdf", "md", "markdown"):
-        return "format must be html, pdf or md."
+    if fmt not in ("html", "pdf", "docx", "pptx", "md", "markdown"):
+        return "format must be html, pdf, docx, pptx or md."
     ext = ".md" if fmt in ("md", "markdown") else f".{fmt}"
 
     path = args.get("path")
@@ -90,8 +90,8 @@ def register_report_tools(registry, window) -> None:
             "subtitle": {"type": "string", "description": "subtitle", "required": False},
             "format": {
                 "type": "string", "required": False,
-                "description": "html | pdf | md",
-                "enum": ["html", "pdf", "md"],
+                "description": "html | pdf | docx | pptx | md",
+                "enum": ["html", "pdf", "docx", "pptx", "md"],
             },
             "path": {"type": "string", "description": "output file path (optional)", "required": False},
             "include_graphs": {"type": "boolean", "description": "include figures", "required": False},

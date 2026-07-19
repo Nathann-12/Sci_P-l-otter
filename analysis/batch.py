@@ -266,13 +266,54 @@ def load_scientific_dataframe(path: str | Path) -> pd.DataFrame:
     return frame
 
 
+def batch_report_document(result: BatchRunResult):
+    """Turn a batch run into a styled report document (KPIs + per-file summary).
+
+    Pure — returns a ``core.report.ReportDocument`` the report renderers turn
+    into HTML / PDF / Word / PowerPoint.
+    """
+    from core.report import ReportDocument
+
+    doc = ReportDocument(
+        title=f"Batch Analysis — {result.recipe_name}",
+        subtitle=f"Recipe v{result.recipe_version} · {len(result.items)} files",
+        template="Lab Report",
+    )
+    doc.add_kpis([
+        ("Files", len(result.items)),
+        ("Succeeded", result.success_count),
+        ("Failed", result.failure_count),
+        ("Skipped", result.skipped_count),
+    ])
+    frame = result.summary_frame()
+    if not frame.empty:
+        keep = [c for c in frame.columns
+                if c in ("source", "status", "input_rows", "output_rows")
+                or c.startswith("metric.")]
+        doc.add_table("Per-file results", frame[keep] if keep else frame,
+                      "One row per input file with its status and key metrics.",
+                      max_rows=200)
+    failures = [it for it in result.items if it.status == "failed"]
+    if failures:
+        body = "\n\n".join(f"{it.source}: {it.error_message}" for it in failures)
+        doc.add_text("Failures", body)
+    return doc
+
+
 def export_batch_report(result: BatchRunResult, destination: str | Path) -> Path:
-    """Atomically export a CSV, JSON, XLSX, or self-contained HTML report."""
+    """Atomically export a batch report.
+
+    Tabular formats (CSV/JSON/XLSX/HTML-summary) render the summary directly;
+    document formats (PDF/DOCX/PPTX, and ``.report.html``) render a styled
+    :class:`core.report.ReportDocument`.
+    """
 
     path = Path(destination)
     suffix = path.suffix.lower()
-    if suffix not in {".csv", ".json", ".xlsx", ".html", ".htm"}:
-        raise BatchAnalysisError("Report format must be CSV, JSON, XLSX, or HTML.")
+    doc_formats = {".pdf", ".docx", ".pptx"}
+    if suffix not in {".csv", ".json", ".xlsx", ".html", ".htm"} | doc_formats:
+        raise BatchAnalysisError(
+            "Report format must be CSV, JSON, XLSX, HTML, PDF, DOCX or PPTX.")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.NamedTemporaryFile(
@@ -290,6 +331,12 @@ def export_batch_report(result: BatchRunResult, destination: str | Path) -> Path
             )
         elif suffix in {".html", ".htm"}:
             temporary.write_text(_html_report(result), encoding="utf-8")
+        elif suffix in doc_formats:
+            from core import report as _report
+
+            document = batch_report_document(result)
+            {".pdf": _report.render_pdf, ".docx": _report.render_docx,
+             ".pptx": _report.render_pptx}[suffix](document, str(temporary))
         else:
             _write_excel_report(result, temporary)
         temporary.replace(path)

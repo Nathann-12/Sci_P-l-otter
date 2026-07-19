@@ -86,12 +86,26 @@ def test_generate_report_core_builds_document(window):
 def test_report_export_all_formats(window, tmp_path):
     _seed_session(window)
     doc = window.generate_report_core(title="Export Test")
-    for ext, head in ((".html", b"<!doctype"), (".pdf", b"%PDF-"), (".md", b"# Export")):
+    for ext, head in ((".html", b"<!doctype"), (".pdf", b"%PDF-"), (".md", b"# Export"),
+                      (".docx", b"PK"), (".pptx", b"PK")):
         path = tmp_path / f"r{ext}"
         window.report_export(doc, str(path))
         assert path.read_bytes()[:8].lower().startswith(head[:8].lower())
     with pytest.raises(ValueError, match="Unsupported"):
-        window.report_export(doc, str(tmp_path / "r.docx"))
+        window.report_export(doc, str(tmp_path / "r.rtf"))
+
+
+def test_ai_generate_report_office_formats(window, tmp_path):
+    from ai.app_tools import build_app_registry
+
+    _seed_session(window)
+    registry = build_app_registry(window)
+    for fmt, magic in (("docx", b"PK"), ("pptx", b"PK")):
+        out_path = tmp_path / f"ai.{fmt}"
+        out = registry.execute("generate_report", {
+            "format": fmt, "path": str(out_path)})
+        assert "Report saved" in out
+        assert out_path.read_bytes()[:2] == magic
 
 
 def test_ai_generate_report_tool(window, tmp_path):
