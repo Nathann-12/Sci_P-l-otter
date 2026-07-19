@@ -45,6 +45,7 @@ from core.plot_style import (
     FILL_STYLES,
     FONT_FAMILIES,
     GRID_AXES,
+    HATCH_PATTERNS,
     INSET_LOCS,
     JOURNAL_PRESETS,
     LEGEND_LOCS,
@@ -991,11 +992,31 @@ class PlotDetailsDialog(QDialog):
         self.chk_fillauto.setChecked(True)
         self.btn_fillcolor = ColorButton(QColor("#4F9CF9"))
         self.sp_fillalpha = _dspin(0.25, 0.02, 1.0, decimals=2, step=0.05)
+        self.cb_fillhatch = _combo(list(HATCH_PATTERNS), "")
+        self.chk_fillgradient = QCheckBox("Gradient (fade to baseline)")
         ff.addRow("Fill", self.cb_linefill)
         ff.addRow("", _flags_row(self.chk_fillauto))
         ff.addRow("Fill color", self.btn_fillcolor)
         ff.addRow("Fill opacity", self.sp_fillalpha)
+        ff.addRow("Pattern", self.cb_fillhatch)
+        ff.addRow("", _flags_row(self.chk_fillgradient))
         v.addWidget(gb_fill)
+
+        # --- Drop lines (vertical guides from each point to the baseline) ---
+        gb_drop = QGroupBox("Drop lines")
+        df = QFormLayout(gb_drop)
+        self.chk_droplines = QCheckBox("Show drop lines to baseline")
+        self.chk_dropauto = QCheckBox("Match line color")
+        self.chk_dropauto.setChecked(True)
+        self.btn_dropcolor = ColorButton(QColor("#888888"))
+        self.cb_dropstyle = _combo(list(LINE_STYLES), "-")
+        self.sp_dropwidth = _dspin(0.8, 0.2, 8.0, decimals=1, step=0.2)
+        df.addRow("", self.chk_droplines)
+        df.addRow("", _flags_row(self.chk_dropauto))
+        df.addRow("Color", self.btn_dropcolor)
+        df.addRow("Style", self.cb_dropstyle)
+        df.addRow("Width", self.sp_dropwidth)
+        v.addWidget(gb_drop)
 
         # --- Error bars (constant or percent, as decoration) ---
         gb_err = QGroupBox("Error bars (Y)")
@@ -1020,6 +1041,17 @@ class PlotDetailsDialog(QDialog):
         vf.addRow("Every Nth point", self.sp_vevery)
         vf.addRow("Font size", self.sp_vsize)
         v.addWidget(gb_vlab)
+
+        # --- Mark & label max / min ---
+        gb_ext = QGroupBox("Max / Min labels")
+        xf = QFormLayout(gb_ext)
+        self.chk_extrema = QCheckBox("Mark and label the peak and valley")
+        self.ed_extfmt = QLineEdit("%.3g")
+        self.sp_extsize = _dspin(9.0, 4.0, 24.0, decimals=1, step=1.0)
+        xf.addRow("", self.chk_extrema)
+        xf.addRow("Format", self.ed_extfmt)
+        xf.addRow("Font size", self.sp_extsize)
+        v.addWidget(gb_ext)
         v.addStretch(1)
 
         if not self._line_styles:
@@ -1057,6 +1089,14 @@ class PlotDetailsDialog(QDialog):
         self.chk_fillauto.setChecked(not fill_color)
         self.btn_fillcolor.setColor(_hex_to_qcolor(fill_color or color))
         self.sp_fillalpha.setValue(float(d.get("fill_alpha", 0.25)))
+        _set_combo(self.cb_fillhatch, d.get("fill_hatch", ""))
+        self.chk_fillgradient.setChecked(bool(d.get("fill_gradient", False)))
+        drop_color = d.get("drop_line_color") or ""
+        self.chk_droplines.setChecked(bool(d.get("drop_lines", False)))
+        self.chk_dropauto.setChecked(not drop_color)
+        self.btn_dropcolor.setColor(_hex_to_qcolor(drop_color or color))
+        _set_combo(self.cb_dropstyle, d.get("drop_line_style", "-"))
+        self.sp_dropwidth.setValue(float(d.get("drop_line_width", 0.8)))
         _set_combo(self.cb_errmode, d.get("errorbar_mode", "none"))
         self.sp_errvalue.setValue(float(d.get("errorbar_value", 5.0)))
         self.sp_errcap.setValue(float(d.get("errorbar_capsize", 3.0)))
@@ -1064,6 +1104,9 @@ class PlotDetailsDialog(QDialog):
         self.ed_vfmt.setText(str(d.get("value_labels_fmt", "%.3g")))
         self.sp_vevery.setValue(int(d.get("value_labels_every", 1) or 1))
         self.sp_vsize.setValue(float(d.get("value_labels_size", 8.0)))
+        self.chk_extrema.setChecked(bool(d.get("label_extrema", False)))
+        self.ed_extfmt.setText(str(d.get("extrema_fmt", "%.3g")))
+        self.sp_extsize.setValue(float(d.get("extrema_size", 9.0)))
 
     def _store_line(self, i: int) -> None:
         prev = self._line_styles[i] if i < len(self._line_styles) else {}
@@ -1095,6 +1138,15 @@ class PlotDetailsDialog(QDialog):
                 else self.btn_fillcolor.color().name()
             ),
             "fill_alpha": self.sp_fillalpha.value(),
+            "fill_hatch": self.cb_fillhatch.currentText(),
+            "fill_gradient": self.chk_fillgradient.isChecked(),
+            "drop_lines": self.chk_droplines.isChecked(),
+            "drop_line_color": (
+                "" if self.chk_dropauto.isChecked()
+                else self.btn_dropcolor.color().name()
+            ),
+            "drop_line_style": self.cb_dropstyle.currentText(),
+            "drop_line_width": self.sp_dropwidth.value(),
             "errorbar_mode": self.cb_errmode.currentText(),
             "errorbar_value": self.sp_errvalue.value(),
             "errorbar_capsize": self.sp_errcap.value(),
@@ -1103,6 +1155,9 @@ class PlotDetailsDialog(QDialog):
             "value_labels_fmt": self.ed_vfmt.text().strip() or "%.3g",
             "value_labels_every": self.sp_vevery.value(),
             "value_labels_size": self.sp_vsize.value(),
+            "label_extrema": self.chk_extrema.isChecked(),
+            "extrema_fmt": self.ed_extfmt.text().strip() or "%.3g",
+            "extrema_size": self.sp_extsize.value(),
         }
 
     def _on_line_changed(self, i: int) -> None:

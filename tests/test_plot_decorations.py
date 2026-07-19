@@ -185,3 +185,77 @@ def test_palette_does_not_recolor_decoration_artists():
     apply_line_style(line, d)
     n = apply_palette(ax, "Okabe-Ito (CB-safe)")
     assert n == 2  # the two data curves only, not the error-bar caps
+
+
+# ---------------------------------------- Origin-parity fill / drop / extrema
+
+def _gid_all(ax, prefix):
+    found = []
+    for group in (ax.lines, ax.collections, ax.texts, ax.patches, ax.images):
+        found += [a for a in group if str(a.get_gid() or "").startswith(prefix)]
+    return found
+
+
+def test_hatch_pattern_fill_is_applied_and_round_trips():
+    _fig, ax = _fig_axes()
+    line = ax.get_lines()[0]
+    d = read_line_style(line)
+    d.update(fill="under", fill_hatch="//")
+    apply_line_style(line, d)
+    fills = _gid_all(ax, "_ps_fill")
+    assert len(fills) == 1 and fills[0].get_hatch() == "//"
+    assert read_line_style(line)["fill_hatch"] == "//"
+
+
+def test_gradient_fill_adds_a_clipped_image_and_off_removes_it():
+    fig, ax = _fig_axes()
+    line = ax.get_lines()[0]
+    d = read_line_style(line)
+    d.update(fill="under", fill_gradient=True)
+    apply_line_style(line, d)
+    # poly + gradient image, both tagged _ps_fill
+    assert len(_gid_all(ax, "_ps_fill")) == 2
+    assert any(a in ax.images for a in _gid_all(ax, "_ps_fill"))
+    assert read_line_style(line)["fill_gradient"] is True
+    d.update(fill="none", fill_gradient=False)
+    apply_line_style(line, d)
+    assert len(_gid_all(ax, "_ps_fill")) == 0
+
+
+def test_drop_lines_add_one_collection_and_toggle_off_cleanly():
+    _fig, ax = _fig_axes()
+    line = ax.get_lines()[0]
+    d = read_line_style(line)
+    d["drop_lines"] = True
+    apply_line_style(line, d)
+    apply_line_style(line, d)  # re-apply must not stack
+    assert len(_gid_all(ax, "_ps_drop")) == 1
+    assert read_line_style(line)["drop_lines"] is True
+    d["drop_lines"] = False
+    apply_line_style(line, d)
+    assert len(_gid_all(ax, "_ps_drop")) == 0
+
+
+def test_extrema_labels_mark_peak_and_valley():
+    _fig, ax = _fig_axes(n_lines=1, points=50)
+    line = ax.get_lines()[0]
+    d = read_line_style(line)
+    d["label_extrema"] = True
+    apply_line_style(line, d)
+    artists = _gid_all(ax, "_ps_extrema")
+    markers = [a for a in artists if a in ax.lines]
+    labels = [a for a in artists if a in ax.texts]
+    assert len(markers) == 2 and len(labels) == 2   # max + min, each marker+label
+    d["label_extrema"] = False
+    apply_line_style(line, d)
+    assert len(_gid_all(ax, "_ps_extrema")) == 0
+
+
+def test_new_decorations_do_not_leak_into_data_curve_list():
+    _fig, ax = _fig_axes(n_lines=1)
+    line = ax.get_lines()[0]
+    d = read_line_style(line)
+    d.update(fill="under", fill_gradient=True, drop_lines=True, label_extrema=True)
+    apply_line_style(line, d)
+    # palette / Lines tab must still see exactly one real curve
+    assert len(list_line_artists(ax)) == 1

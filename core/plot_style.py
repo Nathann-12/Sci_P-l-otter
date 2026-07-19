@@ -123,12 +123,19 @@ COLORBAR_DEFAULTS = {
     "enabled": False, "cmap": "", "label": "",
     "shrink": 1.0, "tick_size": 8.0,
 }
+# Fill hatch patterns (Origin "Pattern" fill). "" = solid.
+HATCH_PATTERNS = ("", "/", "\\", "x", "-", "|", "+", "//", "xx", "o", "O", ".", "*")
+
 LINE_DECO_DEFAULTS = {
     "fill": "none", "fill_color": "", "fill_alpha": 0.25,
+    "fill_hatch": "", "fill_gradient": False,
     "value_labels": False, "value_labels_fmt": "%.3g",
     "value_labels_size": 8.0, "value_labels_every": 1,
     "errorbar_mode": "none", "errorbar_value": 5.0,
     "errorbar_capsize": 3.0, "errorbar_alpha": 0.9,
+    "drop_lines": False, "drop_line_color": "", "drop_line_style": "-",
+    "drop_line_width": 0.8,
+    "label_extrema": False, "extrema_fmt": "%.3g", "extrema_size": 9.0,
 }
 
 
@@ -1360,7 +1367,7 @@ def _remove_gid_artists(ax, gid: str) -> None:
                 container.remove()
             except Exception:
                 logger.debug("errorbar container removal failed", exc_info=True)
-    for group in (ax.lines, ax.collections, ax.texts, ax.patches):
+    for group in (ax.lines, ax.collections, ax.texts, ax.patches, ax.images):
         for artist in list(group):
             if str(artist.get_gid() or "") == gid:
                 try:
@@ -1391,8 +1398,11 @@ def _apply_line_fill(line, d: Dict[str, Any]) -> None:
         return
     color = d.get("fill_color") or _to_hex(line.get_color())
     alpha = float(d.get("fill_alpha", 0.25))
+    hatch = str(d.get("fill_hatch", "") or "")
+    if hatch and hatch not in HATCH_PATTERNS:
+        hatch = ""
     if mode == "under":
-        artist = ax.fill_between(x, y, 0.0, color=color, alpha=alpha, linewidth=0)
+        y2 = 0.0
     else:  # between_next
         curves = list_line_artists(ax)
         try:
@@ -1405,11 +1415,115 @@ def _apply_line_fill(line, d: Dict[str, Any]) -> None:
         ox, oy = _finite_xy(other)
         if ox.size < 2:
             return
-        artist = ax.fill_between(
-            x, y, np.interp(x, ox, oy), color=color, alpha=alpha, linewidth=0
-        )
+        y2 = np.interp(x, ox, oy)
+    artist = ax.fill_between(x, y, y2, color=color, alpha=alpha, linewidth=0)
+    if hatch:
+        # Hatch needs a visible edge to draw the pattern strokes.
+        artist.set_hatch(hatch)
+        try:
+            artist.set_edgecolor(color)
+            artist.set_linewidth(0.0)
+        except Exception:
+            pass
     artist.set_gid(gid)
     artist.set_zorder(line.get_zorder() - 0.5)
+    if d.get("fill_gradient"):
+        _apply_fill_gradient(ax, artist, x, y, y2, color, gid, line.get_zorder() - 0.5)
+
+
+def _apply_fill_gradient(ax, poly, x, y, y2, color, gid, zorder) -> None:
+    """Vertical alpha gradient clipped to the fill polygon (Origin gradient
+    fill). The flat ``fill_between`` becomes the clip mask for a gradient image
+    so opacity fades from the curve down to the baseline."""
+    try:
+        import numpy as _np
+        from matplotlib.colors import to_rgb
+        y_arr = _np.asarray(y, dtype=float)
+        base = float(_np.min(y2)) if _np.ndim(y2) else float(y2)
+        top = float(_np.nanmax(y_arr))
+        lo = min(base, float(_np.nanmin(y_arr)))
+        if not _np.isfinite(top) or not _np.isfinite(lo) or top == lo:
+            return
+        r, g, b = to_rgb(color)
+        grad = _np.linspace(0.0, 1.0, 256).reshape(-1, 1)
+        rgba = _np.zeros((256, 1, 4))
+        rgba[..., 0] = r
+        rgba[..., 1] = g
+        rgba[..., 2] = b
+        rgba[..., 3] = grad * 0.9  # fade to transparent at the baseline
+        img = ax.imshow(
+            rgba, aspect="auto", origin="lower",
+            extent=[float(_np.nanmin(x)), float(_np.nanmax(x)), lo, top],
+            zorder=zorder,
+        )
+        img.set_clip_path(poly.get_paths()[0], transform=ax.transData)
+        img.set_gid(gid)
+        poly.set_alpha(0.0)  # the gradient image is the visible fill now
+    except Exception:
+        logger.debug("gradient fill failed", exc_info=True)
+
+
+def _apply_line_drop_lines(line, d: Dict[str, Any]) -> None:
+    """Vertical drop lines from each data point down to the baseline (y=0) —
+    Origin's classic 'drop lines' decoration."""
+    ax = line.axes
+    if ax is None:
+        return
+    gid = _line_gid(line, "drop")
+    _remove_gid_artists(ax, gid)
+    if not d.get("drop_lines"):
+        return
+    x, y = _finite_xy(line)
+    if x.size == 0:
+        return
+    # thin the same way value labels do so dense data stays readable
+    every = 1
+    if x.size > 200:
+        every = int(np.ceil(x.size / 200))
+    color = d.get("drop_line_color") or _to_hex(line.get_color())
+    style = str(d.get("drop_line_style", "-") or "-")
+    width = float(d.get("drop_line_width", 0.8) or 0.8)
+    z = line.get_zorder() - 0.4
+    segs = np.column_stack([
+        np.repeat(x[::every], 2),
+        np.column_stack([np.zeros_like(y[::every]), y[::every]]).ravel(),
+    ]).reshape(-1, 2, 2)
+    from matplotlib.collections import LineCollection
+    lc = LineCollection(segs, colors=color, linewidths=width, linestyles=style,
+                        zorder=z)
+    lc.set_gid(gid)
+    ax.add_collection(lc)
+
+
+def _apply_line_extrema(line, d: Dict[str, Any]) -> None:
+    """Mark and label the maximum and minimum data points."""
+    ax = line.axes
+    if ax is None:
+        return
+    gid = _line_gid(line, "extrema")
+    _remove_gid_artists(ax, gid)
+    if not d.get("label_extrema"):
+        return
+    x, y = _finite_xy(line)
+    if x.size == 0:
+        return
+    fmt = str(d.get("extrema_fmt") or "%.3g")
+    try:
+        fmt % 1.0
+    except (TypeError, ValueError):
+        fmt = "%.3g"
+    size = float(d.get("extrema_size", 9.0) or 9.0)
+    color = _to_hex(line.get_color())
+    z = line.get_zorder() + 0.5
+    for idx, dy in ((int(np.argmax(y)), 8), (int(np.argmin(y)), -12)):
+        xv, yv = float(x[idx]), float(y[idx])
+        marker = ax.plot([xv], [yv], marker="o", markersize=size * 0.7,
+                         markerfacecolor=color, markeredgecolor="white",
+                         markeredgewidth=0.8, linestyle="None", zorder=z)[0]
+        marker.set_gid(gid)
+        ax.annotate(fmt % yv, (xv, yv), textcoords="offset points",
+                    xytext=(0, dy), ha="center", fontsize=size, color=color,
+                    fontweight="bold", gid=gid, clip_on=True, zorder=z)
 
 
 def _apply_line_value_labels(line, d: Dict[str, Any]) -> None:
@@ -1475,6 +1589,8 @@ def _apply_line_decorations(line, d: Dict[str, Any]) -> None:
     _apply_line_fill(line, d)
     _apply_line_value_labels(line, d)
     _apply_line_errorbars(line, d)
+    _apply_line_drop_lines(line, d)
+    _apply_line_extrema(line, d)
     # remember what was applied so read_line_style reports reality
     try:
         line._ps_deco = {k: d.get(k, v) for k, v in LINE_DECO_DEFAULTS.items()}
