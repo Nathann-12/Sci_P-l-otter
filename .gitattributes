@@ -1,0 +1,5 @@
+# The training corpus is sealed with byte-exact SHA-256 hashes computed on LF
+# content (see training/**/build_dataset.py). Windows checkouts with
+# core.autocrlf=true would otherwise rewrite these to CRLF and break the seal,
+# so pin every JSONL dataset to LF regardless of the user's git config.
+*.jsonl text eol=lf
