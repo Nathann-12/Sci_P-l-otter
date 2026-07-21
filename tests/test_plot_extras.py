@@ -69,6 +69,29 @@ def test_add_secondary_y_twins_axis_and_colors():
     plt.close(fig)
 
 
+def test_add_y_axis_layer_stacks_offset_colored_axes():
+    from core.plot_extras import add_y_axis_layer, count_extra_y_axes
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1, 2], [1, 2, 3])
+    assert count_extra_y_axes(ax) == 0
+
+    ax2, l2 = add_y_axis_layer(ax, [0, 1, 2], [10, 20, 30], index=0,
+                               color="#d62728", label="B", ylabel="B")
+    assert count_extra_y_axes(ax) == 1
+    assert ax2.get_shared_x_axes().joined(ax, ax2)
+
+    ax3, l3 = add_y_axis_layer(ax, [0, 1, 2], [100, 400, 900], index=1,
+                               color="#2ca02c", label="C", ylabel="C")
+    assert count_extra_y_axes(ax) == 2
+    # the 3rd axis' spine is pushed outward so scales don't overlap
+    assert ax3.spines["right"].get_position() != ax2.spines["right"].get_position()
+    # each layer keeps its own data + colour
+    assert list(l2.get_ydata()) != list(l3.get_ydata())
+    assert l2.get_color() == "#d62728" and l3.get_color() == "#2ca02c"
+    plt.close(fig)
+
+
 def test_draw_broken_y_axis_splits_line_plot():
     fig, ax = plt.subplots()
     ax.plot([0, 1, 2, 3], [1, 2, 50, 60], label="signal")
@@ -166,6 +189,39 @@ def test_plot_secondary_axis_adds_to_current(win):
     assert win.tabs.count() == n  # no new graph — added to current
     # the figure now has two axes (twinned)
     assert len(win.tabs.currentWidget().get_figure().axes) == 2
+
+
+def test_plot_y_axis_layer_stacks_on_current_graph(win):
+    from core.plot_extras import count_extra_y_axes
+
+    _load(win)
+    win.plot_from_workbook("line")  # primary curve first
+    n = win.tabs.count()
+    base = win.tabs.currentWidget().get_axes()
+    seq = [{"x": "t", "y": "y2"}, {"x": "t", "y": "err"}]
+    calls = {"i": 0}
+
+    def fake_form(*a, **k):
+        r = seq[calls["i"]]
+        calls["i"] += 1
+        return r
+
+    win.ask_form = fake_form
+    win.plot_y_axis_layer()
+    win.plot_y_axis_layer()
+
+    assert win.tabs.count() == n                       # no new graph
+    assert count_extra_y_axes(base) == 2               # two stacked layers
+    assert len(win.tabs.currentWidget().get_figure().axes) >= 3
+
+
+def test_plot_y_axis_layer_needs_a_primary_curve(win):
+    _load(win)
+    win.tabs.add_tab()  # empty graph, no curve
+    infos = []
+    win.inform = lambda t, x: infos.append(t)
+    win.plot_y_axis_layer()
+    assert infos  # politely refused, no crash
 
 
 def test_plot_broken_axis_splits_current_graph_without_new_graph(win):

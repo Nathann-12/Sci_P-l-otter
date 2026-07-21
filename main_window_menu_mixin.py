@@ -550,6 +550,7 @@ class MainWindowMenuMixin:
         plotMenu.addAction("Error Bar Plot…").triggered.connect(self.plot_error_bars)
         plotMenu.addAction("Fill Between (band)…").triggered.connect(self.plot_fill_between)
         plotMenu.addAction("Add Secondary Y Axis…").triggered.connect(self.plot_secondary_axis)
+        plotMenu.addAction("Add Y-Axis Layer…").triggered.connect(self.plot_y_axis_layer)
         plotMenu.addAction("Broken Axis...").triggered.connect(self.plot_broken_axis)
         plotMenu.addSeparator()
         if hasattr(self, 'actPlotEquation'):

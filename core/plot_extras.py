@@ -60,6 +60,61 @@ def add_secondary_y(ax, x, y, label: Optional[str] = None,
     return ax2, line
 
 
+def count_extra_y_axes(ax) -> int:
+    """How many twinned Y-axis layers already overlay ``ax`` (Origin layers).
+
+    Twin-Y axes share the base axes' X axis, which is how we tell them apart
+    from insets/colorbars that merely live in the same figure.
+    """
+    fig = getattr(ax, "figure", None)
+    if fig is None:
+        return 0
+    n = 0
+    try:
+        shared = ax.get_shared_x_axes()
+        for other in fig.axes:
+            if other is ax:
+                continue
+            try:
+                if shared.joined(ax, other):
+                    n += 1
+            except Exception:
+                continue
+    except Exception:
+        return 0
+    return n
+
+
+def add_y_axis_layer(ax, x, y, *, index: int = 0, label: Optional[str] = None,
+                     color: Optional[str] = None, ylabel: str = "",
+                     linestyle: str = "-", marker: Optional[str] = None) -> Tuple[Any, Any]:
+    """Add an independent Y-axis layer (Origin "layer") plotting y(x) on its own
+    right-hand scale. ``index`` (0-based) offsets the 2nd+ axis outward so several
+    scales stack without overlapping; the axis, ticks and label are colour-matched
+    to the curve. Returns ``(ax2, line)``.
+    """
+    x_, y_ = _clean(x, y)
+    ax2 = ax.twinx()
+    if index >= 1:
+        # push this axis' spine outward so it doesn't sit on top of the first
+        ax2.spines["right"].set_position(("axes", 1.0 + 0.16 * index))
+        ax2.set_frame_on(True)
+        ax2.patch.set_visible(False)  # let the base axes show through
+        for side, spine in ax2.spines.items():
+            spine.set_visible(side == "right")
+    (line,) = ax2.plot(x_, y_, label=label, color=color,
+                       linestyle=linestyle, marker=marker or None)
+    c = color or line.get_color()
+    if ylabel:
+        ax2.set_ylabel(ylabel, color=c)
+    ax2.tick_params(axis="y", colors=c)
+    try:
+        ax2.spines["right"].set_edgecolor(c)
+    except Exception:
+        pass
+    return ax2, line
+
+
 def _line_style(line) -> dict[str, Any]:
     return {
         "label": line.get_label(),

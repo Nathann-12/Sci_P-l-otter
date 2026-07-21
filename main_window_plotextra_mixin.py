@@ -8,6 +8,8 @@ import pandas as pd
 from core.render_optimization import apply_line_lod, canvas_pixel_width
 from core.plot_extras import (
     add_secondary_y,
+    add_y_axis_layer,
+    count_extra_y_axes,
     draw_broken_axis,
     draw_error_bars,
     draw_fill_between,
@@ -154,6 +156,53 @@ class MainWindowPlotExtraMixin:
             self.notify(f"Added right-axis: {res['y2']}")
         except Exception as e:
             self.error_box("Secondary axis failed", f"Reason: {e}")
+
+    # ---------------------------------------------------- multi Y-axis layers
+    def plot_y_axis_layer(self):
+        """Add another independent Y-axis layer (Origin "layers") to the current
+        graph — a 3rd/4th series each on its own colour-matched right axis."""
+        cols = self._px_cols()
+        if not cols or len(cols) < 2:
+            if cols is not None:
+                self.inform("Need 2 columns", "A Y-axis layer needs an X and a Y column")
+            return
+        ax, fig, lines = self._active_graph_axes() if hasattr(self, "_active_graph_axes") \
+            else (self.tabs.currentWidget().get_axes(), None, [])
+        if ax is None or not lines:
+            self.inform("No graph", "Plot a primary curve first, then add a Y-axis layer")
+            return
+        x_sel = self.selected_x_column()
+        index = count_extra_y_axes(ax)  # existing right axes → offset the new one
+        res = self.ask_form("Add Y-Axis Layer", [
+            {"name": "x", "label": "X column", "kind": "choice", "options": cols,
+             "default": x_sel if x_sel in cols else cols[0]},
+            {"name": "y", "label": "Layer Y column", "kind": "choice", "options": cols,
+             "default": cols[-1]},
+        ], description=f"Overlay a Y column on its own axis (layer #{index + 2} on this graph)")
+        if res is None:
+            return
+        try:
+            x_values = self._px_series(res["x"])
+            y_values = self._px_series(res["y"])
+            ax2, line = add_y_axis_layer(
+                ax, x_values, y_values, index=index, label=res["y"], ylabel=res["y"]
+            )
+            line._sciplotter_x_values = x_values.tolist()
+            line._sciplotter_y_values = y_values.tolist()
+            render_info = apply_line_lod(ax2, line, pixel_width=canvas_pixel_width(ax2))
+            try:
+                tab = self.tabs.currentWidget()
+                tab.register_layer(
+                    [line], str(res["y"]), "line",
+                    meta={"source": "y_axis_layer", "style": "line", "render": render_info},
+                    kwargs={},
+                )
+            except Exception:
+                logger.debug("y-axis-layer registration skipped", exc_info=True)
+            self.tabs.currentWidget().draw()
+            self.notify(f"Added Y-axis layer: {res['y']}")
+        except Exception as e:
+            self.error_box("Y-axis layer failed", f"Reason: {e}")
 
     # ------------------------------------------------------------- broken axis
     def plot_broken_axis(self):
