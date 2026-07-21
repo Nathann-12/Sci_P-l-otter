@@ -177,6 +177,8 @@ _QTA_ICON_MAP = {
     "physics_lab": "mdi.flask-outline",
     "modules": "mdi.view-dashboard-outline",
     "format": "mdi.palette-outline",
+    "copy_format": "mdi.brush-variant",
+    "paste_format": "mdi.format-paint",
     "gallery": "mdi.view-gallery-outline",
     "use_active_book": "mdi.database-check-outline",
     "reload_columns": "mdi.table-refresh",
@@ -710,7 +712,8 @@ class MainWindow(
         except Exception:
             pass
 
-        # Double-click opens Graph Data; Ctrl+double-click opens Plot Details.
+        # Double-click authored graph text to edit it in place; elsewhere it
+        # opens Plot Details. Ctrl/Shift+double-click opens Graph Data.
         # Bind now and rebind whenever a graph is created/activated.
         try:
             self.bind_graph_dblclick()

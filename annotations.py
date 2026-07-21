@@ -16,6 +16,7 @@ import matplotlib
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle, Ellipse, FancyArrowPatch
+from core.edit_sequence import next_edit_sequence
 
 
 class _InlineTextEdit(QLineEdit):
@@ -83,6 +84,8 @@ class AnnotationManager(QObject):
         self._clipboard: Optional[Dict[str, Any]] = None
         self._last_draw_pt: Optional[Tuple[float, float]] = None
         self._last_nudge_ts: float = 0.0
+        self._inline_editor = None
+        self._inline_editor_cancel = None
 
         # Default annotation font to current Matplotlib family (ensures Thai if configured)
         try:
@@ -94,6 +97,8 @@ class AnnotationManager(QObject):
             pass
         self._undo: List[str] = []  # JSON snapshots
         self._redo: List[str] = []
+        self._undo_sequences: List[int] = []
+        self._redo_sequences: List[int] = []
 
         # Connect mpl events
         self.cid_press = self.fig.canvas.mpl_connect('button_press_event', self._on_press)
@@ -108,6 +113,27 @@ class AnnotationManager(QObject):
             pass
 
     # -------- public API --------
+    def dispose(self) -> None:
+        """Disconnect this manager before its axes are replaced."""
+        cancel = self._inline_editor_cancel
+        if callable(cancel):
+            cancel()
+        canvas = getattr(self.fig, "canvas", None)
+        if canvas is not None:
+            for attr in ("cid_press", "cid_release", "cid_motion", "cid_key"):
+                cid = getattr(self, attr, None)
+                if cid is not None:
+                    try:
+                        canvas.mpl_disconnect(cid)
+                    except Exception:
+                        pass
+                    setattr(self, attr, None)
+            try:
+                if getattr(canvas, "_annotation_manager", None) is self:
+                    canvas._annotation_manager = None
+            except Exception:
+                pass
+
     def set_enabled(self, on: bool) -> None:
         self.enabled = bool(on)
         if not self.enabled:
@@ -368,15 +394,30 @@ class AnnotationManager(QObject):
 
     # --- undo/redo ---
     def _snapshot(self) -> None:
+        # A new annotation edit after a graph Undo starts a new shared-history
+        # branch. QUndoStack cannot delete only its redo tail publicly, so the
+        # GraphTab marks that tail unavailable to the global dispatcher until
+        # the next graph command naturally replaces it.
+        try:
+            tab = self.parent()
+            stack = getattr(tab, "graph_undo_stack", None)
+            if stack is not None and stack.canRedo():
+                tab._graph_redo_invalidated = True
+        except Exception:
+            pass
         self._undo.append(self.to_json())
+        self._undo_sequences.append(next_edit_sequence())
         self._redo.clear()
+        self._redo_sequences.clear()
 
     def undo(self) -> None:
         if not self._undo:
             return
         cur = self.to_json()
         last = self._undo.pop()
+        sequence = self._undo_sequences.pop() if self._undo_sequences else 0
         self._redo.append(cur)
+        self._redo_sequences.append(sequence)
         self.from_json(last)
 
     def redo(self) -> None:
@@ -384,7 +425,9 @@ class AnnotationManager(QObject):
             return
         cur = self.to_json()
         nxt = self._redo.pop()
+        sequence = self._redo_sequences.pop() if self._redo_sequences else 0
         self._undo.append(cur)
+        self._undo_sequences.append(sequence)
         self.from_json(nxt)
 
     # -------- event handlers --------
@@ -422,19 +465,23 @@ class AnnotationManager(QObject):
             self.send_to_back()
 
     def _on_press(self, ev):
+        # Existing annotation text remains directly editable even when the
+        # drawing toolbar is off.  Ctrl/Shift+double-click is reserved for the
+        # graph's Data inspector shortcut.
+        key = str(getattr(ev, 'key', '') or '').casefold()
+        if (getattr(ev, 'dblclick', False)
+                and 'control' not in key and 'shift' not in key):
+            idx = self._nearest_text_index(ev)
+            if idx is not None:
+                self._start_inline_edit(idx)
+                return
+
         # Accept clicks on whatever axes is under the cursor; axes can be recreated during plotting
         if not self.enabled or ev.inaxes is None:
             return
         # Update target axes dynamically in case canvas recreated the axes
         if ev.inaxes is not self.ax:
             self.ax = ev.inaxes
-
-        # Double-click near text → edit content inline
-        if getattr(ev, 'dblclick', False):
-            idx = self._nearest_text_index(ev)
-            if idx is not None:
-                self._start_inline_edit(idx)
-                return
 
         # Right-click on an item → select it and show the annotation context
         # menu (works from any tool, like PowerPoint). A miss falls through to
@@ -699,6 +746,8 @@ class AnnotationManager(QObject):
                 self.artists.pop()
                 if self._undo:
                     self._undo.pop()
+                    if self._undo_sequences:
+                        self._undo_sequences.pop()
                 self._press_pt = None
                 self._current_artist = None
                 self.fig.canvas.draw_idle()
@@ -1175,6 +1224,9 @@ class AnnotationManager(QObject):
             return
 
         try:
+            cancel_previous = self._inline_editor_cancel
+            if callable(cancel_previous):
+                cancel_previous()
             h_canvas = self.fig.canvas.height()
 
             try:
@@ -1203,6 +1255,11 @@ class AnnotationManager(QObject):
             # editingFinished — guard so the edit commits exactly once.
             state = {'done': False}
 
+            def clear_refs():
+                if self._inline_editor is edit:
+                    self._inline_editor = None
+                    self._inline_editor_cancel = None
+
             def commit():
                 if state['done']:
                     return
@@ -1215,14 +1272,18 @@ class AnnotationManager(QObject):
                     self._update_selector()
                     self.fig.canvas.draw_idle()
                     self.changed.emit()
+                clear_refs()
                 edit.deleteLater()
 
             def cancel():
                 if state['done']:
                     return
                 state['done'] = True
+                clear_refs()
                 edit.deleteLater()
 
+            self._inline_editor = edit
+            self._inline_editor_cancel = cancel
             edit.returnPressed.connect(commit)
             edit.editingFinished.connect(commit)
             edit.cancelled.connect(cancel)
@@ -1334,7 +1395,7 @@ class AnnotationManager(QObject):
         return kw
 
     def _nearest_text_index(self, ev, max_px: int = 12) -> Optional[int]:
-        """Find nearest Text artist to the mouse event position (in pixels)."""
+        """Find annotation text under the pointer using its rendered glyph box."""
         best = None
         best_d = float('inf')
         try:
@@ -1343,21 +1404,33 @@ class AnnotationManager(QObject):
             return None
         for i, a in enumerate(self.artists):
             try:
-                if not isinstance(a, MplText):
+                if not isinstance(a, MplText) or not a.get_visible():
                     continue
-                ax = a.axes
-                x, y = a.get_position()
-                px, py = ax.transData.transform((x, y))
+                bbox = a.get_window_extent(self.fig.canvas.get_renderer())
+                if (bbox.x0 - max_px <= ev.x <= bbox.x1 + max_px
+                        and bbox.y0 - max_px <= ev.y <= bbox.y1 + max_px):
+                    px = (bbox.x0 + bbox.x1) * 0.5
+                    py = (bbox.y0 + bbox.y1) * 0.5
+                else:
+                    continue
                 dx, dy = (ev.x - px), (ev.y - py)
                 d = (dx*dx + dy*dy) ** 0.5
                 if d < best_d:
                     best_d = d
                     best = i
             except Exception:
-                continue
-        if best is not None and best_d <= max_px:
-            return best
-        return None
+                # Fallback for an artist that has not had a renderer pass yet.
+                try:
+                    ax = a.axes
+                    x, y = a.get_position()
+                    px, py = ax.transData.transform((x, y))
+                    d = ((ev.x - px) ** 2 + (ev.y - py) ** 2) ** 0.5
+                    if d <= max_px and d < best_d:
+                        best_d = d
+                        best = i
+                except Exception:
+                    continue
+        return best
 
 
 class AnnotationStyleDock(QDockWidget):

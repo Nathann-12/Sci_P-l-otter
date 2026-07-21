@@ -6,6 +6,7 @@ without adding toolbar clutter.
 """
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 from typing import Optional, Tuple, Dict, Any, List
 
 import logging
@@ -192,6 +193,101 @@ class ContextMenuManager(QObject):
             font = act_format.font()
             font.setBold(True)
             act_format.setFont(font)
+        target_tab = None
+        resolver = getattr(main, "_graph_tab_for_figure", None)
+        if callable(resolver):
+            try:
+                target_tab = resolver(self.ax.figure)
+            except Exception:
+                target_tab = None
+        if callable(getattr(main, "edit_graph_text", None)):
+            edit_text = menu.addMenu("Edit Text")
+            edit_text.addAction(
+                "Graph Title…",
+                lambda _checked=False: main.edit_graph_text(
+                    "title", target_tab, self.ax
+                ),
+            )
+            edit_text.addAction(
+                "X Axis Label…",
+                lambda _checked=False: main.edit_graph_text(
+                    "xlabel", target_tab, self.ax
+                ),
+            )
+            edit_text.addAction(
+                "Y Axis Label…",
+                lambda _checked=False: main.edit_graph_text(
+                    "ylabel", target_tab, self.ax
+                ),
+            )
+            if getattr(self.ax, "zaxis", None) is not None:
+                edit_text.addAction(
+                    "Z Axis Label…",
+                    lambda _checked=False: main.edit_graph_text(
+                        "zlabel", target_tab, self.ax
+                    ),
+                )
+            legend = self.ax.get_legend()
+            if legend is not None:
+                edit_text.addSeparator()
+                edit_text.addAction(
+                    "Legend Title…",
+                    lambda _checked=False: main.edit_graph_text(
+                        "legend_title", target_tab, self.ax
+                    ),
+                )
+                rows = list(legend.get_texts())
+                if rows:
+                    series_menu = edit_text.addMenu("Legend Series")
+                    for row_index, legend_text in enumerate(rows):
+                        label = legend_text.get_text() or f"Series {row_index + 1}"
+                        if len(label) > 42:
+                            label = f"{label[:39]}…"
+                        series_menu.addAction(
+                            label,
+                            lambda _checked=False, index=row_index: main.edit_graph_text(
+                                "legend_item", target_tab, self.ax, index
+                            ),
+                        )
+        layer_id = None
+        layer_picker = getattr(main, "_layer_id_at_event", None)
+        if target_tab is not None and callable(layer_picker):
+            try:
+                layer_id = layer_picker(target_tab, ev)
+            except Exception:
+                layer_id = None
+        quick_opener = getattr(main, "open_quick_format_for_layer", None)
+        if layer_id is not None and callable(quick_opener):
+            info = (getattr(target_tab, "layers", {}) or {}).get(layer_id, {})
+            label = str(info.get("label") or layer_id)
+            menu.addAction(
+                f"Quick Format: {label}",
+                lambda _checked=False, lid=layer_id: quick_opener(target_tab, lid),
+            )
+        if callable(getattr(main, "copy_graph_format", None)):
+            copy_format = menu.addAction(
+                "Copy Graph Format",
+                lambda: main.copy_graph_format(target_tab),
+            )
+            source_action = getattr(main, "actCopyFormat", None)
+            if source_action is not None:
+                copy_format.setIcon(source_action.icon())
+        if callable(getattr(main, "paste_graph_format", None)):
+            paste_format = menu.addAction(
+                "Paste Graph Format",
+                lambda: main.paste_graph_format(target_tab),
+            )
+            source_action = getattr(main, "actPasteFormat", None)
+            if source_action is not None:
+                paste_format.setIcon(source_action.icon())
+            checker = getattr(main, "has_format_clipboard", None)
+            can_paste = False
+            if callable(checker):
+                try:
+                    can_paste = bool(checker())
+                except Exception:
+                    can_paste = False
+            paste_format.setEnabled(can_paste)
         if callable(getattr(main, "open_graph_data_panel", None)):
             menu.addAction(
                 "Graph Data (Inspector)",
@@ -326,37 +422,52 @@ class ContextMenuManager(QObject):
         self._push_state(); self.ax.relim(); self.ax.autoscale()
         self.canvas.draw_idle()
 
+    def _graph_transaction(self, label: str):
+        main = self._resolve_main()
+        resolver = getattr(main, "_graph_tab_for_figure", None)
+        try:
+            tab = resolver(self.ax.figure) if callable(resolver) else None
+        except Exception:
+            tab = None
+        transaction = getattr(tab, "graph_format_transaction", None)
+        return transaction(label) if callable(transaction) else nullcontext()
+
     def _on_toggle_grid(self):
-        self._grid_on = not self._grid_on
-        if self._grid_on:
-            self.ax.grid(True, which='both', alpha=0.3)
-        else:
-            self.ax.grid(False, which='both')
+        with self._graph_transaction("Toggle grid"):
+            self._grid_on = not self._grid_on
+            if self._grid_on:
+                self.ax.grid(True, which='both', alpha=0.3)
+            else:
+                self.ax.grid(False, which='both')
         self.canvas.draw_idle()
 
     def _on_toggle_minor(self):
-        try:
-            if not self._minor_on:
-                self.ax.minorticks_on()
-            else:
-                self.ax.minorticks_off()
-        except Exception:
-            pass
-        self._minor_on = self._minor_ticks_active(self.ax)
+        with self._graph_transaction("Toggle minor ticks"):
+            try:
+                if not self._minor_on:
+                    self.ax.minorticks_on()
+                else:
+                    self.ax.minorticks_off()
+            except Exception:
+                pass
+            self._minor_on = self._minor_ticks_active(self.ax)
         self.canvas.draw_idle()
 
     def _on_toggle_legend(self):
-        leg = self.ax.get_legend()
-        if self._legend_visible and leg:
-            leg.set_visible(False)
-            self._legend_visible = False
-        else:
-            leg = self.ax.legend()
-            if leg is not None:
-                leg.set_visible(True)
-                self._legend_visible = True
-            else:
+        with self._graph_transaction("Toggle legend"):
+            leg = self.ax.get_legend()
+            if self._legend_visible and leg:
+                leg.set_visible(False)
                 self._legend_visible = False
+            else:
+                leg = self.ax.legend()
+                if leg is not None:
+                    leg.set_visible(True)
+                    leg._ps_drag_enabled = True
+                    leg.set_draggable(True)
+                    self._legend_visible = True
+                else:
+                    self._legend_visible = False
         self.canvas.draw_idle()
 
     # ---------- zoom/pan ----------
@@ -419,18 +530,25 @@ class ContextMenuManager(QObject):
         if ny0 is None: return
         ny1 = ask('Ymax', y1);
         if ny1 is None: return
-        self.ax.set_xlim(nx0, nx1); self.ax.set_ylim(ny0, ny1); self.canvas.draw_idle()
+        with self._graph_transaction("Set axis limits"):
+            self.ax.set_xlim(nx0, nx1); self.ax.set_ylim(ny0, ny1)
+        self.canvas.draw_idle()
 
     def _on_scale_change(self, axis: str, scale: str):
-        if axis == 'x': self.ax.set_xscale(scale)
-        else: self.ax.set_yscale(scale)
+        with self._graph_transaction(f"Set {axis.upper()} scale"):
+            if axis == 'x': self.ax.set_xscale(scale)
+            else: self.ax.set_yscale(scale)
         self.canvas.draw_idle()
 
     def _on_invert_x(self):
-        self.ax.invert_xaxis(); self.canvas.draw_idle()
+        with self._graph_transaction("Invert X axis"):
+            self.ax.invert_xaxis()
+        self.canvas.draw_idle()
 
     def _on_invert_y(self):
-        self.ax.invert_yaxis(); self.canvas.draw_idle()
+        with self._graph_transaction("Invert Y axis"):
+            self.ax.invert_yaxis()
+        self.canvas.draw_idle()
 
     # ---------- overlays / cursors ----------
     def _add_vline(self, ev):

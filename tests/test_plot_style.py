@@ -195,6 +195,19 @@ def test_reference_lines_can_be_cleared(ax):
     assert not any((ln.get_gid() or "") == "_ps_refline_h" for ln in ax.lines)
 
 
+def test_unrelated_axes_style_does_not_remove_reference_lines(ax):
+    apply_style(ax, {"axes": {"refline_h": 4.0, "refline_h_label": "limit"}})
+    guide = next(ln for ln in ax.lines if ln.get_gid() == "_ps_refline_h")
+    label = next(text for text in ax.texts
+                 if text.get_gid() == "_ps_refline_h_label")
+
+    apply_style(ax, {"axes": {"title_color": "#123456", "spine_width": 2.0}})
+
+    assert guide in ax.lines
+    assert label in ax.texts
+    assert label.get_text() == "limit"
+
+
 def test_tick_label_formatter_display_options(ax):
     apply_style(ax, {"tick_labels": {
         "enabled": True,

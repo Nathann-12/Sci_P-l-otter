@@ -134,6 +134,44 @@ def test_annotations_esc_cancel():
     assert mgr.mode is None
 
 
+def test_long_annotation_text_edits_by_bbox_even_when_toolbar_is_off(monkeypatch):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    fig = Figure()
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
+    mgr = AnnotationManager(fig, ax)
+    item = AnnotationItem(
+        'text',
+        {'x': 0.1, 'y': 0.55, 's': 'A deliberately long annotation label'},
+        AnnotationStyle(),
+    )
+    mgr._create_artist_from_item(item)
+    mgr.items.append(item)
+    fig.canvas.draw()
+    bbox = mgr.artists[0].get_window_extent(fig.canvas.get_renderer())
+    event = FakeEvent(
+        None,
+        None,
+        x=(bbox.xmin + bbox.xmax) / 2.0,
+        y=(bbox.ymin + bbox.ymax) / 2.0,
+        inaxes=None,
+        dblclick=True,
+    )
+    opened = []
+    monkeypatch.setattr(mgr, '_start_inline_edit', lambda index: opened.append(index))
+
+    mgr.set_enabled(False)
+    assert mgr._nearest_text_index(event) == 0
+    mgr._on_press(event)
+    assert opened == [0]
+
+    # The graph inspector shortcut still owns modified double-clicks.
+    event.key = 'control'
+    mgr._on_press(event)
+    assert opened == [0]
+
+
 def test_draw_once_returns_to_select_mode_with_new_item_selected():
     """After finishing a shape the tool must drop back to Select mode and
     select the new item — the next click drags it instead of stacking

@@ -89,6 +89,7 @@ class MainWindowPanelsMixin:
             QAbstractItemView,
         )
         from PySide6.QtCore import Qt
+        from widgets.quick_format import QuickFormatWidget
 
         r = self._right_layout
 
@@ -179,6 +180,19 @@ class MainWindowPanelsMixin:
         self.layerGroupLayout.addWidget(self._layer_manager_empty)
         tp.addWidget(self.layerGroup)
 
+        self.quickFormat = QuickFormatWidget(self)
+        self.quickFormat.applyRequested.connect(self._apply_quick_format)
+        self.quickFormat.formatGraphRequested.connect(
+            lambda: getattr(self, "open_plot_details_dialog", lambda: None)()
+        )
+        self.quickFormat.copyFormatRequested.connect(
+            lambda: getattr(self, "copy_graph_format", lambda: None)()
+        )
+        self.quickFormat.pasteFormatRequested.connect(
+            lambda: getattr(self, "paste_graph_format", lambda: None)()
+        )
+        tp.addWidget(self.quickFormat)
+
         render_group = QGroupBox("Large Data Rendering", self)
         render_layout = QGridLayout(render_group)
         render_layout.setContentsMargins(8, 14, 8, 8)
@@ -220,7 +234,14 @@ class MainWindowPanelsMixin:
         self.cboScatterRender.currentIndexChanged.connect(self._update_render_options)
         tp.addWidget(render_group)
 
-        tabs.addTab(tab_plot, "Plot")
+        tp.addStretch(1)
+        plot_scroll = QScrollArea(self)
+        plot_scroll.setObjectName("PlotInspectorScroll")
+        plot_scroll.setWidgetResizable(True)
+        plot_scroll.setFrameShape(QFrame.NoFrame)
+        plot_scroll.setWidget(tab_plot)
+        self.plotInspectorScroll = plot_scroll
+        tabs.addTab(plot_scroll, "Plot")
 
         # ================== TAB: PROCESSING ==================
         tab_proc = QWidget()
@@ -653,6 +674,15 @@ class MainWindowPanelsMixin:
             tab_widget = self.tabs.currentWidget()
         except Exception:
             tab_widget = None
+        previous_manager = getattr(self, '_quick_format_layer_manager', None)
+        if previous_manager is not None:
+            try:
+                previous_manager.layerSelectionChanged.disconnect(
+                    self._update_quick_format_selection
+                )
+            except Exception:
+                pass
+        self._quick_format_layer_manager = None
         if tab_widget and hasattr(tab_widget, 'layer_manager'):
             layer_widget = tab_widget.layer_manager
             try:
@@ -661,6 +691,13 @@ class MainWindowPanelsMixin:
                 pass
             layout.addWidget(layer_widget)
             layer_widget.show()
+            try:
+                layer_widget.layerSelectionChanged.connect(
+                    self._update_quick_format_selection
+                )
+                self._quick_format_layer_manager = layer_widget
+            except Exception:
+                pass
         else:
             placeholder = getattr(self, '_layer_manager_empty', None)
             if placeholder is None:
@@ -673,9 +710,113 @@ class MainWindowPanelsMixin:
                 pass
             layout.addWidget(placeholder)
             placeholder.show()
+        selected = []
+        if tab_widget is not None and hasattr(tab_widget, 'layer_manager'):
+            try:
+                selected = tab_widget.layer_manager.selected_layer_ids()
+            except Exception:
+                selected = []
+        self._update_quick_format_selection(selected)
+        self._sync_quick_format_actions()
         refresh_data = getattr(self, "_refresh_graph_data_panel", None)
         if callable(refresh_data):
             refresh_data()
+
+    def _sync_quick_format_actions(self) -> None:
+        panel = getattr(self, 'quickFormat', None)
+        if panel is None:
+            return
+        try:
+            tab = self.tabs.currentWidget()
+            has_graph = tab is not None and hasattr(tab, 'get_axes')
+        except Exception:
+            has_graph = False
+        has_clipboard = False
+        checker = getattr(self, 'has_format_clipboard', None)
+        if callable(checker):
+            try:
+                has_clipboard = bool(checker())
+            except Exception:
+                pass
+        panel.btnMore.setEnabled(has_graph)
+        panel.btnCopy.setEnabled(has_graph)
+        panel.btnPaste.setEnabled(has_graph and has_clipboard)
+
+    def _update_quick_format_selection(self, layer_ids) -> None:
+        panel = getattr(self, 'quickFormat', None)
+        if panel is None:
+            return
+        try:
+            tab = self.tabs.currentWidget()
+        except Exception:
+            tab = None
+        labels = []
+        for layer_id in list(layer_ids or ()):
+            info = (getattr(tab, 'layers', {}) or {}).get(str(layer_id), {}) if tab else {}
+            labels.append(str(info.get('label') or layer_id))
+        summary = {}
+        summarizer = getattr(tab, 'quick_layer_style_summary', None) if tab else None
+        if callable(summarizer):
+            try:
+                summary = summarizer(layer_ids)
+            except Exception:
+                summary = {}
+        panel.set_selection(labels, summary)
+
+    def _apply_quick_format(self, style: dict) -> None:
+        try:
+            tab = self.tabs.currentWidget()
+        except Exception:
+            tab = None
+        if tab is None or not hasattr(tab, 'layer_manager'):
+            getattr(self, 'inform', lambda *_: None)(
+                'No graph', 'Open or select a graph window first.'
+            )
+            return
+        layer_ids = tab.layer_manager.selected_layer_ids()
+        if not layer_ids:
+            getattr(self, 'inform', lambda *_: None)(
+                'No layers selected', 'Select one or more layers in the Layers list.'
+            )
+            return
+        if not style:
+            getattr(self, 'inform', lambda *_: None)(
+                'No appearance changes', 'Choose a color, opacity, width, or marker first.'
+            )
+            return
+        changed = getattr(tab, 'apply_quick_layer_format', lambda *_: 0)(layer_ids, style)
+        if changed:
+            self._update_quick_format_selection(layer_ids)
+            getattr(self, 'notify', lambda *_: None)(
+                f'Formatted {changed} selected layer{"s" if changed != 1 else ""}'
+            )
+        else:
+            getattr(self, 'inform', lambda *_: None)(
+                'Appearance not changed',
+                'The selected property is not compatible with these layers. '
+                'Mapped scatter colors remain controlled by their colormap.'
+            )
+
+    def open_quick_format_for_layer(self, tab, layer_id: str) -> bool:
+        """Select a canvas layer and reveal its compact Appearance controls."""
+        if tab is None or not hasattr(tab, 'layer_manager'):
+            return False
+        try:
+            tab.layer_manager.select_layer_ids([str(layer_id)])
+            self.toggle_inspector(True)
+            action = getattr(self, 'actToggleInspector', None)
+            if action is not None:
+                action.setChecked(True)
+            inspector_tabs = getattr(self, 'inspectorTabs', None)
+            if inspector_tabs is not None:
+                inspector_tabs.setCurrentIndex(0)
+            scroll = getattr(self, 'plotInspectorScroll', None)
+            if scroll is not None:
+                scroll.ensureWidgetVisible(self.quickFormat, 0, 24)
+            self.quickFormat.setFocus()
+            return True
+        except Exception:
+            return False
 
     def refresh_xy_columns(self):
         """

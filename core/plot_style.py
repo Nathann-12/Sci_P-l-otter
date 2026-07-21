@@ -138,6 +138,18 @@ LINE_DECO_DEFAULTS = {
     "label_extrema": False, "extrema_fmt": "%.3g", "extrema_size": 9.0,
 }
 
+LINE_EFFECT_KEYS = (
+    "glow", "glow_color", "glow_width", "glow_alpha", "shadow",
+    "shadow_alpha", "shadow_offset_x", "shadow_offset_y",
+)
+
+SCALE_STATE_KEYS = (
+    "xscale", "yscale", "x_autoscale", "y_autoscale", "invert_x", "invert_y",
+    "x_major_spacing", "y_major_spacing", "x_minor_spacing", "y_minor_spacing",
+    "x_anchor_tick", "y_anchor_tick", "x_minor_count", "y_minor_count",
+    "x_rescale_margin", "y_rescale_margin", "sci_notation",
+)
+
 
 # Complete, ready-to-publish journal styles: not just point sizes but tick
 # direction, minor ticks, open (top/right hidden) spines, font family, grid
@@ -480,6 +492,7 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
             "markerscale": 1.0,
             "borderpad": 0.4,
             "handlelength": 2.0,
+            "draggable": bool(legend.get_draggable()) if legend else True,
         },
         "figure": {
             "facecolor": _to_hex(ax.get_facecolor()),
@@ -518,6 +531,14 @@ def read_style(ax, fig=None) -> Dict[str, Any]:
             pass
     if fig is not None:
         style["figure"]["fig_facecolor"] = _to_hex(fig.get_facecolor())
+    # Some controls rebuild generated artists or custom formatters and cannot
+    # be reconstructed reliably by inspecting Matplotlib alone.  Keep their
+    # last semantic configuration on the axes and prefer it when reopening
+    # Plot Details, copying a format, or saving a project.
+    style["effects"].update(getattr(ax, "_ps_axes_effects", None) or {})
+    style["tick_labels"].update(getattr(ax, "_ps_tick_label_cfg", None) or {})
+    style["axes"].update(getattr(ax, "_ps_refline_cfg", None) or {})
+    style["axes"].update(getattr(ax, "_ps_scale_cfg", None) or {})
     return style
 
 
@@ -591,6 +612,10 @@ def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
     breaks the on-screen layout. Pass ``live=False`` for export rendering.
     """
     a = style.get("axes", {})
+    if any(key in a for key in SCALE_STATE_KEYS):
+        scale_state = dict(getattr(ax, "_ps_scale_cfg", None) or {})
+        scale_state.update({key: a[key] for key in SCALE_STATE_KEYS if key in a})
+        ax._ps_scale_cfg = scale_state
     # NOTE: with diff-apply a key can arrive alone — never pass fontsize=None
     if "title" in a:
         if a.get("title_size"):
@@ -682,8 +707,11 @@ def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
     # read/apply roundtrip keeps matplotlib's automatic formatter.
     _apply_tick_label_format(ax, style.get("tick_labels", {}))
 
-    # reference lines (horizontal / vertical guide at a value)
-    _apply_reference_lines(ax, a)
+    # Reference lines form one atomic group.  A partial/diff style that does
+    # not mention them must leave existing guides alone (important for format
+    # paste and for unrelated Plot Details edits).
+    if any(str(key).startswith("refline_") for key in a):
+        _apply_reference_lines(ax, a)
 
     # custom tick spacing (MultipleLocator); None/0 = leave matplotlib's auto.
     # Majors honor the Origin "Anchor Tick" (offset), minors fall back to
@@ -744,6 +772,12 @@ def apply_style(ax, style: Dict[str, Any], fig=None, live: bool = True) -> None:
                 )
                 if new_leg is not None:
                     new_leg.set_visible(True)
+                    try:
+                        draggable = bool(leg.get("draggable", True))
+                        new_leg._ps_drag_enabled = draggable
+                        new_leg.set_draggable(draggable)
+                    except Exception:
+                        pass
                     frame = new_leg.get_frame()
                     try:
                         frame.set_facecolor(leg.get("facecolor", "#1e2126"))
@@ -941,6 +975,17 @@ def read_line_style(line) -> Dict[str, Any]:
     marker = line.get_marker()
     mfc = line.get_markerfacecolor()
     mec = line.get_markeredgecolor()
+    effects = {
+        "glow": False,
+        "glow_color": _to_hex(line.get_color()),
+        "glow_width": 5.0,
+        "glow_alpha": 0.35,
+        "shadow": False,
+        "shadow_alpha": 0.25,
+        "shadow_offset_x": 1.5,
+        "shadow_offset_y": 1.5,
+    }
+    effects.update(getattr(line, "_ps_effects", None) or {})
     return {
         "label": line.get_label(),
         "color": _to_hex(line.get_color()),
@@ -955,14 +1000,7 @@ def read_line_style(line) -> Dict[str, Any]:
         "drawstyle": str(line.get_drawstyle()),
         "zorder": float(line.get_zorder()),
         "alpha": float(line.get_alpha()) if line.get_alpha() is not None else 1.0,
-        "glow": False,
-        "glow_color": _to_hex(line.get_color()),
-        "glow_width": 5.0,
-        "glow_alpha": 0.35,
-        "shadow": False,
-        "shadow_alpha": 0.25,
-        "shadow_offset_x": 1.5,
-        "shadow_offset_y": 1.5,
+        **effects,
         # decorations we applied earlier are remembered on the artist so the
         # dialog reopens showing them (and Cancel snapshots can revert them)
         **{**LINE_DECO_DEFAULTS, **(getattr(line, "_ps_deco", None) or {})},
@@ -1017,7 +1055,8 @@ def apply_line_style(line, d: Dict[str, Any]) -> None:
         line.set_alpha(float(d["alpha"]))
     if "label" in d and d["label"]:
         line.set_label(d["label"])
-    _apply_line_effects(line, d)
+    if any(key in d for key in LINE_EFFECT_KEYS):
+        _apply_line_effects(line, d)
     if any(key in d for key in LINE_DECO_DEFAULTS):
         _apply_line_decorations(line, d)
 
@@ -1040,6 +1079,7 @@ def _to_hex(color) -> str:
 
 
 def _apply_axes_effects(ax, effects: Dict[str, Any]) -> None:
+    ax._ps_axes_effects = dict(effects or {})
     try:
         if not effects.get("axes_shadow"):
             ax.patch.set_path_effects([])
@@ -1130,6 +1170,7 @@ def _apply_tick_label_format(ax, cfg: Dict[str, Any]) -> None:
     """
     if not cfg:
         return
+    ax._ps_tick_label_cfg = dict(cfg)
     try:
         from matplotlib.ticker import FuncFormatter, ScalarFormatter
 
@@ -1243,6 +1284,15 @@ def _apply_reference_lines(ax, a: Dict[str, Any]) -> None:
     stacking new ones every time the dialog re-applies.
     """
     try:
+        ax._ps_refline_cfg = {
+            key: a.get(key)
+            for key in (
+                "refline_h", "refline_v", "refline_h_label", "refline_v_label",
+                "refline_color", "refline_style", "refline_width", "refline_alpha",
+                "tick_size",
+            )
+            if key in a
+        }
         color = a.get("refline_color", "#ff6b6b")
         style = a.get("refline_style", "--")
         width = float(a.get("refline_width", 1.2) or 1.2)
@@ -1310,6 +1360,19 @@ def _apply_reference_lines(ax, a: Dict[str, Any]) -> None:
 
 
 def _apply_line_effects(line, d: Dict[str, Any]) -> None:
+    line._ps_effects = {
+        key: d.get(key, default)
+        for key, default in {
+            "glow": False,
+            "glow_color": _to_hex(line.get_color()),
+            "glow_width": 5.0,
+            "glow_alpha": 0.35,
+            "shadow": False,
+            "shadow_alpha": 0.25,
+            "shadow_offset_x": 1.5,
+            "shadow_offset_y": 1.5,
+        }.items()
+    }
     effects = []
     try:
         import matplotlib.patheffects as pe
@@ -1374,6 +1437,42 @@ def _remove_gid_artists(ax, gid: str) -> None:
                     artist.remove()
                 except Exception:
                     logger.debug("decoration artist removal failed", exc_info=True)
+
+
+def set_line_decorations_visible(line, visible: bool) -> None:
+    """Toggle every generated dependent of ``line`` with its logical layer."""
+    ax = getattr(line, "axes", None)
+    if ax is None:
+        return
+    gids = {_line_gid(line, kind) for kind in ("fill", "vlab", "err", "drop", "extrema")}
+    for container in list(getattr(ax, "containers", ())):
+        if getattr(container, "_ps_gid", None) not in gids:
+            continue
+        for artist in getattr(container, "get_children", lambda: ())():
+            try:
+                artist.set_visible(bool(visible))
+            except Exception:
+                pass
+    for group in (ax.lines, ax.collections, ax.texts, ax.patches, ax.images):
+        for artist in list(group):
+            try:
+                if str(artist.get_gid() or "") in gids:
+                    artist.set_visible(bool(visible))
+            except Exception:
+                pass
+
+
+def remove_line_decorations(line) -> None:
+    """Remove generated dependents before a logical line is deleted."""
+    ax = getattr(line, "axes", None)
+    if ax is None:
+        return
+    for kind in ("fill", "vlab", "err", "drop", "extrema"):
+        _remove_gid_artists(ax, _line_gid(line, kind))
+    try:
+        line._ps_deco = None
+    except Exception:
+        pass
 
 
 def _finite_xy(line):
@@ -1596,6 +1695,7 @@ def _apply_line_decorations(line, d: Dict[str, Any]) -> None:
         line._ps_deco = {k: d.get(k, v) for k, v in LINE_DECO_DEFAULTS.items()}
     except Exception:
         logger.debug("line decoration state store failed", exc_info=True)
+    set_line_decorations_visible(line, bool(line.get_visible()))
 
 
 def _apply_inset(ax, cfg: Dict[str, Any]) -> None:

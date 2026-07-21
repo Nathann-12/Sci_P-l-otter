@@ -26,6 +26,7 @@ from matplotlib.figure import Figure
 
 from annotations import AnnotationManager
 from context_menu import ContextMenuManager
+from core.graph_format_history import GraphFormatHistory
 from core.plot_data import (
     axis_uses_dates,
     clamp_date_limits,
@@ -145,6 +146,11 @@ class GraphTab(QWidget):
         self.layer_manager.layerStyleRequested.connect(self._on_layer_style_request)
         self.layers: Dict[str, Dict[str, Any]] = {}
         self._layer_id_seq = itertools.count(1)
+        # Formatting history is graph-scoped. Annotation snapshots keep their
+        # compact legacy storage, while the main window merges both histories
+        # by a shared edit sequence for chronological Ctrl+Z/Ctrl+Y routing.
+        self.graph_format_history = GraphFormatHistory(self)
+        self.graph_undo_stack = self.graph_format_history.stack
         self.lod_controller = ViewportLODController(self)
 
         try:
@@ -161,15 +167,42 @@ class GraphTab(QWidget):
             self.ctx_menu = None
 
     def clear(self):
+        self.graph_format_history.clear()
         self.lod_controller.detach_axes()
+        try:
+            self.annotation_manager.dispose()
+        except Exception:
+            pass
         self.canvas.clear()
         self.annotation_manager = AnnotationManager(self.canvas.fig, self.canvas.ax, self)
+        if self.ctx_menu is not None:
+            self.ctx_menu.ann = self.annotation_manager
+            try:
+                self.ctx_menu._adopt_axes(self.canvas.ax)
+            except Exception:
+                pass
 
     def get_axes(self):
         return self.canvas.ax
 
     def get_figure(self):
         return self.canvas.fig
+
+    def graph_format_transaction(self, label: str):
+        """Return a context manager that records one formatting operation."""
+        return self.graph_format_history.transaction(label)
+
+    def capture_graph_format_state(self):
+        """Capture the current in-memory formatting state for preview/commit."""
+        return self.graph_format_history.capture()
+
+    def restore_graph_format_state(self, state) -> None:
+        """Restore a captured formatting state without recording recursion."""
+        self.graph_format_history.restore(state)
+
+    def record_applied_graph_format(self, label: str, before, after=None) -> bool:
+        """Record an edit that the caller has already applied to this graph."""
+        return self.graph_format_history.record_applied(label, before, after)
 
     def draw(self):
         try:
@@ -189,13 +222,23 @@ class GraphTab(QWidget):
             self.lod_controller.shutdown()
         except Exception:
             pass
+        try:
+            self.annotation_manager.dispose()
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def clear_layers(self) -> None:
+        self.graph_format_history.clear()
         self.lod_controller.detach_axes()
+        from matplotlib.lines import Line2D
+        from core.plot_style import remove_line_decorations
+
         for info in self.layers.values():
             for artist in info.get("artists", []):
                 try:
+                    if isinstance(artist, Line2D):
+                        remove_line_decorations(artist)
                     artist.remove()
                 except Exception:
                     pass
@@ -205,6 +248,9 @@ class GraphTab(QWidget):
     def register_layer(self, artists, label: str, style: str, meta: Optional[Dict[str, Any]] = None, kwargs: Optional[Dict[str, Any]] = None):
         if not artists:
             return None
+        # A formatting snapshot deliberately excludes plotted x/y arrays.  A
+        # topology change therefore starts a fresh, structurally safe history.
+        self.graph_format_history.clear()
         if not isinstance(artists, (list, tuple)):
             artists = [artists]
         layer_id = f"{self.tab_id}_L{next(self._layer_id_seq)}"
@@ -271,10 +317,33 @@ class GraphTab(QWidget):
         return data
 
     def restore_layers(self, layers: List[Dict[str, Any]], main_window) -> None:
+        parent_manager = None
+        candidates = [
+            getattr(main_window, "tabs", None),
+            getattr(main_window, "mdi", None),
+        ]
         try:
-            parent_manager = self.parent()
+            candidates.append(self.parent())
         except Exception:
-            parent_manager = None
+            pass
+        for candidate in candidates:
+            if callable(getattr(candidate, "add_series_to_tabs", None)):
+                parent_manager = candidate
+                break
+        # GraphTab is wrapped by an MDI subwindow at runtime, so its immediate
+        # parent is not the workspace manager.  Walk upward as a final fallback
+        # for lightweight embeds/tests that do not pass a MainWindow.
+        node = self
+        seen = set()
+        while parent_manager is None and node is not None and id(node) not in seen:
+            seen.add(id(node))
+            try:
+                node = node.parent()
+            except Exception:
+                node = None
+            if callable(getattr(node, "add_series_to_tabs", None)):
+                parent_manager = node
+                break
         if not parent_manager or not hasattr(parent_manager, "add_series_to_tabs"):
             return
         self.clear()
@@ -325,9 +394,14 @@ class GraphTab(QWidget):
         info = self.layers.get(layer_id)
         if not info:
             return
+        from matplotlib.lines import Line2D
+        from core.plot_style import set_line_decorations_visible
+
         for artist in info.get("artists", []):
             try:
                 artist.set_visible(visible)
+                if isinstance(artist, Line2D):
+                    set_line_decorations_visible(artist, visible)
             except Exception:
                 pass
         info["visible"] = visible
@@ -340,39 +414,188 @@ class GraphTab(QWidget):
 
     def _refresh_legend(self) -> None:
         ax = self.get_axes()
+        legend = ax.get_legend()
+        previous = None
         try:
-            legend = ax.get_legend()
-            if legend:
-                legend.remove()
+            if legend is not None:
+                from core.format_clipboard import _capture_legend
+
+                previous = _capture_legend(ax)
         except Exception:
-            pass
+            previous = None
         try:
             handles, labels = ax.get_legend_handles_labels()
-            pairs = [
+
+            def logical_handle_visible(handle) -> bool:
+                children = set(getattr(handle, "get_children", lambda: ())() or ())
+                for info in self.layers.values():
+                    artists = set(info.get("artists", ()))
+                    if handle in artists or children.intersection(artists):
+                        return bool(info.get("visible", True))
+                getter = getattr(handle, "get_visible", None)
+                if callable(getter):
+                    try:
+                        return bool(getter())
+                    except Exception:
+                        pass
+                if children:
+                    return any(
+                        bool(getattr(child, "get_visible", lambda: True)())
+                        for child in children
+                    )
+                return True
+
+            available = [
                 (h, lbl) for h, lbl in zip(handles, labels)
-                if lbl and not str(lbl).startswith("_") and getattr(h, "get_visible", lambda: True)()
+                if lbl and not str(lbl).startswith("_") and logical_handle_visible(h)
             ]
-            if pairs:
-                h, l = zip(*pairs)
-                ax.legend(h, l, loc="best")
+            if not available:
+                if legend is not None:
+                    legend.remove()
+                return
+
+            # Keep a custom legend order when possible.  Match each displayed
+            # row to one current source handle (duplicates are consumed one at
+            # a time), then append genuinely new layers.
+            ordered = []
+            if legend is not None:
+                for text in legend.get_texts():
+                    wanted = text.get_text()
+                    match = next(
+                        (i for i, (_handle, label) in enumerate(available)
+                         if str(label) == wanted),
+                        None,
+                    )
+                    if match is not None:
+                        ordered.append(available.pop(match))
+            ordered.extend(available)
+            h, labels_out = zip(*ordered)
+
+            if previous and previous.get("format", {}).get("exists"):
+                from core.format_clipboard import _apply_legend
+
+                fmt = dict(previous["format"])
+                was_visible = bool(fmt.get("visible", True))
+                fmt["exists"] = True
+                fmt["visible"] = True
+                content = {
+                    "exists": True,
+                    "handles": list(h),
+                    "labels": list(labels_out),
+                    "title": previous.get("content", {}).get("title", ""),
+                }
+                _apply_legend(ax, fmt, content)
+                refreshed = ax.get_legend()
+                if refreshed is not None:
+                    refreshed.set_visible(was_visible)
+            else:
+                refreshed = ax.legend(h, labels_out, loc="best")
+                try:
+                    refreshed._ps_drag_enabled = True
+                    refreshed.set_draggable(True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
     def _on_layer_visibility_changed(self, layer_id: str, visible: bool) -> None:
-        self._set_layer_visibility(layer_id, visible)
+        info = self.layers.get(layer_id)
+        label = str(info.get("label", "Layer")) if info else "Layer"
+        verb = "Show" if visible else "Hide"
+        with self.graph_format_history.transaction(f"{verb} layer: {label}"):
+            self._set_layer_visibility(layer_id, visible)
 
     def _on_layer_rename(self, layer_id: str, new_label: str) -> None:
         info = self.layers.get(layer_id)
+        old_label = str(info.get("label", "Layer")) if info else "Layer"
+        with self.graph_format_history.transaction(f"Rename layer: {old_label}"):
+            self._rename_layer_raw(layer_id, new_label)
+
+    def _rename_layer_raw(self, layer_id: str, new_label: str) -> None:
+        """Apply a logical layer rename without creating another undo command."""
+        info = self.layers.get(layer_id)
         if not info:
             return
+        old_label = str(info.get("label", ""))
+        new_label = str(new_label)
+        artists = list(info.get("artists", ()))
+
+        # Resolve the one logical legend handle before mutating labels.  Bar
+        # and histogram layers store their child patches, while Matplotlib's
+        # legend source is the parent container; never label every patch.
+        source_handle = None
+        target_ax = next(
+            (getattr(artist, "axes", None) for artist in artists
+             if getattr(artist, "axes", None) is not None),
+            self.get_axes(),
+        )
+        try:
+            handles, labels = target_ax.get_legend_handles_labels()
+            for handle, label in zip(handles, labels):
+                if str(label) != old_label:
+                    continue
+                if handle in artists:
+                    source_handle = handle
+                    break
+                try:
+                    if set(handle.get_children()).intersection(artists):
+                        source_handle = handle
+                        break
+                except Exception:
+                    continue
+            if source_handle is None:
+                same_layers = [
+                    lid for lid, layer in self.layers.items()
+                    if str(layer.get("label", "")) == old_label
+                    and any(getattr(a, "axes", None) is target_ax
+                            for a in layer.get("artists", ()))
+                ]
+                occurrence = same_layers.index(layer_id) if layer_id in same_layers else 0
+                matches = [
+                    handle for handle, label in zip(handles, labels)
+                    if str(label) == old_label
+                ]
+                if occurrence < len(matches):
+                    source_handle = matches[occurrence]
+        except Exception:
+            source_handle = None
+
+        try:
+            if source_handle is not None:
+                source_handle.set_label(new_label)
+        except Exception:
+            pass
+        for artist in artists:
+            try:
+                if str(artist.get_label()) == old_label:
+                    artist.set_label(new_label)
+            except Exception:
+                pass
+
+        # Change the corresponding displayed row before the preserve-format
+        # rebuild so duplicate labels keep their own position and identity.
+        try:
+            legend = target_ax.get_legend()
+            if legend is not None:
+                same_layers = [
+                    lid for lid, layer in self.layers.items()
+                    if str(layer.get("label", "")) == old_label
+                    and any(getattr(a, "axes", None) is target_ax
+                            for a in layer.get("artists", ()))
+                ]
+                occurrence = same_layers.index(layer_id) if layer_id in same_layers else 0
+                rows = [
+                    text for text in legend.get_texts()
+                    if text.get_text() == old_label
+                ]
+                if occurrence < len(rows):
+                    rows[occurrence].set_text(new_label)
+        except Exception:
+            pass
+
         info["label"] = new_label
         info.setdefault("meta", {})
         info["meta"]["label"] = new_label
-        for artist in info.get("artists", []):
-            try:
-                artist.set_label(new_label)
-            except Exception:
-                pass
         self.layer_manager.update_layer_label(layer_id, new_label)
         self._refresh_legend()
         try:
@@ -384,8 +607,16 @@ class GraphTab(QWidget):
         info = self.layers.pop(layer_id, None)
         if not info:
             return
+        # Removing a layer changes artist topology; formatting snapshots do not
+        # retain scientific data and cannot safely recreate it.
+        self.graph_format_history.clear()
+        from matplotlib.lines import Line2D
+        from core.plot_style import remove_line_decorations
+
         for artist in info.get("artists", []):
             try:
+                if isinstance(artist, Line2D):
+                    remove_line_decorations(artist)
                 artist.remove()
             except Exception:
                 pass
@@ -396,15 +627,283 @@ class GraphTab(QWidget):
         except Exception:
             pass
 
+    def quick_layer_style_summary(self, layer_ids) -> Dict[str, Any]:
+        """Return common values plus mixed/unavailable hints for the Inspector."""
+        import numpy as np
+        from matplotlib.collections import Collection
+        from matplotlib.colors import to_hex
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+
+        records = []
+        unavailable = set()
+        layer_mixed = set()
+
+        def same_value(values) -> bool:
+            if not values:
+                return False
+            first = values[0]
+            return all(
+                bool(np.isclose(value, first))
+                if isinstance(value, (int, float)) and isinstance(first, (int, float))
+                else value == first
+                for value in values[1:]
+            )
+
+        for layer_id in layer_ids or ():
+            info = self.layers.get(str(layer_id))
+            artists = list(info.get("artists", ())) if isinstance(info, dict) else []
+            record = {}
+            candidates = {"color": [], "alpha": [], "linewidth": [], "marker": []}
+            for artist in artists:
+                if isinstance(artist, Line2D):
+                    try:
+                        candidates["color"].append(to_hex(artist.get_color()))
+                    except Exception:
+                        pass
+                    try:
+                        candidates["linewidth"].append(float(artist.get_linewidth()))
+                    except Exception:
+                        pass
+                    try:
+                        candidates["marker"].append(str(artist.get_marker() or "None"))
+                    except Exception:
+                        pass
+                elif isinstance(artist, Collection):
+                    try:
+                        if artist.get_array() is not None:
+                            unavailable.add("color")
+                        else:
+                            colors = np.asarray(artist.get_facecolors())
+                            if colors.size:
+                                rows = colors.reshape(-1, colors.shape[-1])
+                                if len(rows) == 1:
+                                    candidates["color"].append(to_hex(colors[0]))
+                                else:
+                                    layer_mixed.add("color")
+                    except Exception:
+                        pass
+                    try:
+                        widths = np.asarray(artist.get_linewidths(), dtype=float).ravel()
+                        if widths.size:
+                            if widths.size == 1:
+                                candidates["linewidth"].append(float(widths[0]))
+                            else:
+                                layer_mixed.add("linewidth")
+                    except Exception:
+                        pass
+                elif isinstance(artist, Patch):
+                    try:
+                        candidates["color"].append(to_hex(artist.get_facecolor()))
+                    except Exception:
+                        pass
+                    try:
+                        candidates["linewidth"].append(float(artist.get_linewidth()))
+                    except Exception:
+                        pass
+                try:
+                    alpha = artist.get_alpha()
+                    alpha_values = np.asarray(
+                        1.0 if alpha is None else alpha, dtype=float,
+                    ).ravel()
+                    if alpha_values.size == 1:
+                        candidates["alpha"].append(float(alpha_values[0]))
+                    elif alpha_values.size > 1:
+                        layer_mixed.add("alpha")
+                except Exception:
+                    pass
+
+            for key, values in candidates.items():
+                if same_value(values):
+                    record[key] = values[0]
+                elif values:
+                    layer_mixed.add(key)
+            records.append(record)
+
+        result: Dict[str, Any] = {"unavailable_fields": sorted(unavailable)}
+        mixed = set(layer_mixed)
+        for key in ("color", "alpha", "linewidth", "marker"):
+            values = [record[key] for record in records if key in record]
+            if not values:
+                result[key] = None
+                continue
+            first = values[0]
+            equal = all(
+                bool(np.isclose(value, first))
+                if isinstance(value, (int, float)) and isinstance(first, (int, float))
+                else value == first
+                for value in values[1:]
+            )
+            if not equal or len(values) != len(records):
+                mixed.add(key)
+                result[key] = None
+            else:
+                result[key] = first
+        result["mixed_fields"] = sorted(mixed)
+        return result
+
+    def apply_quick_layer_format(self, layer_ids, values: Dict[str, Any]) -> int:
+        """Apply common appearance values to logical layers in one undo step."""
+        selected = [str(layer_id) for layer_id in layer_ids if str(layer_id) in self.layers]
+        values = {
+            key: value for key, value in dict(values or {}).items()
+            if key in {"color", "alpha", "linewidth", "marker", "palette"}
+        }
+        if not selected or not values:
+            return 0
+
+        from matplotlib.collections import Collection
+        from matplotlib.lines import Line2D
+        from matplotlib.markers import MarkerStyle
+        from matplotlib.patches import Patch
+        from core.plot_style import SCIENTIFIC_PALETTES, apply_line_style
+        from matplotlib.colors import to_hex
+
+        palette_colors = list(SCIENTIFIC_PALETTES.get(str(values.get("palette", "")), ()))
+
+        changed_layers = 0
+        with self.graph_format_history.transaction(
+            f"Format {len(selected)} selected layer{'s' if len(selected) != 1 else ''}"
+        ):
+            for layer_index, layer_id in enumerate(selected):
+                info = self.layers.get(layer_id)
+                if not isinstance(info, dict):
+                    continue
+                layer_style = str(info.get("style", ""))
+                artists = list(info.get("artists", ()))
+                changed = False
+                mapped_collection = False
+                color_value = values.get("color")
+                if palette_colors:
+                    color_value = palette_colors[layer_index % len(palette_colors)]
+                if layer_style == "scatter":
+                    for artist in artists:
+                        try:
+                            if isinstance(artist, Collection) and artist.get_array() is not None:
+                                mapped_collection = True
+                                break
+                        except Exception:
+                            pass
+
+                for artist in artists:
+                    old_line_color = None
+                    if isinstance(artist, Line2D):
+                        try:
+                            old_line_color = to_hex(artist.get_color())
+                        except Exception:
+                            pass
+                    if color_value is not None:
+                        color = color_value
+                        try:
+                            if isinstance(artist, Line2D):
+                                artist.set_color(color)
+                                changed = True
+                            elif isinstance(artist, Collection) and not mapped_collection:
+                                artist.set_facecolor(color)
+                                changed = True
+                            elif isinstance(artist, Patch):
+                                artist.set_facecolor(color)
+                                changed = True
+                        except Exception:
+                            pass
+
+                    if "alpha" in values:
+                        try:
+                            artist.set_alpha(float(values["alpha"]))
+                            changed = True
+                        except Exception:
+                            pass
+
+                    if "linewidth" in values:
+                        try:
+                            artist.set_linewidth(float(values["linewidth"]))
+                            changed = True
+                        except Exception:
+                            pass
+                    if "marker" in values:
+                        marker = values["marker"]
+                        try:
+                            if isinstance(artist, Line2D):
+                                artist.set_marker("None" if marker in (None, "None", "none") else marker)
+                                changed = True
+                            elif layer_style == "scatter" and hasattr(artist, "set_paths"):
+                                marker_style = MarkerStyle(marker)
+                                path = marker_style.get_path().transformed(marker_style.get_transform())
+                                artist.set_paths([path])
+                                changed = True
+                        except Exception:
+                            pass
+
+                    if isinstance(artist, Line2D) and changed:
+                        # Generated fill/error/value-label/extrema artists are
+                        # dependents of the curve. Rebuild them so auto colors,
+                        # line-width-derived strokes and visibility stay in
+                        # sync with the base line after Quick Format.
+                        semantic = {}
+                        effects = dict(getattr(artist, "_ps_effects", None) or {})
+                        if effects and color_value is not None:
+                            glow_color = effects.get("glow_color")
+                            if not glow_color or (
+                                old_line_color is not None
+                                and to_hex(glow_color) == old_line_color
+                            ):
+                                effects["glow_color"] = color_value
+                        semantic.update(effects)
+                        semantic.update(dict(getattr(artist, "_ps_deco", None) or {}))
+                        if semantic:
+                            try:
+                                apply_line_style(artist, semantic)
+                            except Exception:
+                                pass
+
+                if not changed:
+                    continue
+                changed_layers += 1
+                kwargs = info.setdefault("kwargs", {})
+                meta = info.setdefault("meta", {})
+                style_kwargs = dict(meta.get("style_kwargs", {}))
+                if color_value is not None and not mapped_collection:
+                    color_key = "color" if layer_style in {"line", "scatter"} else "facecolor"
+                    kwargs[color_key] = color_value
+                    style_kwargs[color_key] = color_value
+                if "alpha" in values:
+                    kwargs["alpha"] = float(values["alpha"])
+                    style_kwargs["alpha"] = float(values["alpha"])
+                if "linewidth" in values:
+                    width_key = "linewidths" if layer_style == "scatter" else "linewidth"
+                    kwargs[width_key] = float(values["linewidth"])
+                    style_kwargs[width_key] = float(values["linewidth"])
+                if "marker" in values and layer_style in {"line", "scatter"}:
+                    kwargs["marker"] = values["marker"]
+                    style_kwargs["marker"] = values["marker"]
+                meta["style_kwargs"] = style_kwargs
+
+            if changed_layers:
+                self._refresh_legend()
+                try:
+                    self.canvas.draw_idle()
+                except Exception:
+                    pass
+        return changed_layers
+
     def _on_layer_style_request(self, layer_id: str) -> None:
+        selected = self.layer_manager.selected_layer_ids()
+        if len(selected) > 1:
+            color = self.layer_manager.prompt_color("Selected Layer Color")
+            if not color or not getattr(color, "isValid", lambda: False)():
+                return
+            self.apply_quick_layer_format(selected, {"color": color.name()})
+            return
         info = self.layers.get(layer_id)
         if not info:
             return
-        style = info.get("style")
-        if style == "line":
-            self._style_line_layer(info)
-        elif style in {"scatter", "bar", "histogram"}:
-            self._style_filled_layer(info)
+        label = str(info.get("label", "Layer"))
+        with self.graph_format_history.transaction(f"Style layer: {label}"):
+            style = info.get("style")
+            if style == "line":
+                self._style_line_layer(info)
+            elif style in {"scatter", "bar", "histogram"}:
+                self._style_filled_layer(info)
 
     def _style_line_layer(self, info: Dict[str, Any]) -> None:
         artists = [a for a in info.get("artists", []) if hasattr(a, "set_color")]

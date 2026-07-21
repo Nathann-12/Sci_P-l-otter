@@ -408,6 +408,11 @@ class MainWindowMenuMixin:
         # Export PNG lives in the Export menu (not duplicated here — on_action_export_figure calls the same export_png)
         actExit = fileMenu.addAction("Exit"); actExit.triggered.connect(self.close)
 
+        # Application-wide edit history.  The actions are populated after the
+        # graph/annotation managers exist, then reused in both Edit and the
+        # annotation toolbar for discoverability.
+        self.editMenu = m.addMenu("&Edit")
+
         viewMenu = m.addMenu("&View")
         actReset = viewMenu.addAction("Reset View")
         actReset.triggered.connect(self._reset_view)
@@ -435,6 +440,70 @@ class MainWindowMenuMixin:
             self.actFormatGraph = viewMenu.addAction("Format Graph… (Plot Details)")
             self.actFormatGraph.setShortcut("Ctrl+Shift+F")
             self.actFormatGraph.triggered.connect(self.open_plot_details_dialog)
+
+        # Copy Format / Paste Format — stamp one graph's appearance onto another.
+        # Ctrl+Shift+C already belongs to Copy Graph to Clipboard, so this pair
+        # uses Ctrl+Alt to remain unambiguous.
+        viewMenu.addSeparator()
+        if hasattr(self, "actCopyFormat"):
+            viewMenu.addAction(self.actCopyFormat)
+        else:
+            # Parent to the main window, not the temporary menu wrapper: later
+            # specialty modules add top-level menus and Qt rebuilds the menu
+            # bar, which can otherwise destroy menu-owned actions also reused
+            # by the side toolbar.
+            self.actCopyFormat = QAction("Copy Graph Format", self)
+            viewMenu.addAction(self.actCopyFormat)
+            self.actCopyFormat.triggered.connect(self.copy_graph_format)
+        self.actCopyFormat.setShortcut("Ctrl+Alt+C")
+        copy_tip = (
+            "Copy colors, fonts, grid, legend layout, and series styling; "
+            "names, data, scales, and axis ranges are not copied"
+        )
+        self.actCopyFormat.setStatusTip(copy_tip)
+        self.actCopyFormat.setToolTip(copy_tip)
+        if hasattr(self, "_set_toolbar_icon"):
+            self._set_toolbar_icon(
+                self.actCopyFormat, "copy_format",
+                QStyle.StandardPixmap.SP_DialogSaveButton,
+            )
+        else:
+            self.actCopyFormat.setProperty("toolbarIconKey", "copy_format")
+            try:
+                self.actCopyFormat.setIcon(
+                    self._icon("copy_format", QStyle.StandardPixmap.SP_DialogSaveButton)
+                )
+            except Exception:
+                pass
+        self.toolbar_actions["copy_format"] = self.actCopyFormat
+
+        if hasattr(self, "actPasteFormat"):
+            viewMenu.addAction(self.actPasteFormat)
+        else:
+            self.actPasteFormat = QAction("Paste Graph Format", self)
+            viewMenu.addAction(self.actPasteFormat)
+            self.actPasteFormat.triggered.connect(self.paste_graph_format)
+        self.actPasteFormat.setShortcut("Ctrl+Alt+V")
+        paste_tip = (
+            "Apply the copied appearance while keeping this graph's data, names, "
+            "scales, axis ranges, and annotations"
+        )
+        self.actPasteFormat.setStatusTip(paste_tip)
+        self.actPasteFormat.setToolTip(paste_tip)
+        if hasattr(self, "_set_toolbar_icon"):
+            self._set_toolbar_icon(
+                self.actPasteFormat, "paste_format",
+                QStyle.StandardPixmap.SP_DialogApplyButton,
+            )
+        else:
+            self.actPasteFormat.setProperty("toolbarIconKey", "paste_format")
+            try:
+                self.actPasteFormat.setIcon(
+                    self._icon("paste_format", QStyle.StandardPixmap.SP_DialogApplyButton)
+                )
+            except Exception:
+                pass
+        self.toolbar_actions["paste_format"] = self.actPasteFormat
 
         # Plot Style submenu
         plotStyleMenu = viewMenu.addMenu("Plot Style")
@@ -925,6 +994,19 @@ class MainWindowMenuMixin:
             self._connected_selection_slot = on_selection_changed
             mgr.selection_changed.connect(on_selection_changed)
             mgr.changed.connect(on_selection_changed)
+            previous_history_mgr = getattr(self, "_connected_history_mgr", None)
+            if previous_history_mgr is not None:
+                try:
+                    previous_history_mgr.changed.disconnect(
+                        self._sync_edit_history_actions
+                    )
+                except Exception:
+                    pass
+            self._connected_history_mgr = mgr
+            try:
+                mgr.changed.connect(self._sync_edit_history_actions)
+            except Exception:
+                pass
 
         def _begin_annotation(mode):
             """Arm an annotation tool: enable the manager, set the draw mode and
@@ -993,6 +1075,11 @@ class MainWindowMenuMixin:
                 self.actAnnManage = self.annMenu.addAction("Manage Annotations")
                 self.annMenu.addSeparator()
                 self.actUndo = self.annMenu.addAction("Undo"); self.actRedo = self.annMenu.addAction("Redo")
+                try:
+                    self.editMenu.addAction(self.actUndo)
+                    self.editMenu.addAction(self.actRedo)
+                except Exception:
+                    pass
                 # Shortcuts
                 self.actAnnSelect.setShortcut("S")
                 self.actAnnText.setShortcut("T"); self.actAnnArrow.setShortcut("W"); self.actAnnLine.setShortcut("L")
@@ -1015,11 +1102,25 @@ class MainWindowMenuMixin:
             self.actAnnCallout.triggered.connect(lambda: _begin_annotation('callout'))
             self.actAnnStyleDock.triggered.connect(lambda: (self.annStyleDock.show(), _sync_active_annotation_mgr()))
             self.actAnnManage.triggered.connect(lambda: (_mgr() and AnnotationListDialog(_mgr(), self).exec()))
-            self.actUndo.triggered.connect(lambda: (_mgr() and _mgr().undo()))
-            self.actRedo.triggered.connect(lambda: (_mgr() and _mgr().redo()))
+            self.actUndo.triggered.connect(self._undo_user_edit)
+            self.actRedo.triggered.connect(self._redo_user_edit)
             
             # Sync style when tabs switch
             self.tabs.currentChanged.connect(lambda _: _sync_active_annotation_mgr())
+            self.tabs.currentChanged.connect(self._bind_active_graph_history)
+            if hasattr(self.tabs, 'tabCreated'):
+                self.tabs.tabCreated.connect(self._bind_active_graph_history)
+            if hasattr(self.tabs, 'tabRemoved'):
+                self.tabs.tabRemoved.connect(self._bind_active_graph_history)
+            self._bind_active_graph_history()
+            try:
+                from PySide6.QtWidgets import QApplication
+
+                QApplication.instance().focusChanged.connect(
+                    self._bind_native_edit_history
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 

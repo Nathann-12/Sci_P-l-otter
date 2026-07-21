@@ -51,8 +51,8 @@ def test_data_and_graph_commands_are_dimmed_on_a_fresh_window(win):
     for key in ("plot", "plot_line", "moving_average", "fft", "stats",
                 "dataset_group", "use_active_book"):
         assert win.toolbar_actions[key].isEnabled() is False, key
-    for key in ("format_graph", "crosshair", "boxzoom", "reset_view",
-                "export_figure", "ann_text"):
+    for key in ("format_graph", "copy_format", "paste_format", "crosshair",
+                "boxzoom", "reset_view", "export_figure", "ann_text"):
         assert win.toolbar_actions[key].isEnabled() is False, key
     # always-on essentials stay clickable
     for key in ("open", "batch_import", "settings", "add_row", "addtab",
@@ -66,21 +66,28 @@ def test_data_commands_enable_once_a_book_has_data(win):
                 "dataset_group", "use_active_book"):
         assert win.toolbar_actions[key].isEnabled() is True, key
     # graph tools stay dimmed until a Graph exists
-    for key in ("format_graph", "export_figure", "ann_text"):
+    for key in ("format_graph", "copy_format", "paste_format",
+                "export_figure", "ann_text"):
         assert win.toolbar_actions[key].isEnabled() is False, key
 
 
 def test_graph_tools_enable_after_a_graph_is_created_and_disable_when_closed(win):
     _seed(win)
     win.plot_line()
-    for key in ("format_graph", "crosshair", "boxzoom", "reset_view",
-                "export_figure", "ann_text"):
+    for key in ("format_graph", "copy_format", "crosshair", "boxzoom",
+                "reset_view", "export_figure", "ann_text"):
         assert win.toolbar_actions[key].isEnabled() is True, key
+    assert win.toolbar_actions["paste_format"].isEnabled() is False
+
+    assert win.copy_graph_format() is True
+    assert win.toolbar_actions["paste_format"].isEnabled() is True
 
     # closing every Graph re-dims the graph-only tools
     win.tabs.remove_all_tabs()
     win.update_action_states()
     assert win.toolbar_actions["format_graph"].isEnabled() is False
+    assert win.toolbar_actions["copy_format"].isEnabled() is False
+    assert win.toolbar_actions["paste_format"].isEnabled() is False
 
 
 def test_typing_into_book1_lights_up_the_plot_bar(win):

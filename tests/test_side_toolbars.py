@@ -74,7 +74,8 @@ def test_docks_are_categorized(win):
     bottom = set(win.bottom_toolbar.actions())
     # left = graph interaction + annotation (reuses the top-bar checkables)
     for k in ("crosshair", "boxzoom", "reset_view", "format_graph",
-              "ann_enable", "ann_text", "undo", "redo"):
+              "copy_format", "paste_format", "ann_enable", "ann_text",
+              "undo", "redo"):
         assert win.toolbar_actions[k] in left, k
     # right = windows + export + Book operations
     for k in ("addtab", "window_tile", "window_cascade", "inspector",
@@ -122,6 +123,35 @@ def test_top_bar_icon_key_uniqueness_still_holds(win):
     ]
     assert all(icon_keys)
     assert len(icon_keys) == len(set(icon_keys))
+
+
+def test_graph_format_actions_survive_module_menu_build_and_use_unique_shortcuts(win):
+    """Specialty modules append top-level menus after the side docks are built.
+    The shared format actions must remain live and must not collide with Copy
+    Graph to Clipboard's Ctrl+Shift+C shortcut.
+    """
+    import shiboken6
+
+    copy_format = win.toolbar_actions["copy_format"]
+    paste_format = win.toolbar_actions["paste_format"]
+    assert shiboken6.isValid(copy_format)
+    assert shiboken6.isValid(paste_format)
+    assert copy_format is win.actCopyFormat
+    assert paste_format is win.actPasteFormat
+    assert copy_format in win.left_toolbar.actions()
+    assert paste_format in win.left_toolbar.actions()
+    assert copy_format.shortcut().toString() == "Ctrl+Alt+C"
+    assert paste_format.shortcut().toString() == "Ctrl+Alt+V"
+
+    copy_graph_actions = [
+        action
+        for menu_action in win.menuBar().actions()
+        if menu_action.menu() is not None
+        for action in menu_action.menu().actions()
+        if action.text() == "Copy Graph to Clipboard"
+    ]
+    assert len(copy_graph_actions) == 1
+    assert copy_graph_actions[0].shortcut() != copy_format.shortcut()
 
 
 def test_scientific_and_matrix_dock_buttons_registered_and_enable_with_data(win_factory=None):

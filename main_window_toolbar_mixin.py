@@ -48,7 +48,8 @@ class MainWindowToolbarMixin:
         "matrix_gridding", "matrix_heatmap", "matrix_surface",
     })
     _ACTIONS_NEED_GRAPH = frozenset({
-        "format_graph", "crosshair", "boxzoom", "reset_view",
+        "format_graph", "copy_format", "paste_format",
+        "crosshair", "boxzoom", "reset_view",
         "left_zoom_in", "left_zoom_out",
         "export_figure", "export_data", "batch_export", "copy_graph",
         "ann_enable", "ann_select", "ann_text", "ann_arrow", "ann_line",
@@ -815,6 +816,8 @@ class MainWindowToolbarMixin:
             "zoom_out", SP.SP_FileDialogContentsView, tooltip="Zoom out (center)")
         self._reuse_action(left, "reset_view")
         self._reuse_action(left, "format_graph")
+        self._reuse_action(left, "copy_format")
+        self._reuse_action(left, "paste_format")
         # annotation + undo/redo appended by _create_dock_tool_groups
 
         # ---------------- RIGHT: windows & export ----------------
@@ -951,6 +954,22 @@ class MainWindowToolbarMixin:
             if key in self._ACTIONS_NEED_DATA:
                 self._set_action_enabled(
                     action, has_data, "Open or type data into a Book first"
+                )
+            elif key == "paste_format":
+                has_clipboard = False
+                checker = getattr(self, "has_format_clipboard", None)
+                if callable(checker):
+                    try:
+                        has_clipboard = bool(checker())
+                    except Exception:
+                        has_clipboard = False
+                reason = (
+                    "Plot a graph first"
+                    if not has_graph
+                    else "Copy a graph format first"
+                )
+                self._set_action_enabled(
+                    action, has_graph and has_clipboard, reason
                 )
             elif key in self._ACTIONS_NEED_GRAPH:
                 self._set_action_enabled(

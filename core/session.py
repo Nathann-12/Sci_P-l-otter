@@ -41,6 +41,123 @@ def _serialize_float_list(values) -> List[float]:
             return []
 
 
+def _serialize_graph_text(widget: Any) -> Dict[str, Any]:
+    """Capture authored graph text without serializing generated tick labels."""
+    try:
+        fig = widget.get_figure()
+    except Exception:
+        try:
+            fig = widget.get_axes().figure
+        except Exception:
+            return {}
+
+    suptitle = getattr(fig, '_suptitle', None)
+    axes_state: List[Dict[str, Any]] = []
+    for ax in list(getattr(fig, 'axes', ())):
+        titles = {}
+        for loc in ('left', 'center', 'right'):
+            try:
+                titles[loc] = str(ax.get_title(loc=loc))
+            except Exception:
+                titles[loc] = ''
+        entry: Dict[str, Any] = {
+            'titles': titles,
+            'xlabel': str(getattr(ax, 'get_xlabel', lambda: '')()),
+            'ylabel': str(getattr(ax, 'get_ylabel', lambda: '')()),
+        }
+        if getattr(ax, 'zaxis', None) is not None:
+            entry['zlabel'] = str(getattr(ax, 'get_zlabel', lambda: '')())
+        legend = getattr(ax, 'get_legend', lambda: None)()
+        entry['legend_title'] = (
+            str(legend.get_title().get_text()) if legend is not None else None
+        )
+        axes_state.append(entry)
+    return {
+        'figure_title': (
+            str(suptitle.get_text()) if suptitle is not None else None
+        ),
+        'axes': axes_state,
+    }
+
+
+def _restore_graph_text(widget: Any, state: Any, *, preserve_style: bool = False) -> None:
+    """Restore a backwards-compatible graph-text snapshot."""
+    if not isinstance(state, dict):
+        return
+    try:
+        fig = widget.get_figure()
+    except Exception:
+        try:
+            fig = widget.get_axes().figure
+        except Exception:
+            return
+
+    figure_title = state.get('figure_title')
+    if figure_title is not None:
+        suptitle = getattr(fig, '_suptitle', None)
+        if suptitle is None:
+            fig.suptitle(str(figure_title))
+        else:
+            suptitle.set_text(str(figure_title))
+
+    records = state.get('axes', ())
+    if not isinstance(records, list):
+        return
+    for ax, entry in zip(list(getattr(fig, 'axes', ())), records):
+        if not isinstance(entry, dict):
+            continue
+        titles = entry.get('titles', {})
+        if isinstance(titles, dict):
+            for loc in ('left', 'center', 'right'):
+                if loc in titles:
+                    try:
+                        if preserve_style:
+                            artist = {
+                                'left': ax._left_title,
+                                'center': ax.title,
+                                'right': ax._right_title,
+                            }[loc]
+                            artist.set_text(str(titles[loc]))
+                        else:
+                            ax.set_title(str(titles[loc]), loc=loc)
+                    except Exception:
+                        pass
+        if 'xlabel' in entry:
+            try:
+                if preserve_style:
+                    ax.xaxis.label.set_text(str(entry['xlabel']))
+                else:
+                    ax.set_xlabel(str(entry['xlabel']))
+            except Exception:
+                pass
+        if 'ylabel' in entry:
+            try:
+                if preserve_style:
+                    ax.yaxis.label.set_text(str(entry['ylabel']))
+                else:
+                    ax.set_ylabel(str(entry['ylabel']))
+            except Exception:
+                pass
+        if 'zlabel' in entry and getattr(ax, 'zaxis', None) is not None:
+            try:
+                if preserve_style:
+                    ax.zaxis.label.set_text(str(entry['zlabel']))
+                else:
+                    ax.set_zlabel(str(entry['zlabel']))
+            except Exception:
+                pass
+        if entry.get('legend_title') is not None:
+            try:
+                legend = ax.get_legend()
+                if legend is not None:
+                    if preserve_style:
+                        legend.get_title().set_text(str(entry['legend_title']))
+                    else:
+                        legend.set_title(str(entry['legend_title']))
+            except Exception:
+                pass
+
+
 def _df_to_records(df, *, strict: bool = False):
     """DataFrame → JSON-safe list of row dicts (or None)."""
     try:
@@ -160,14 +277,28 @@ def save_session(
                     annotations = widget.annotation_manager.to_json()
                 except Exception:
                     annotations = ''
-            tabs_state.append({
+            graph_format = None
+            try:
+                from core.format_clipboard import capture_persisted_graph_format
+
+                graph_format = capture_persisted_graph_format(widget)
+            except Exception:
+                LOG.warning('Failed to serialize graph appearance for %s', tab_name,
+                            exc_info=True)
+                if strict:
+                    raise
+            tab_state = {
                 'id': tab_id,
                 'name': tab_name,
                 'xlim': xlim,
                 'ylim': ylim,
                 'layers': layers,
                 'annotations': annotations,
-            })
+                'graph_text': _serialize_graph_text(widget),
+            }
+            if graph_format is not None:
+                tab_state['graph_format'] = graph_format
+            tabs_state.append(tab_state)
 
         state: Dict[str, Any] = {
             'format': 'sciplotter_project' if embed_data else 'sciplotter_session',
@@ -341,6 +472,25 @@ def load_session(window: Any, path=None, *, strict: bool = False) -> None:
                             ax.set_ylim(*ylim)
                         except Exception:
                             pass
+                _restore_graph_text(widget, tab_info.get('graph_text'))
+                graph_format = tab_info.get('graph_format')
+                if graph_format:
+                    try:
+                        from core.format_clipboard import apply_persisted_graph_format
+
+                        apply_persisted_graph_format(widget, graph_format)
+                    except Exception:
+                        # Appearance is an optional additive section.  A bad
+                        # or layout-incompatible block must not make the
+                        # embedded research data inaccessible.
+                        LOG.warning('Failed to restore graph appearance for %s', label,
+                                    exc_info=True)
+                # Generated axes (notably a colorbar) may only exist after the
+                # persisted format has been applied. A second idempotent pass
+                # restores titles/labels edited directly on those live axes.
+                _restore_graph_text(
+                    widget, tab_info.get('graph_text'), preserve_style=True,
+                )
                 annotations = tab_info.get('annotations', '')
                 if annotations and hasattr(widget, 'annotation_manager'):
                     try:

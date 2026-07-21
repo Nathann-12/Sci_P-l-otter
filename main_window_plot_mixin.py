@@ -176,6 +176,11 @@ class MainWindowPlotMixin:
                     logger.debug("categorical tick optimization skipped", exc_info=True)
             try:
                 beautify_axes(ax, title=title or None, x_is_datetime=x_is_datetime)
+                # ``beautify_axes`` uses a left-aligned title.  This workflow
+                # already set the canonical center title above; do not leave a
+                # second identical title on the same graph.
+                if title and ax.get_title(loc="left") == ax.get_title():
+                    ax.set_title("", loc="left")
             except Exception:
                 logger.debug("Failed to beautify axes", exc_info=True)
             # single tight_layout here (once), then one draw — NOT a per-draw

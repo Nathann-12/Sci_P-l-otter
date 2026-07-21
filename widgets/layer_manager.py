@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QTreeWidget,
     QTreeWidgetItem,
+    QAbstractItemView,
     QHBoxLayout,
     QPushButton,
     QInputDialog,
@@ -22,6 +23,7 @@ class LayerManagerWidget(QWidget):
     layerRenameRequested = Signal(str, str)
     layerRemoveRequested = Signal(str)
     layerStyleRequested = Signal(str)
+    layerSelectionChanged = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -36,8 +38,9 @@ class LayerManagerWidget(QWidget):
         self.tree.setHeaderLabels(["Layer", "Type"])
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.tree.itemChanged.connect(self._on_item_changed)
-        self.tree.itemSelectionChanged.connect(self._update_button_state)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
         self.tree.itemDoubleClicked.connect(self._rename_selected)
         root.addWidget(self.tree)
 
@@ -99,18 +102,68 @@ class LayerManagerWidget(QWidget):
             self.tree.takeTopLevelItem(index)
         self._update_button_state()
 
+    def selected_layer_ids(self) -> List[str]:
+        """Return selected layer IDs in their current visual tree order."""
+        selected: List[str] = []
+        for index in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(index)
+            if item is None or not item.isSelected():
+                continue
+            layer_id = item.data(0, Qt.UserRole)
+            if layer_id is not None:
+                selected.append(str(layer_id))
+        return selected
+
+    def select_layer_ids(self, layer_ids, *, clear: bool = True) -> None:
+        """Select logical layers programmatically and emit one coherent change."""
+        wanted = {str(layer_id) for layer_id in (layer_ids or ())}
+        self.tree.blockSignals(True)
+        try:
+            if clear:
+                self.tree.clearSelection()
+            matches = []
+            for index in range(self.tree.topLevelItemCount()):
+                item = self.tree.topLevelItem(index)
+                if item is None:
+                    continue
+                layer_id = str(item.data(0, Qt.UserRole) or "")
+                if layer_id not in wanted:
+                    continue
+                matches.append(item)
+            if matches:
+                # setCurrentItem() may replace the selection; do it before the
+                # explicit multi-select pass, never after it.
+                self.tree.setCurrentItem(matches[0])
+            for item in matches:
+                item.setSelected(True)
+        finally:
+            self.tree.blockSignals(False)
+        self._on_selection_changed()
+
     # --- helpers ----------------------------------------------------
 
     def _current_layer_id(self) -> Optional[str]:
-        items = self.tree.selectedItems()
-        if not items:
+        selected_ids = self.selected_layer_ids()
+        if not selected_ids:
             return None
-        return items[0].data(0, Qt.UserRole)
+
+        current = self.tree.currentItem()
+        if current is not None and current.isSelected():
+            layer_id = current.data(0, Qt.UserRole)
+            if layer_id is not None:
+                return str(layer_id)
+        return selected_ids[0]
 
     def _update_button_state(self) -> None:
-        has_selection = bool(self.tree.selectedItems())
-        for btn in (self.btnRename, self.btnDelete, self.btnStyle):
-            btn.setEnabled(has_selection)
+        count = len(self.selected_layer_ids())
+        self.btnRename.setEnabled(count == 1)
+        self.btnDelete.setEnabled(count >= 1)
+        self.btnStyle.setEnabled(count >= 1)
+
+    def _on_selection_changed(self) -> None:
+        selected_ids = self.selected_layer_ids()
+        self._update_button_state()
+        self.layerSelectionChanged.emit(selected_ids)
 
     # --- slots ------------------------------------------------------
 
@@ -124,6 +177,8 @@ class LayerManagerWidget(QWidget):
         self.layerVisibilityChanged.emit(str(layer_id), visible)
 
     def _rename_selected(self) -> None:
+        if len(self.selected_layer_ids()) != 1:
+            return
         layer_id = self._current_layer_id()
         if not layer_id:
             return
@@ -135,10 +190,10 @@ class LayerManagerWidget(QWidget):
             self.layerRenameRequested.emit(layer_id, text.strip())
 
     def _delete_selected(self) -> None:
-        layer_id = self._current_layer_id()
-        if not layer_id:
-            return
-        self.layerRemoveRequested.emit(layer_id)
+        # Snapshot the IDs before emitting. Receivers commonly remove each
+        # corresponding tree item synchronously, which mutates the selection.
+        for layer_id in self.selected_layer_ids():
+            self.layerRemoveRequested.emit(layer_id)
 
     def _style_selected(self) -> None:
         layer_id = self._current_layer_id()

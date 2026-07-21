@@ -485,12 +485,38 @@ def test_format_action_wired(win):
     assert getattr(tab.canvas, "_plotdetails_bound", False) is True
 
 
-def test_open_plot_details_on_empty_graph_is_polite(win, monkeypatch):
+def test_open_plot_details_supports_empty_graph_axes_controls(win, monkeypatch):
     infos = []
     monkeypatch.setattr(type(win), "inform",
                         lambda self, t, x: infos.append(t), raising=False)
-    win.open_plot_details_dialog()  # no curves yet
-    assert infos  # informed, did not crash
+    win.tabs.add_tab("Blank Graph")
+    dlg = win.open_plot_details_dialog()
+    try:
+        assert dlg is not None
+        assert dlg.cb_line.count() == 0
+        assert dlg.cb_line.isEnabled() is False
+        assert infos == []
+    finally:
+        dlg.reject()
+
+
+@pytest.mark.parametrize("kind", ["scatter", "bar"])
+def test_plot_details_supports_non_line_graphs(win, kind):
+    win.tabs.add_tab(f"{kind.title()} Graph")
+    tab = win.tabs.currentWidget()
+    ax = tab.get_axes()
+    if kind == "scatter":
+        ax.scatter([0, 1, 2], [2, 4, 3], label="points")
+    else:
+        ax.bar([0, 1, 2], [2, 4, 3], label="counts")
+    dlg = win.open_plot_details_dialog()
+    try:
+        assert dlg is not None
+        assert dlg.cb_line.count() == 0
+        dlg.chk_grid.setChecked(False)
+        dlg._on_apply()
+    finally:
+        dlg.reject()
 
 
 def test_plot_details_is_nonmodal_so_the_graph_stays_visible(win):
@@ -511,6 +537,26 @@ def test_plot_details_is_nonmodal_so_the_graph_stays_visible(win):
     finally:
         dlg.reject()
     assert win._plot_details_dlg is None        # ref released on close
+
+
+def test_reopening_plot_details_starts_from_restored_not_live_preview_state(win):
+    _plot_something(win)
+    ax, _fig, _lines = win._active_graph_axes()
+    before = float(ax.title.get_fontsize())
+
+    first = win.open_plot_details_dialog()
+    first.sp_title_size.setValue(round(before + 7.0))
+    first._on_apply()
+    assert ax.title.get_fontsize() == pytest.approx(before + 7.0)
+
+    second = win.open_plot_details_dialog()
+    try:
+        assert first.isVisible() is False
+        assert ax.title.get_fontsize() == pytest.approx(before)
+        assert second.sp_title_size.value() == round(before)
+    finally:
+        second.reject()
+    assert ax.title.get_fontsize() == pytest.approx(before)
 
 
 def test_plot_details_preset_live_previews_and_cancel_reverts(win):
@@ -536,6 +582,28 @@ def test_plot_details_preset_live_previews_and_cancel_reverts(win):
     applied = label_size()
     dlg2.accept()
     assert label_size() == applied and applied != before   # OK kept it
+
+
+def test_plot_details_live_preview_commits_as_one_undo_step(win):
+    _plot_something(win)
+    tab = win.tabs.currentWidget()
+    ax = tab.get_axes()
+    tab.graph_undo_stack.clear()
+    before_size = float(ax.title.get_fontsize())
+
+    dlg = win.open_plot_details_dialog()
+    dlg.sp_title_size.setValue(round(before_size + 5.0))
+    dlg._on_apply()
+    assert ax.title.get_fontsize() == pytest.approx(before_size + 5.0)
+    assert tab.graph_undo_stack.count() == 0  # previews are not history spam
+    dlg.accept()
+
+    assert tab.graph_undo_stack.count() == 1
+    assert tab.graph_undo_stack.undoText() == "Format graph"
+    tab.graph_undo_stack.undo()
+    assert ax.title.get_fontsize() == pytest.approx(before_size)
+    tab.graph_undo_stack.redo()
+    assert ax.title.get_fontsize() == pytest.approx(before_size + 5.0)
 
 
 def test_scale_tab_and_formula_roundtrip(qapp):
@@ -581,6 +649,29 @@ def test_scale_tab_and_formula_roundtrip(qapp):
     assert ticks == [0.25, 0.75, 1.25, 1.75]
     plt.close(fig)
     dlg.close()
+
+
+def test_plot_details_search_finds_controls_without_applying_style(qapp):
+    dlg = PlotDetailsDialog(_min_style(), _one_line())
+    try:
+        applied = []
+        dlg.applied.connect(lambda: applied.append(True))
+        dlg.ed_search.setText("legend")
+        visible = [
+            dlg._tabs.tabText(index)
+            for index in range(dlg._tabs.count())
+            if dlg._tabs.isTabVisible(index)
+        ]
+        assert "Grid && Legend" in visible
+        assert "Scale" not in visible
+        assert dlg.lbl_search.text()
+        assert applied == []
+
+        dlg.ed_search.clear()
+        assert all(dlg._tabs.isTabVisible(index)
+                   for index in range(dlg._tabs.count()))
+    finally:
+        dlg.close()
 
 
 # ---------------- decoration stability (diff-apply contract) ----------------

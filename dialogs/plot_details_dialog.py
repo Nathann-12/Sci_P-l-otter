@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -80,6 +80,14 @@ class PlotDetailsDialog(QDialog):
         self._template_names = list(template_names or [])
 
         outer = QVBoxLayout(self)
+        search_row = QHBoxLayout()
+        self.ed_search = QLineEdit(self)
+        self.ed_search.setPlaceholderText("Search settings…  (Ctrl+F)")
+        self.ed_search.setClearButtonEnabled(True)
+        self.lbl_search = QLabel("", self)
+        search_row.addWidget(self.ed_search, 1)
+        search_row.addWidget(self.lbl_search)
+        outer.addLayout(search_row)
         tabs = QTabWidget(self)
         tabs.addTab(_scrolled(self._build_axes_tab(style.get("axes", {}))), "Axes")
         tabs.addTab(_scrolled(self._build_scale_tab(style.get("axes", {}))), "Scale")
@@ -115,6 +123,10 @@ class PlotDetailsDialog(QDialog):
         tabs.addTab(self._build_preset_tab(), "Presets && Templates")
         self._tabs = tabs
         outer.addWidget(tabs)
+        self._build_search_index()
+        self.ed_search.textChanged.connect(self._filter_setting_tabs)
+        self._search_shortcut = QShortcut(QKeySequence.Find, self)
+        self._search_shortcut.activated.connect(self.ed_search.setFocus)
 
         # Live preview: edits redraw the graph instantly, no button needed.
         # A short debounce coalesces rapid changes (spin scroll, typing) into
@@ -162,6 +174,8 @@ class PlotDetailsDialog(QDialog):
         updates set ``_loading`` to suppress feedback loops.
         """
         for w in self.findChildren(QLineEdit):
+            if w is self.ed_search:
+                continue
             w.textChanged.connect(self._schedule_live)
         for w in self.findChildren(QSpinBox):
             w.valueChanged.connect(self._schedule_live)
@@ -184,6 +198,40 @@ class PlotDetailsDialog(QDialog):
             w.currentIndexChanged.connect(self._schedule_live)
         for w in self.findChildren(ColorButton):
             w.colorChanged.connect(self._schedule_live)
+
+    def _build_search_index(self) -> None:
+        """Index visible control text so the deep dialog stays discoverable."""
+        from PySide6.QtWidgets import QAbstractButton
+
+        self._setting_search_index = []
+        for index in range(self._tabs.count()):
+            page = self._tabs.widget(index)
+            words = [self._tabs.tabText(index)]
+            for cls in (QLabel, QGroupBox, QAbstractButton):
+                for widget in page.findChildren(cls):
+                    getter = getattr(widget, "text", None)
+                    if callable(getter):
+                        words.append(str(getter()))
+                    else:
+                        words.append(str(getattr(widget, "title", lambda: "")()))
+            for combo in page.findChildren(QComboBox):
+                words.extend(combo.itemText(i) for i in range(combo.count()))
+            self._setting_search_index.append(" ".join(words).casefold())
+
+    def _filter_setting_tabs(self, value: str) -> None:
+        query = str(value or "").strip().casefold()
+        visible = []
+        for index, haystack in enumerate(self._setting_search_index):
+            match = not query or all(token in haystack for token in query.split())
+            visible.append(match)
+            try:
+                self._tabs.setTabVisible(index, match)
+            except AttributeError:
+                self._tabs.setTabEnabled(index, match)
+        matches = sum(visible)
+        self.lbl_search.setText("" if not query else f"{matches} tab{'s' if matches != 1 else ''}")
+        if matches and not visible[self._tabs.currentIndex()]:
+            self._tabs.setCurrentIndex(visible.index(True))
 
     def _schedule_live(self, *_args) -> None:
         if self._loading or not self.chk_live.isChecked():
@@ -805,6 +853,8 @@ class PlotDetailsDialog(QDialog):
             self.sp_legborderpad.setValue(float(leg["borderpad"]))
         if "handlelength" in leg:
             self.sp_leghandlelen.setValue(float(leg["handlelength"]))
+        if "draggable" in leg:
+            self.chk_legdraggable.setChecked(bool(leg["draggable"]))
 
         f = style.get("figure", {})
         if "facecolor" in f:
@@ -905,6 +955,8 @@ class PlotDetailsDialog(QDialog):
         self.chk_legshadow.setChecked(bool(leg.get("shadow", False)))
         self.chk_leground = QCheckBox("Rounded corners")
         self.chk_leground.setChecked(bool(leg.get("fancybox", True)))
+        self.chk_legdraggable = QCheckBox("Drag directly on graph")
+        self.chk_legdraggable.setChecked(bool(leg.get("draggable", True)))
         self.ed_legtitle = QLineEdit(str(leg.get("title", "")))
         self.sp_legtitlesize = _dspin(leg.get("title_size", 10.0), 4.0, 40.0, decimals=1, step=1.0)
         self.sp_legcolspacing = _dspin(leg.get("columnspacing", 2.0), 0.0, 10.0, decimals=2, step=0.25)
@@ -924,6 +976,7 @@ class PlotDetailsDialog(QDialog):
         lf.addRow("Opacity", self.sp_legalpha)
         lf.addRow("", self.chk_legshadow)
         lf.addRow("", self.chk_leground)
+        lf.addRow("", self.chk_legdraggable)
         lf.addRow("Column spacing", self.sp_legcolspacing)
         lf.addRow("Label spacing", self.sp_leglabelspacing)
         lf.addRow("Marker scale", self.sp_legmarkerscale)
@@ -1306,6 +1359,7 @@ class PlotDetailsDialog(QDialog):
                 "markerscale": self.sp_legmarkerscale.value(),
                 "borderpad": self.sp_legborderpad.value(),
                 "handlelength": self.sp_leghandlelen.value(),
+                "draggable": self.chk_legdraggable.isChecked(),
             },
             "figure": {
                 "facecolor": self.btn_axesbg.color().name(),
