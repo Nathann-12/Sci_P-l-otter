@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -58,7 +59,7 @@ class ReportBuilderDialog(QDialog):
         self.lst_tables = QListWidget()
         for name in table_names:
             item = QListWidgetItem(name)
-            item.setCheckState(2)  # Qt.Checked
+            item.setCheckState(Qt.Checked)
             self.lst_tables.addItem(item)
         self.lst_tables.setMaximumHeight(150)
         gv.addWidget(self.lst_tables)
@@ -81,7 +82,7 @@ class ReportBuilderDialog(QDialog):
         table_names = [
             self.lst_tables.item(i).text()
             for i in range(self.lst_tables.count())
-            if self.lst_tables.item(i).checkState() == 2
+            if self.lst_tables.item(i).checkState() == Qt.Checked
         ]
         return {
             "title": self.ed_title.text().strip() or "SciPlotter Report",

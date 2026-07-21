@@ -54,6 +54,25 @@ def _menu(win, title):
     return None
 
 
+def test_report_builder_dialog_opens_and_collects_checked_tables(qapp):
+    """Regression: ReportBuilderDialog crashed on open (setCheckState(2)) and,
+    once open, silently returned no tables (checkState() == 2 is False under
+    PySide6 strict enums). Both must work."""
+    from dialogs.report_builder_dialog import ReportBuilderDialog
+
+    dlg = ReportBuilderDialog(["Table A", "Table B", "Result"], ["Graph 1"],
+                              default_title="QA")
+    assert dlg.lst_tables.count() == 3
+    values = dlg.values()
+    # every table starts checked and must round-trip through values()
+    assert values["table_names"] == ["Table A", "Table B", "Result"]
+    assert values["title"] == "QA" and values["include_graphs"] is True
+    # unchecking one drops it from the collection
+    from PySide6.QtCore import Qt
+    dlg.lst_tables.item(1).setCheckState(Qt.Unchecked)
+    assert dlg.values()["table_names"] == ["Table A", "Result"]
+
+
 def test_report_menu_exists_with_actions(window):
     menu = _menu(window, "Report")
     assert menu is not None
