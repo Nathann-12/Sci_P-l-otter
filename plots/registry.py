@@ -26,6 +26,7 @@ _MODULES = (
     "plots.qc_plots",
     "plots.surface_plots",
     "plots.multicolumn_plots",
+    "plots.colormap_plots",
     "plots.polar_plots",
     "plots.frequency_plots",
     "plots.three_d_plots",
