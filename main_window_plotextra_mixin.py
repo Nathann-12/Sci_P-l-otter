@@ -13,6 +13,7 @@ from core.plot_extras import (
     draw_broken_axis,
     draw_error_bars,
     draw_fill_between,
+    reserve_layer_margins,
 )
 from processors import beautify_axes
 
@@ -152,6 +153,7 @@ class MainWindowPlotExtraMixin:
                 )
             except Exception:
                 logger.debug("secondary-axis layer registration skipped", exc_info=True)
+            reserve_layer_margins(self.tabs.currentWidget().get_figure())
             self.tabs.currentWidget().draw()
             self.notify(f"Added right-axis: {res['y2']}")
         except Exception as e:
@@ -199,6 +201,7 @@ class MainWindowPlotExtraMixin:
                 )
             except Exception:
                 logger.debug("y-axis-layer registration skipped", exc_info=True)
+            reserve_layer_margins(self.tabs.currentWidget().get_figure())
             self.tabs.currentWidget().draw()
             self.notify(f"Added Y-axis layer: {res['y']}")
         except Exception as e:

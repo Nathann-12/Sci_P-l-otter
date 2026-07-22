@@ -10,6 +10,35 @@ from typing import Any, Optional, Tuple
 import numpy as np
 
 
+def _default_cycle_colors() -> list:
+    try:
+        import matplotlib as mpl
+        colors = list(mpl.rcParams["axes.prop_cycle"].by_key().get("color", []))
+        return colors or ["C1", "C2", "C3", "C4", "C5"]
+    except Exception:
+        return ["C1", "C2", "C3", "C4", "C5"]
+
+
+def _auto_layer_color(base_ax) -> str:
+    """Pick the next prop-cycle colour so a twin-axis layer differs from every
+    curve already in the figure. Each ``twinx()`` axis has its own fresh colour
+    cycle that restarts at C0, so without this every layer would draw in the
+    same blue — this makes multi-axis figures colour like a single axes would.
+    """
+    colors = _default_cycle_colors()
+    if not colors:
+        return "C1"
+    fig = getattr(base_ax, "figure", None)
+    n = 0
+    if fig is not None:
+        for a in fig.axes:
+            try:
+                n += len(a.get_lines())
+            except Exception:
+                continue
+    return colors[n % len(colors)]
+
+
 def _clean(*arrays) -> Tuple[np.ndarray, ...]:
     arrs = [np.asarray(a, dtype=float).ravel() for a in arrays]
     n = min(a.size for a in arrs)
@@ -52,11 +81,12 @@ def add_secondary_y(ax, x, y, label: Optional[str] = None,
     """
     x_, y_ = _clean(x, y)
     ax2 = ax.twinx()
-    (line,) = ax2.plot(x_, y_, label=label, color=color)
-    c = color or line.get_color()
+    c = color or _auto_layer_color(ax)
+    (line,) = ax2.plot(x_, y_, label=label, color=c)
     if ylabel:
         ax2.set_ylabel(ylabel, color=c)
     ax2.tick_params(axis="y", colors=c)
+    ax2.spines["right"].set_edgecolor(c)
     return ax2, line
 
 
@@ -85,6 +115,28 @@ def count_extra_y_axes(ax) -> int:
     return n
 
 
+def reserve_layer_margins(fig) -> None:
+    """Shrink the figure's right margin so twin-Y layers (whose spines are pushed
+    outward past the axes) and their colour-matched labels aren't clipped off the
+    right edge. Deterministic ``subplots_adjust`` — avoids the ``tight_layout``
+    "Axes not compatible" warning that twinned axes emit on a live canvas.
+    """
+    axes = getattr(fig, "axes", None)
+    if not axes:
+        return
+    base = axes[0]
+    n_extra = count_extra_y_axes(base)
+    if n_extra <= 0:
+        return
+    # innermost right axis needs ~0.12; each additional pushed-out axis ~0.14 more
+    right = 1.0 - 0.12 - 0.14 * max(0, n_extra - 1)
+    right = max(0.55, min(0.9, right))
+    try:
+        fig.subplots_adjust(right=right)
+    except Exception:
+        pass
+
+
 def add_y_axis_layer(ax, x, y, *, index: int = 0, label: Optional[str] = None,
                      color: Optional[str] = None, ylabel: str = "",
                      linestyle: str = "-", marker: Optional[str] = None) -> Tuple[Any, Any]:
@@ -94,6 +146,7 @@ def add_y_axis_layer(ax, x, y, *, index: int = 0, label: Optional[str] = None,
     to the curve. Returns ``(ax2, line)``.
     """
     x_, y_ = _clean(x, y)
+    c = color or _auto_layer_color(ax)
     ax2 = ax.twinx()
     if index >= 1:
         # push this axis' spine outward so it doesn't sit on top of the first
@@ -102,9 +155,8 @@ def add_y_axis_layer(ax, x, y, *, index: int = 0, label: Optional[str] = None,
         ax2.patch.set_visible(False)  # let the base axes show through
         for side, spine in ax2.spines.items():
             spine.set_visible(side == "right")
-    (line,) = ax2.plot(x_, y_, label=label, color=color,
+    (line,) = ax2.plot(x_, y_, label=label, color=c,
                        linestyle=linestyle, marker=marker or None)
-    c = color or line.get_color()
     if ylabel:
         ax2.set_ylabel(ylabel, color=c)
     ax2.tick_params(axis="y", colors=c)

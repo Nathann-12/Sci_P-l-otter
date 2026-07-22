@@ -92,6 +92,38 @@ def test_add_y_axis_layer_stacks_offset_colored_axes():
     plt.close(fig)
 
 
+def test_add_y_axis_layer_auto_colours_differ_from_base():
+    """Without an explicit colour each layer must pick a *distinct* colour — a
+    fresh twinx() cycle otherwise restarts at C0 and every layer draws in the
+    same blue (regression: live multi-axis was all-blue + all-blue axes)."""
+    from core.plot_extras import add_y_axis_layer
+
+    fig, ax = plt.subplots()
+    (base_line,) = ax.plot([0, 1, 2], [1, 2, 3])          # base = C0
+    ax2, l2 = add_y_axis_layer(ax, [0, 1, 2], [10, 20, 30], index=0, ylabel="B")  # no colour
+    ax3, l3 = add_y_axis_layer(ax, [0, 1, 2], [5, 4, 3], index=1, ylabel="C")     # no colour
+
+    colours = {base_line.get_color(), l2.get_color(), l3.get_color()}
+    assert len(colours) == 3                               # no all-blue collapse
+    # the colour-matched axis/ticks follow the curve colour
+    assert ax2.yaxis.get_label().get_color() == l2.get_color()
+    assert ax3.yaxis.get_label().get_color() == l3.get_color()
+    plt.close(fig)
+
+
+def test_reserve_layer_margins_shrinks_right_edge():
+    from core.plot_extras import add_y_axis_layer, reserve_layer_margins
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1, 2], [1, 2, 3])
+    add_y_axis_layer(ax, [0, 1, 2], [10, 20, 30], index=0)
+    add_y_axis_layer(ax, [0, 1, 2], [100, 400, 900], index=1)
+    reserve_layer_margins(fig)
+    # room reserved for the pushed-out spine + its colour-matched label
+    assert fig.subplotpars.right < 0.85
+    plt.close(fig)
+
+
 def test_draw_broken_y_axis_splits_line_plot():
     fig, ax = plt.subplots()
     ax.plot([0, 1, 2, 3], [1, 2, 50, 60], label="signal")
@@ -210,9 +242,15 @@ def test_plot_y_axis_layer_stacks_on_current_graph(win):
     win.plot_y_axis_layer()
     win.plot_y_axis_layer()
 
+    fig = win.tabs.currentWidget().get_figure()
     assert win.tabs.count() == n                       # no new graph
     assert count_extra_y_axes(base) == 2               # two stacked layers
-    assert len(win.tabs.currentWidget().get_figure().axes) >= 3
+    assert len(fig.axes) >= 3
+    # right margin reserved so the pushed-out spine/label isn't clipped
+    assert fig.subplotpars.right < 0.85
+    # each layer draws in a distinct colour (not all C0 blue)
+    line_colours = [a.get_lines()[0].get_color() for a in fig.axes if a.get_lines()]
+    assert len(set(line_colours)) == len(line_colours)
 
 
 def test_plot_y_axis_layer_needs_a_primary_curve(win):
